@@ -1520,7 +1520,7 @@ public:
 			if( !Self->IsA(AActor::StaticClass()) || Self->FindFunction(Name)!=Function )
 				return;
 			AActor* Spell = (AActor*)ParmObj( Function, Locals, 0 );
-			if( !Spell || !Harry || Spell->Owner!=Harry )
+			if( !Spell || !Harry || !IsHarrysSpell(Spell,Harry) )
 				return; // re-dispatches and other casters pass a None or foreign spell
 			OnHarrySpellHit( (AActor*)Self, Name, Spell );
 			return;
@@ -1706,10 +1706,10 @@ public:
 		if( !Self->IsA(AActor::StaticClass()) || !IsStudent((AActor*)Self) )
 			return;
 		AActor* Spell = (AActor*)ParmObj( Function, Locals, 0 );
-		AActor* Caster = Spell ? Spell->Owner : NULL;
-		if( !Caster || !Caster->IsA(APlayerPawn::StaticClass()) )
+		APlayerPawn* Harry = CurrentHarry();
+		if( !Spell || !Harry || !IsHarrysSpell(Spell,Harry) )
 			return;
-		LaunchStudent( (APlayerPawn*)Caster, (AActor*)Self );
+		LaunchStudent( Harry, (AActor*)Self );
 	}
 
 	// Students are not reliably touched by spell projectiles, so watch Harry's
@@ -1733,6 +1733,12 @@ public:
 		RpgLog( TEXT("launched student %s"), Student->GetName() );
 	}
 
+	// Spells are owned by the wand (or Harry), depending on how they were cast.
+	static UBOOL IsHarrysSpell( AActor* Spell, APlayerPawn* Harry )
+	{
+		return Spell->Owner==Harry || (Spell->Owner && Spell->Owner->Owner==Harry) || Spell->Instigator==Harry;
+	}
+
 	void PollSpellHits( UGameEngine* Engine, APlayerPawn* Harry )
 	{
 		static UClass* Flipendo = NULL;
@@ -1744,8 +1750,25 @@ public:
 		for( INT i=0; i<Level->Actors.Num(); i++ )
 		{
 			AActor* Spell = Level->Actors(i);
-			if( !Spell || Spell->bDeleteMe || Spell->Owner!=Harry || !Spell->IsA(Flipendo) )
+			if( !Spell || Spell->bDeleteMe || !Spell->IsA(Flipendo) || !IsHarrysSpell(Spell,Harry) )
 				continue;
+			if( !TestAndSet(Spell,AF_Talked) )
+			{
+				// Diagnostics: first sighting of each Flipendo.
+				FLOAT Best = 1e9f;
+				AActor* BestStudent = NULL;
+				for( INT j=0; j<Level->Actors.Num(); j++ )
+				{
+					AActor* Other = Level->Actors(j);
+					if( Other && !Other->bDeleteMe && IsStudent(Other) )
+					{
+						const FLOAT D = (Other->Location-Spell->Location).Size();
+						if( D<Best ) { Best = D; BestStudent = Other; }
+					}
+				}
+				RpgLog( TEXT("flipendo %s owner=%s nearest student %s at %i"), Spell->GetName(),
+					Spell->Owner ? Spell->Owner->GetName() : TEXT("None"), BestStudent ? BestStudent->GetName() : TEXT("none"), appRound(Best) );
+			}
 			for( INT j=0; j<Level->Actors.Num(); j++ )
 			{
 				AActor* Other = Level->Actors(j);
