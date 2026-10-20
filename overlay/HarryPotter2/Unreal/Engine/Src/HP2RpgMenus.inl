@@ -32,7 +32,10 @@
 			Info->Pauser = TEXT("HP2Rpg");
 			bWePaused = 1;
 		}
-		Ui.SetMenuMouse( MainViewport(Engine), 1 );
+		UViewport* Viewport = MainViewport( Engine );
+		Ui.SetMenuMouse( Viewport, 1 );
+		if( Viewport && Viewport->Input )
+			Viewport->Input->ResetInput();
 		Ui.Play( RSND_Open, CurrentHarry() );
 	}
 
@@ -47,7 +50,10 @@
 				Info->Pauser = TEXT("");
 		}
 		bWePaused = 0;
-		Ui.SetMenuMouse( MainViewport(Engine), 0 );
+		UViewport* Viewport = MainViewport( Engine );
+		Ui.SetMenuMouse( Viewport, 0 );
+		if( Viewport && Viewport->Input )
+			Viewport->Input->ResetInput();
 		APlayerPawn* Harry = CurrentHarry();
 		if( Harry )
 			ApplyLook( State.Equip[RSLOT_Outfit], State.Equip[RSLOT_Glasses] );
@@ -176,6 +182,13 @@
 
 	UBOOL GiveRandomCard( UObject* Status, UBOOL bSilver )
 	{
+		// IsOwnedByHarry lives on the wizard card status item, not the manager.
+		UClass* Group = FindClass( TEXT("StatusGroupWizardCards") );
+		UClass* ItemClass = FindClass( TEXT("StatusItemBronzeCards") );
+		FRpgArg GetArgs[2] = { FRpgArg::O(Group), FRpgArg::O(ItemClass) };
+		FRpgArg CardItem;
+		if( !Group || !ItemClass || !CallScript( Status, TEXT("GetStatusItem"), GetArgs, 2, &CardItem ) || !CardItem.Obj )
+			return 0;
 		static const INT Bronze[] = { 1,2,4,5,6,7,9,10,12,18,19,21,24,25,26,28,29,31,32,33,37,44,46,47,49,50,51,53,57,58,61,63,64,66,67,75,76,77,78,80,81,83,84,86,88,91,93,94,95,96 };
 		static const INT Gold[] = { 11,15,40,41,48,69,72,74,82,100,101 };
 		INT Candidates[128];
@@ -189,7 +202,7 @@
 				continue;
 			FRpgArg Arg = FRpgArg::I( Id );
 			FRpgArg Ret;
-			if( !CallScript( Status, TEXT("IsOwnedByHarry"), &Arg, 1, &Ret ) )
+			if( !CallScript( CardItem.Obj, TEXT("IsOwnedByHarry"), &Arg, 1, &Ret ) )
 				return 0;
 			if( !Ret.Int )
 				Candidates[Num++] = Id;
@@ -320,9 +333,23 @@
 		3D previews.
 	-------------------------------------------------------------------------*/
 
+	// Points A at a mesh, resetting animation state when the mesh changes so
+	// it uses that mesh's own default animation.
+	void SetPreviewMesh( AActor* A, UMesh* Mesh )
+	{
+		if( A->Mesh==Mesh )
+			return;
+		A->Mesh = Mesh;
+		A->SkelAnim = NULL;
+		A->AnimSequence = NAME_None;
+		A->AnimFrame = 0.f;
+		for( INT i=0; i<8; i++ )
+			A->MultiSkins[i] = NULL;
+	}
+
 	AActor* EnsurePreview( UGameEngine* Engine, AActor*& A )
 	{
-		if( A && (A->bDeleteMe || A->XLevel!=Engine->GLevel) )
+		if( A && !IsInLevel(A) )
 			A = NULL;
 		if( !A )
 		{
@@ -390,7 +417,7 @@
 			UMesh* Mesh = LoadMesh( GCosmetics[Hat].Mesh );
 			if( Mesh )
 			{
-				Attach->Mesh = Mesh;
+				SetPreviewMesh( Attach, Mesh );
 				if( PlaceHat(Body,Attach,GCosmetics[Hat],NULL) )
 					Ui.DrawActorInRect( Attach, R, Fov );
 			}
@@ -400,7 +427,7 @@
 			UMesh* Mesh = LoadMesh( GCosmetics[Pet].Mesh );
 			if( Mesh )
 			{
-				Item->Mesh = Mesh;
+				SetPreviewMesh( Item, Mesh );
 				Item->DrawScale = GCosmetics[Pet].Scale;
 				if( PlacePet(Body,Item,GCosmetics[Pet],NULL) )
 					Ui.DrawActorInRect( Item, R, Fov );
@@ -414,12 +441,8 @@
 		UMesh* Mesh = LoadMesh( MeshPath );
 		if( !Item || !Mesh )
 			return;
-		Item->Mesh = Mesh;
+		SetPreviewMesh( Item, Mesh );
 		Item->DrawScale = Scale;
-		for( INT i=0; i<8; i++ )
-			Item->MultiSkins[i] = NULL;
-		Item->SkelAnim = NULL;
-		Item->AnimSequence = NAME_None;
 		FRpgUi::PlaceForPreview( Item, 30.f, Yaw, 1.f );
 		Ui.DrawActorInRect( Item, R, 30.f );
 	}
@@ -564,7 +587,7 @@
 		if( State.FelixSeconds>0 )
 			Ui.Text( Ui.FontSmall, C->ClipX*0.5f, LineY, FColor(255,220,120,255), *FString::Printf(TEXT("Felix Felicis %i:%02i"), State.FelixSeconds/60, State.FelixSeconds%60), RALIGN_Center );
 
-		if( bGameplay && NearNpc && !NearNpc->bDeleteMe )
+		if( bGameplay && NearNpc && IsInLevel(NearNpc) )
 		{
 			FString Prompt = NpcName( NearNpc ) + TEXT("    [E] Talk");
 			if( NearVendor>=0 )
@@ -678,7 +701,9 @@
 		// Left: the vendor in 3D, their name and what they say.
 		const FRpgRect Stage( Left.X, Left.Y, Left.W, Left.H*0.66f );
 		Ui.Rect( Stage, FColor(14,18,46,255) );
-		if( ShopVendor && !ShopVendor->bDeleteMe )
+		if( ShopVendor && !IsInLevel(ShopVendor) )
+			ShopVendor = NULL;
+		if( ShopVendor )
 			DrawNpcPreview( Engine, Stage, ShopVendor, PreviewYaw*0.15f );
 		FLOAT Y = Stage.Y + Stage.H + 6*S;
 		const FString VendorName = ShopVendorDef>=VEN_StudentGryffindor && ShopVendor ? NpcName(ShopVendor) : FString(V.Name);
@@ -709,7 +734,11 @@
 					break;
 				}
 		if( !NumTabs )
+		{
+			if( Ui.Button( FRpgRect(Right.X+Right.W-110*S, Right.Y+Right.H-28*S, 110*S, 24*S), TEXT("Close"), 1, &Offers ) )
+				CloseMenu( Engine );
 			return;
+		}
 		UBOOL bTabValid = 0;
 		for( INT i=0; i<NumTabs; i++ )
 			if( TabIds[i]==ShopTab )
@@ -1260,13 +1289,13 @@
 			}
 			if( Key==IK_B && IsFreeGameplay(Engine,Harry) )
 			{
-				if( NearNpc && NearVendor>=0 )
+				if( NearNpc && NearVendor>=0 && IsInLevel(NearNpc) )
 					OpenShop( Engine, NearNpc, NearVendor );
 				else
 					AddFeed( TEXT("Find a vendor to trade with: look for [B] Trade."), FColor(220,220,220,255) );
 				return 1;
 			}
-			if( Key==IK_E && NearNpc && IsFreeGameplay(Engine,Harry) )
+			if( Key==IK_E && NearNpc && IsInLevel(NearNpc) && IsFreeGameplay(Engine,Harry) )
 			{
 				TalkTo( Harry, NearNpc );
 				return 1;

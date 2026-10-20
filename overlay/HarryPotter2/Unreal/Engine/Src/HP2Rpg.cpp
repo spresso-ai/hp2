@@ -128,7 +128,7 @@ static UBOOL NameMatchesFilter( const TCHAR* Name, const TCHAR* Filter )
 		if( *P=='|' || *P==0 )
 		{
 			Token[N] = 0;
-			if( N && appStrfind(Name,Token) )
+			if( N && appStrstr(Name,Token) )
 				return 1;
 			N = 0;
 			if( *P==0 )
@@ -252,6 +252,12 @@ static FName ParmName( UFunction* F, BYTE* Locals, INT Index )
 	return P ? *(FName*)(Locals + P->Offset) : NAME_None;
 }
 
+static UProperty* ParmByName( UFunction* F, const TCHAR* Name )
+{
+	UProperty* P = FindField<UProperty>( F, Name );
+	return P && (P->PropertyFlags & CPF_Parm) ? P : NULL;
+}
+
 static const FString* ParmStr( UFunction* F, BYTE* Locals, INT Index )
 {
 	UStrProperty* P = Cast<UStrProperty>( FindParm(F,Index) );
@@ -307,8 +313,8 @@ static UBOOL CallScript( UObject* Obj, const TCHAR* FuncName, const FRpgArg* Arg
 	if( Name==NAME_None )
 		return 0;
 	UFunction* Function = Obj->FindFunction( Name );
-	if( !Function )
-		return 0;
+	if( !Function || Function->iNative )
+		return 0; // ProcessEvent silently ignores final native functions
 
 	BYTE Parms[512];
 	if( Function->ParmsSize > sizeof(Parms) )
@@ -440,6 +446,7 @@ struct FRpgDeferred
 struct FActorFlags
 {
 	AActor* Actor;
+	FName Name;
 	INT Flags;
 };
 
@@ -500,6 +507,9 @@ public:
 	ULevel* LastLevel;
 	APlayerPawn* LastHarry;
 	UBOOL bLoadedFromSlot;
+	UBOOL bLevelTransition;
+	FLOAT LastDayClock;
+	INT HealthTargetTried;
 	INT LevelSerial;
 	FLOAT RpgClock;
 	FLOAT SecondTimer;
@@ -614,6 +624,7 @@ public:
 		if( GConfig->GetInt( TEXT("HP2Rpg"), TEXT("BeanMultiplier"), ConfigMultiplier ) )
 			BeanMultiplier = Clamp( ConfigMultiplier, 1, 5 );
 		State.Reset();
+		Sanitize();
 		for( INT i=0; i<4; i++ )
 			AppliedPalette[i] = -1;
 		for( INT i=0; i<RSLOT_MAX; i++ )
@@ -699,11 +710,20 @@ public:
 
 	INT& FlagsFor( AActor* Actor )
 	{
+		// Freed actors' addresses get reused, so match the object name too.
+		const FName Name = Actor->GetFName();
 		for( INT i=0; i<ActorFlags.Num(); i++ )
 			if( ActorFlags(i).Actor==Actor )
+			{
+				if( ActorFlags(i).Name==Name )
+					return ActorFlags(i).Flags;
+				ActorFlags(i).Name = Name;
+				ActorFlags(i).Flags = 0;
 				return ActorFlags(i).Flags;
+			}
 		FActorFlags* Entry = new(ActorFlags) FActorFlags;
 		Entry->Actor = Actor;
+		Entry->Name = Name;
 		Entry->Flags = 0;
 		return Entry->Flags;
 	}
@@ -835,6 +855,14 @@ public:
 		State.Trouble = Clamp( State.Trouble, 0, 100 );
 		for( INT i=0; i<SKILL_MAX; i++ )
 			State.Skill[i] = Clamp( State.Skill[i], 0, (INT)SKILL_MAX_PIPS );
+		for( INT i=0; i<MAX_TROPHIES; i++ )
+			State.TrophyTier[i] = Clamp( State.TrophyTier[i], 0, 3 );
+		for( INT i=0; i<CR_MAX; i++ )
+			State.Kills[i] = Max( State.Kills[i], 0 );
+		for( INT i=0; i<CNT_MAX; i++ )
+			State.Counters[i] = Max( State.Counters[i], 0 );
+		State.DetentionSeconds = Clamp( State.DetentionSeconds, 0, 3600 );
+		State.FelixSeconds = Clamp( State.FelixSeconds, 0, 3600 );
 		for( INT s=0; s<RSLOT_MAX; s++ )
 		{
 			const INT Id = State.Equip[s];
@@ -1270,6 +1298,18 @@ public:
 		D->Location = Target->Location;
 	}
 
+	// Safe membership test: destroyed actors can be freed mid-level, so never
+	// read fields of a cached actor pointer before this says it is live.
+	UBOOL IsInLevel( AActor* Actor )
+	{
+		if( !Actor || !LastLevel )
+			return 0;
+		for( INT i=0; i<LastLevel->Actors.Num(); i++ )
+			if( LastLevel->Actors(i)==Actor )
+				return !Actor->bDeleteMe;
+		return 0;
+	}
+
 	UBOOL IsLiveActor( UGameEngine* Engine, AActor* Actor )
 	{
 		if( !Actor )
@@ -1300,9 +1340,7 @@ public:
 					if( Bean )
 					{
 						Bean->Velocity = FVector( RpgRand(160)-80.f, RpgRand(160)-80.f, 180.f + RpgRand(80) );
-						FRpgArg Phys = FRpgArg::I( PHYS_Falling );
-						if( !CallScript( Bean, TEXT("SetPhysics"), &Phys, 1 ) )
-							Bean->Physics = PHYS_Falling;
+						Bean->setPhysics( PHYS_Falling );
 					}
 				}
 			}
@@ -1327,15 +1365,15 @@ public:
 	{
 		// Cutscene casts wait in a "PeopleRm" group; they never trade.
 		const TCHAR* G = *Actor->Group;
-		return appStrfind(G,TEXT("PeopleRm")) || appStrfind(G,TEXT("peoplerm")) || appStrfind(G,TEXT("PEOPLERM"));
+		return appStrstr(G,TEXT("PeopleRm")) || appStrstr(G,TEXT("peoplerm")) || appStrstr(G,TEXT("PeopleRM"));
 	}
 
 	INT StudentHouse( AActor* Actor )
 	{
 		const TCHAR* N = Actor->GetClass()->GetName();
-		if( appStrfind(N,TEXT("Sly")) ) return HOUSE_Slytherin;
-		if( appStrfind(N,TEXT("Rav")) ) return HOUSE_Ravenclaw;
-		if( appStrfind(N,TEXT("Huf")) ) return HOUSE_Hufflepuff;
+		if( appStrstr(N,TEXT("Sly")) ) return HOUSE_Slytherin;
+		if( appStrstr(N,TEXT("Rav")) ) return HOUSE_Ravenclaw;
+		if( appStrstr(N,TEXT("Huf")) ) return HOUSE_Hufflepuff;
 		return HOUSE_Gryffindor;
 	}
 
@@ -1403,7 +1441,7 @@ public:
 
 	void OnScriptCall( UObject* Self, UFunction* Function, BYTE* Locals, UObject* Caller )
 	{
-		if( !bEnabled )
+		if( !bEnabled || bLevelTransition )
 			return;
 		APlayerPawn* Harry = CurrentHarry();
 		const FName Name = Function->GetFName();
@@ -1489,9 +1527,12 @@ public:
 		}
 		if( Name==N_ChallengeScores )
 		{
-			const FString* Url = ParmStr( Function, Locals, 0 );
-			INT* High = ParmIntPtr( Function, Locals, 1 );
-			INT* MaxScore = ParmIntPtr( Function, Locals, 2 );
+			UStrProperty* UrlP = Cast<UStrProperty>( ParmByName(Function,TEXT("strLevelURL")) );
+			UIntProperty* HighP = Cast<UIntProperty>( ParmByName(Function,TEXT("nHighScore")) );
+			UIntProperty* MaxP = Cast<UIntProperty>( ParmByName(Function,TEXT("nMaxScore")) );
+			const FString* Url = UrlP ? (const FString*)(Locals + UrlP->Offset) : NULL;
+			INT* High = HighP ? (INT*)(Locals + HighP->Offset) : NULL;
+			INT* MaxScore = MaxP ? (INT*)(Locals + MaxP->Offset) : NULL;
 			if( Url && High && MaxScore && *MaxScore>0 && *High>=*MaxScore )
 			{
 				const INT H = (INT)(HashString(**Url) & 0x7fffffff) | 1;
@@ -1560,7 +1601,7 @@ public:
 
 	void OnStateChange( UObject* Self, FName OldState, FName NewState )
 	{
-		if( !bEnabled || !Self->IsA(AActor::StaticClass()) )
+		if( !bEnabled || bLevelTransition || !Self->IsA(AActor::StaticClass()) )
 			return;
 		if( NewState==N_CaughtHarry )
 		{
@@ -1752,14 +1793,17 @@ public:
 		UObject* Defaults = Harry->GetClass()->GetDefaultObject();
 
 		const INT DesiredBonus = 100*State.Skill[SKILL_Health];
-		if( DesiredBonus!=State.AppliedHealthBonus && !GetBoolProp(Harry,TEXT("bInDuelingMode")) )
+		if( DesiredBonus!=State.AppliedHealthBonus && DesiredBonus!=HealthTargetTried && !GetBoolProp(Harry,TEXT("bInDuelingMode")) )
 		{
 			UObject* Status = GetStatus( Harry );
 			if( Status )
 			{
+				// The game caps health potential, so record what really changed.
+				const INT Before = CallInt( Status, TEXT("GetHealthPotentialCount") );
 				FRpgArg Arg = FRpgArg::I( DesiredBonus - State.AppliedHealthBonus );
-				if( CallScript( Status, TEXT("AddHealthPotential"), &Arg, 1 ) )
-					State.AppliedHealthBonus = DesiredBonus;
+				CallScript( Status, TEXT("AddHealthPotential"), &Arg, 1 );
+				State.AppliedHealthBonus += CallInt( Status, TEXT("GetHealthPotentialCount") ) - Before;
+				HealthTargetTried = DesiredBonus;
 			}
 		}
 
@@ -2082,7 +2126,7 @@ public:
 
 	void DestroyActorSafe( UGameEngine* Engine, AActor*& A )
 	{
-		if( A && Engine->GLevel && !A->bDeleteMe && A->XLevel==Engine->GLevel )
+		if( A && Engine->GLevel && Engine->GLevel==LastLevel && IsInLevel(A) )
 			Engine->GLevel->DestroyActor( A );
 		A = NULL;
 	}
@@ -2168,7 +2212,9 @@ public:
 			Kind = -1;
 			return;
 		}
-		if( Actor && (Actor->bDeleteMe || Actor->XLevel!=Engine->GLevel || Kind!=Id) )
+		if( Actor && !IsInLevel(Actor) )
+			Actor = NULL; // destroyed by the game (particles can end themselves)
+		if( Actor && Kind!=Id )
 			DestroyActorSafe( Engine, Actor );
 		if( !Actor )
 		{
@@ -2214,7 +2260,7 @@ public:
 
 	void RestoreHeld()
 	{
-		if( HeldWeapon && !HeldWeapon->bDeleteMe && HeldOriginalMesh )
+		if( HeldWeapon && HeldOriginalMesh && IsInLevel(HeldWeapon) )
 		{
 			AInventory* Inv = (AInventory*)HeldWeapon;
 			Inv->ThirdPersonMesh = HeldOriginalMesh;
@@ -2231,7 +2277,24 @@ public:
 		AWeapon* Weapon = Harry->Weapon;
 		if( HeldWeapon && HeldWeapon!=Weapon )
 			RestoreHeld();
-		if( !Spec.Mesh || !Weapon )
+		if( !Weapon )
+			return;
+		static UMesh* SwordMesh = NULL;
+		if( !SwordMesh )
+			SwordMesh = LoadMesh( TEXT("HPModels.skGryf_SwordMesh") );
+		if( SwordMesh && Weapon->Mesh==SwordMesh )
+		{
+			// The game is using the real sword (Basilisk fight): show it.
+			if( HeldWeapon )
+			{
+				Weapon->ThirdPersonMesh = SwordMesh;
+				Weapon->ThirdPersonScale = HeldOriginalScale;
+				HeldWeapon = NULL;
+				HeldOriginalMesh = NULL;
+			}
+			return;
+		}
+		if( !Spec.Mesh )
 		{
 			RestoreHeld();
 			return;
@@ -2239,11 +2302,6 @@ public:
 		UMesh* Mesh = LoadMesh( Spec.Mesh );
 		if( !Mesh )
 			return;
-		static UMesh* SwordMesh = NULL;
-		if( !SwordMesh )
-			SwordMesh = LoadMesh( TEXT("HPModels.skGryf_SwordMesh") );
-		if( Weapon->ThirdPersonMesh==SwordMesh && !HeldWeapon )
-			return; // the game itself is using the sword
 		if( !HeldWeapon )
 		{
 			HeldWeapon = Weapon;
@@ -2307,9 +2365,12 @@ public:
 	void Tick( UGameEngine* Engine, FLOAT DeltaSeconds )
 	{
 		Init();
+		bLevelTransition = 0;
 		if( !bEnabled || !Engine->GLevel || Engine->Replay.Replaying() || Engine->Replay.Recording() )
 			return;
 		RpgClock += DeltaSeconds;
+		if( PreviewYaw > 436906.f )
+			PreviewYaw -= 436906.f;
 
 		if( Engine->GLevel!=LastLevel )
 		{
@@ -2404,6 +2465,8 @@ public:
 		NearNpc = NULL;
 		ShopVendor = NULL;
 		LastHitStudent = NULL;
+		if( Menu!=MENU_None )
+			CloseMenu( Engine );
 		bWePaused = 0;
 		Menu = MENU_None;
 		MarkWardrobeDirty();
@@ -2424,10 +2487,15 @@ public:
 		else if( appStrfind(MapName,TEXT("PrivetDr")) || appStrfind(MapName,TEXT("privetdr")) )
 		{
 			State.Reset();
+			Sanitize();
 			RpgLog( TEXT("new game, RPG progress reset") );
 		}
-		else
+		else if( appStrstr(MapName,TEXT("_hub")) && RpgClock-LastDayClock > 300.f )
+		{
+			// A new school day starts when you come back to a hub after a while.
+			LastDayClock = RpgClock;
 			State.Day++;
+		}
 		if( State.StockDay!=State.Day )
 		{
 			State.StockDay = State.Day;
@@ -2449,7 +2517,49 @@ public:
 		DestroyActorSafe( Engine, PreviewNpc );
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 		RestoreHeld();
-		RestoreCostume( GetHarry(Engine) );
+		APlayerPawn* Harry = GetHarry( Engine );
+		RestoreCostume( Harry );
+		NearNpc = NULL;
+		if( Harry )
+		{
+			// Saves keep stock movement values; the next tick re-applies skills.
+			UObject* Defaults = Harry->GetClass()->GetDefaultObject();
+			static const TCHAR* Props[3] = { TEXT("GroundRunSpeed"), TEXT("GroundJumpSpeed"), TEXT("JumpZ") };
+			for( INT i=0; i<3; i++ )
+			{
+				const FLOAT Cur = GetFloatProp( Harry, Props[i], 0.f );
+				const FLOAT Base = GetFloatProp( Defaults, Props[i], 0.f );
+				if( Base>0.f && !Near(Cur,Base) )
+				{
+					if( i==0 && Near(Harry->GroundSpeed,Cur) )
+						Harry->GroundSpeed = Base;
+					SetFloatProp( Harry, Props[i], Base );
+				}
+			}
+			LastRunSpeed = LastAirSpeed = LastJump = 0.f;
+			SetBoolProp( Harry, TEXT("bCastFastSpells"), GetBoolProp(Defaults,TEXT("bCastFastSpells")) );
+			UObject* Cursor = GetObjProp( Harry, TEXT("SpellCursor") );
+			if( Cursor )
+				SetFloatProp( Cursor, TEXT("fLOS_Distance"), GetFloatProp(Cursor->GetClass()->GetDefaultObject(),TEXT("fLOS_Distance"),0.f) );
+		}
+	}
+
+	// Drops every pointer into the current level (before it is unloaded).
+	void ForgetLevel()
+	{
+		LastLevel = NULL;
+		LastHarry = NULL;
+		HatActor = PetActor = AuraActor = NULL;
+		HatActorKind = PetActorKind = AuraActorKind = -1;
+		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
+		HeldWeapon = NULL;
+		HeldOriginalMesh = NULL;
+		CostumeApplied = NULL;
+		NearNpc = NULL;
+		ShopVendor = NULL;
+		LastHitStudent = NULL;
+		ActorFlags.Empty();
+		Deferred.Empty();
 	}
 
 	/*-------------------------------------------------------------------------
@@ -2522,23 +2632,23 @@ void HP2RpgPostSave( UGameEngine* Engine, INT Slot )
 	unguard;
 }
 
+void HP2RpgOnLevelUnloading( UGameEngine* Engine )
+{
+	guard(HP2RpgOnLevelUnloading);
+	GRpg.Init();
+	if( GRpg.Menu!=MENU_None && Engine->GLevel )
+		GRpg.CloseMenu( Engine );
+	GRpg.ForgetLevel();
+	GRpg.bLevelTransition = 1;
+	unguard;
+}
+
 void HP2RpgOnLevelLoaded( UGameEngine* Engine )
 {
 	guard(HP2RpgOnLevelLoaded);
 	// The old level and its actors are gone; forget every pointer into it
 	// even if the new ULevel happens to reuse the old address.
-	GRpg.LastLevel = NULL;
-	GRpg.LastHarry = NULL;
-	GRpg.HatActor = GRpg.PetActor = GRpg.AuraActor = NULL;
-	GRpg.PreviewBody = GRpg.PreviewAttach = GRpg.PreviewItem = GRpg.PreviewNpc = NULL;
-	GRpg.HeldWeapon = NULL;
-	GRpg.HeldOriginalMesh = NULL;
-	GRpg.CostumeApplied = NULL;
-	GRpg.NearNpc = NULL;
-	GRpg.ShopVendor = NULL;
-	GRpg.LastHitStudent = NULL;
-	GRpg.ActorFlags.Empty();
-	GRpg.Deferred.Empty();
+	GRpg.ForgetLevel();
 	unguard;
 }
 

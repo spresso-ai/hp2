@@ -969,6 +969,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	FTime LoadTime[2] = { appSeconds(), appProcessSeconds() };
 	appSetStartupRandTraceMap( *URL.Map, *URL.String() );
 	GInitRunaway();
+	HP2RpgOnLevelUnloading( this );
 
 	// Remember current level's stack level.
 	INT SavedHubStackLevel = GLevel ? GLevel->GetLevelInfo()->HubStackLevel : 0;

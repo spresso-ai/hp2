@@ -34,8 +34,20 @@ FRpgUi::FRpgUi()
 	S = 1.f;
 }
 
+struct FRpgLoadCacheEntry
+{
+	UClass* Class;
+	FString Path;
+	UObject* Obj;
+};
+static TArray<FRpgLoadCacheEntry> GRpgLoadCache;
+
 UObject* FRpgUi::LoadRooted( UClass* Class, const TCHAR* Path )
 {
+	// Cached, including failures, so per-frame menu drawing never re-searches.
+	for( INT i=0; i<GRpgLoadCache.Num(); i++ )
+		if( GRpgLoadCache(i).Class==Class && GRpgLoadCache(i).Path==Path )
+			return GRpgLoadCache(i).Obj;
 	UObject* Obj = UObject::StaticLoadObject( Class, NULL, Path, NULL, LOAD_NoWarn|LOAD_Quiet, NULL );
 	if( !Obj )
 	{
@@ -48,6 +60,10 @@ UObject* FRpgUi::LoadRooted( UClass* Class, const TCHAR* Path )
 	}
 	if( Obj )
 		Obj->AddToRoot();
+	FRpgLoadCacheEntry* Entry = new(GRpgLoadCache) FRpgLoadCacheEntry;
+	Entry->Class = Class;
+	Entry->Path = Path;
+	Entry->Obj = Obj;
 	return Obj;
 }
 

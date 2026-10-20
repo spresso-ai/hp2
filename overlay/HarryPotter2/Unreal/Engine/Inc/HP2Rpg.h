@@ -21,6 +21,7 @@ UBOOL HP2RpgInputEvent( UGameEngine* Engine, UViewport* Viewport, EInputKey Key,
 UBOOL HP2RpgExec( UGameEngine* Engine, const TCHAR* Cmd, FOutputDevice& Ar );
 void HP2RpgPreSave( UGameEngine* Engine );
 void HP2RpgPostSave( UGameEngine* Engine, INT Slot );
+void HP2RpgOnLevelUnloading( UGameEngine* Engine );
 void HP2RpgOnLevelLoaded( UGameEngine* Engine );
 void HP2RpgOnLoadedSlot( UGameEngine* Engine, INT Slot );
 
