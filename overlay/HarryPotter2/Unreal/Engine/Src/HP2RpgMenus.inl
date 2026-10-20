@@ -141,7 +141,9 @@
 
 	INT VendorPrice( INT Base )
 	{
-		const INT Markup = ShopVendorDef>=0 ? GVendors[ShopVendorDef].PriceMarkup : 0;
+		INT Markup = ShopVendorDef>=0 ? GVendors[ShopVendorDef].PriceMarkup : 0;
+		if( ShopVendorDef>=VEN_StudentGryffindor )
+			Markup += RepPriceDelta( State.Rep[ShopVendorDef-VEN_StudentGryffindor] );
 		return Max( 1, Base*(100+Markup)/100*(100-Discount())/100 );
 	}
 
@@ -1021,6 +1023,8 @@
 			case BOOK_Wardrobe:   DrawWardrobeTab( Engine, Harry, Body ); break;
 			case BOOK_Collection: DrawCollectionTab( Engine, Harry, Body ); break;
 			case BOOK_Trophies:   DrawTrophiesTab( Harry, Body ); break;
+			case BOOK_HouseCup:   DrawHouseCupTab( Harry, Body ); break;
+			case BOOK_Letters:    DrawLettersTab( Harry, Body ); break;
 			default:              DrawStatusTab( Harry, Body ); break;
 		}
 		bActivate = 0;
@@ -1384,6 +1388,131 @@
 		Ui.Text( Ui.FontBody, Area.X+Area.W, Y+10*S, RpgMuted, *FString::Printf(TEXT("%i"), Value), RALIGN_Right );
 	}
 
+	void DrawHouseCupTab( APlayerPawn* Harry, const FRpgRect& Area )
+	{
+		const FLOAT S = Ui.S;
+		FLOAT Y = Area.Y;
+		// Standings, highest first.
+		INT Order[HOUSE_MAX] = { 0, 1, 2, 3 };
+		INT Pts[HOUSE_MAX];
+		INT Top = 1;
+		for( INT i=0; i<HOUSE_MAX; i++ )
+		{
+			Pts[i] = bBaselineValid ? LastHouse[i] : 0;
+			Top = Max( Top, Pts[i] );
+		}
+		for( INT a=0; a<HOUSE_MAX; a++ )
+			for( INT b=a+1; b<HOUSE_MAX; b++ )
+				if( Pts[Order[b]] > Pts[Order[a]] )
+					Exchange( Order[a], Order[b] );
+		const FLOAT RowH = Ui.TextHeight( Ui.FontItem ) + 8*S;
+		for( INT r=0; r<HOUSE_MAX; r++ )
+		{
+			const INT h = Order[r];
+			const FLOAT CS = RowH - 6*S;
+			if( Crests[h] )
+				Ui.Icon( Crests[h], FRpgRect(Area.X, Y, CS, CS) );
+			Ui.Text( Ui.FontItem, Area.X+CS+8*S, Y, GHouseColors[h], *FString::Printf(TEXT("%i. %s"), r+1, GHouseNames[h]) );
+			Ui.Text( Ui.FontItem, Area.X+Area.W, Y, RpgParchment, *FString::Printf(TEXT("%i"), Pts[h]), RALIGN_Right );
+			Ui.Bar( FRpgRect(Area.X+CS+8*S, Y+RowH-6*S, Area.W-CS-8*S, 4*S), (FLOAT)Pts[h]/Top, GHouseColors[h] );
+			Y += RowH + 4*S;
+		}
+		// Your standing with each house's students.
+		FString RepLine;
+		for( INT h=0; h<HOUSE_MAX; h++ )
+			RepLine += FString::Printf( TEXT("%s%s %s"), h ? TEXT("    ") : TEXT(""), GHouseNames[h], RepTier(State.Rep[h]) );
+		Ui.Text( Ui.FontSmall, Area.X, Y, RpgMuted, *Ui.FitText(Ui.FontSmall,*(FString(TEXT("Reputation: "))+RepLine),Area.W) );
+		Y += Ui.TextHeight( Ui.FontSmall ) + 8*S;
+		Ui.Text( Ui.FontItem, Area.X, Y, RpgGoldBright, *FString::Printf(TEXT("Today's tasks  -  School day %i"), State.Day) );
+		Y += Ui.TextHeight( Ui.FontItem ) + 6*S;
+		const FLOAT TaskH = Ui.TextHeight(Ui.FontBody) + Ui.TextHeight(Ui.FontSmall) + 16*S;
+		for( INT t=0; t<TASKS_PER_DAY && State.TaskDay==State.Day; t++ )
+		{
+			const FTaskDef& T = GTasks[Clamp(State.Tasks[t*3],0,GNumTasks-1)];
+			const INT Goal = Max( 1, State.Tasks[t*3+1] );
+			const UBOOL bDone = (State.TasksDone & (1<<t))!=0;
+			const INT Have = bDone ? Goal : Clamp( CounterValue(Harry,T.Counter) - State.Tasks[t*3+2], 0, Goal );
+			const FRpgRect Row( Area.X, Y, Area.W, TaskH-4*S );
+			Ui.Rect( Row, bDone ? FColor(20,46,32,255) : FColor(18,22,50,255) );
+			Ui.Border( Row, Max(1.f,S), bDone ? RpgGreen : FColor(60,66,104,255) );
+			Ui.Text( Ui.FontBody, Row.X+8*S, Row.Y+4*S, bDone ? RpgGreen : RpgParchment, *Ui.FitText(Ui.FontBody,*FString::Printf(T.Desc,Goal),Row.W*0.62f) );
+			Ui.Text( Ui.FontSmall, Row.X+Row.W-8*S, Row.Y+5*S, RpgGoldBright, *FString::Printf(TEXT("+%i pts  +%i beans"), T.Points, T.Beans), RALIGN_Right );
+			Ui.Bar( FRpgRect(Row.X+8*S, Row.Y+Ui.TextHeight(Ui.FontBody)+8*S, Row.W*0.62f, 5*S), (FLOAT)Have/Goal, bDone ? RpgGreen : FColor(120,190,255,255) );
+			Ui.Text( Ui.FontSmall, Row.X+Row.W*0.62f+16*S, Row.Y+Ui.TextHeight(Ui.FontBody)+3*S, RpgMuted, bDone ? TEXT("Done!") : *FString::Printf(TEXT("%i / %i"), Have, Goal) );
+			Y += TaskH;
+		}
+		Ui.Text( Ui.FontSmall, Area.X, Area.Y+Area.H-Ui.TextHeight(Ui.FontSmall), RpgMuted, TEXT("A new school day starts when you return to a hub after a while.") );
+	}
+
+	void DrawLettersTab( APlayerPawn* Harry, const FRpgRect& Area )
+	{
+		const FLOAT S = Ui.S;
+		INT Count = 0;
+		while( Count<MAX_INBOX && State.Inbox[Count]>0 )
+			Count++;
+		if( !Count )
+		{
+			Ui.TextWrapped( Ui.FontBody, Area, RpgMuted, TEXT("No letters yet. An owl arrives with every new school day.") );
+			return;
+		}
+		Sel = Clamp( Sel, 0, Count-1 );
+		const FLOAT ListW = Area.W*0.38f;
+		const FLOAT RowH = Ui.TextHeight(Ui.FontBody) + Ui.TextHeight(Ui.FontSmall) + 8*S;
+		for( INT i=0; i<Count; i++ )
+		{
+			const FLetterDef& L = GLetters[State.Inbox[i]-1];
+			const FRpgRect Row( Area.X, Area.Y + i*RowH, ListW, RowH-2*S );
+			if( Row.Y+Row.H > Area.Y+Area.H )
+				break;
+			RowActivated( Row, i, &State.Inbox[i] );
+			const UBOOL bRead = (State.LettersRead & (1<<i))!=0;
+			Ui.Text( Ui.FontBody, Row.X+6*S, Row.Y+2*S, i==Sel ? RpgGoldBright : (bRead ? RpgParchment : FColor(255,255,255,255)), *Ui.FitText(Ui.FontBody,L.From,Row.W-12*S) );
+			Ui.Text( Ui.FontSmall, Row.X+6*S, Row.Y+Ui.TextHeight(Ui.FontBody)+2*S, bRead ? RpgMuted : RpgGoldBright, *Ui.FitText(Ui.FontSmall,L.Subject,Row.W-12*S) );
+		}
+		State.LettersRead |= (1<<Sel);
+		// The letter itself, on parchment.
+		const FLetterDef& L = GLetters[State.Inbox[Sel]-1];
+		const FRpgRect Paper( Area.X+ListW+12*S, Area.Y, Area.W-ListW-12*S, Area.H );
+		Ui.Rect( Paper, FColor(228,214,180,255) );
+		Ui.Border( Paper, Max(1.f,S*1.5f), FColor(150,120,70,255) );
+		Ui.Text( Ui.FontItem, Paper.X+12*S, Paper.Y+8*S, FColor(90,50,20,255), *Ui.FitText(Ui.FontItem,L.Subject,Paper.W-24*S), RALIGN_Left, 0 );
+		const FRpgRect BodyR( Paper.X+12*S, Paper.Y+Ui.TextHeight(Ui.FontItem)+16*S, Paper.W-24*S, Paper.H-Ui.TextHeight(Ui.FontItem)-24*S );
+		// Dark ink on parchment: draw without the drop shadow.
+		FString Line, Word;
+		FLOAT Y = BodyR.Y;
+		const FLOAT LineH = Ui.TextHeight( Ui.FontBody );
+		for( const TCHAR* P=L.Body; ; P++ )
+		{
+			const UBOOL bEnd = *P==0;
+			if( bEnd || *P==' ' || *P=='\n' )
+			{
+				FString Candidate = Line.Len() ? Line + TEXT(" ") + Word : Word;
+				if( Line.Len() && Ui.TextWidth(Ui.FontBody,*Candidate) > BodyR.W )
+				{
+					Ui.Text( Ui.FontBody, BodyR.X, Y, FColor(50,34,20,255), *Line, RALIGN_Left, 0 );
+					Y += LineH;
+					Line = Word;
+				}
+				else
+					Line = Candidate;
+				Word = TEXT("");
+				if( *P=='\n' || bEnd )
+				{
+					Ui.Text( Ui.FontBody, BodyR.X, Y, FColor(50,34,20,255), *Line, RALIGN_Left, 0 );
+					Y += LineH;
+					Line = TEXT("");
+				}
+				if( bEnd || Y > BodyR.Y+BodyR.H-LineH )
+					break;
+			}
+			else
+			{
+				TCHAR Ch[2] = { *P, 0 };
+				Word += Ch;
+			}
+		}
+	}
+
 	void DrawStatusTab( APlayerPawn* Harry, const FRpgRect& Area )
 	{
 		const FLOAT S = Ui.S;
@@ -1434,7 +1563,11 @@
 		CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
 		State.Counters[CNT_Talks]++;
 		if( !TestAndSet(Npc,AF_Talked) )
+		{
 			GiveXp( 3, TEXT("new friend") );
+			if( IsStudent(Npc) )
+				AddRep( StudentHouse(Npc), 3 );
+		}
 	}
 
 	void OpenShop( UGameEngine* Engine, AActor* Vendor, INT Def )

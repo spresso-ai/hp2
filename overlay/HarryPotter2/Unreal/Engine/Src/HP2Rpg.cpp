@@ -407,6 +407,13 @@ struct FRpgState
 	INT Mastered[MAX_MASTERED];
 	INT StockDay;
 	INT StockUsed[VEN_MAX*CON_MAX];
+	INT TaskDay;
+	INT Tasks[TASKS_PER_DAY*3]; // id, goal, baseline per task
+	INT TasksDone;
+	INT Rep[4];
+	INT LetterDay;
+	INT Inbox[MAX_INBOX];   // letter id + 1, newest first
+	INT LettersRead;        // bit per inbox slot
 
 	void Reset()
 	{
@@ -469,8 +476,8 @@ enum EActorFlag
 };
 
 enum EMenu { MENU_None, MENU_Shop, MENU_Book };
-enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Trophies, BOOK_Status, BOOK_MAX };
-static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Trophies"), TEXT("Status") };
+enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
+static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Trophies"), TEXT("House Cup"), TEXT("Owl Post"), TEXT("Status") };
 
 enum EHouse { HOUSE_Gryffindor, HOUSE_Slytherin, HOUSE_Ravenclaw, HOUSE_Hufflepuff, HOUSE_MAX };
 static const TCHAR* GHouseNames[HOUSE_MAX] = { TEXT("Gryffindor"), TEXT("Slytherin"), TEXT("Ravenclaw"), TEXT("Hufflepuff") };
@@ -795,6 +802,11 @@ public:
 		Text += FString(TEXT("Trophies=")) + IntList(State.TrophyTier,MAX_TROPHIES) + TEXT("\r\n");
 		Text += FString(TEXT("Mastered=")) + IntList(State.Mastered,MAX_MASTERED) + TEXT("\r\n");
 		Text += FString(TEXT("Stock=")) + IntList(State.StockUsed,VEN_MAX*CON_MAX) + TEXT("\r\n");
+		Text += FString::Printf(TEXT("TaskDay=%i TasksDone=%i\r\n"), State.TaskDay, State.TasksDone);
+		Text += FString(TEXT("Tasks=")) + IntList(State.Tasks,TASKS_PER_DAY*3) + TEXT("\r\n");
+		Text += FString(TEXT("Rep=")) + IntList(State.Rep,4) + TEXT("\r\n");
+		Text += FString::Printf(TEXT("LetterDay=%i LettersRead=%i\r\n"), State.LetterDay, State.LettersRead);
+		Text += FString(TEXT("Inbox=")) + IntList(State.Inbox,MAX_INBOX) + TEXT("\r\n");
 		const FString Path = SidecarPath( Slot );
 		if( !appSaveStringToFile( Text, *Path ) )
 			RpgLog( TEXT("could not write %s"), *Path );
@@ -847,6 +859,13 @@ public:
 				ParseIntList( S, TEXT("Trophies="), State.TrophyTier, MAX_TROPHIES );
 				ParseIntList( S, TEXT("Mastered="), State.Mastered, MAX_MASTERED );
 				ParseIntList( S, TEXT("Stock="), State.StockUsed, VEN_MAX*CON_MAX );
+				Parse( S, TEXT("TaskDay="), State.TaskDay );
+				Parse( S, TEXT("TasksDone="), State.TasksDone );
+				ParseIntList( S, TEXT("Tasks="), State.Tasks, TASKS_PER_DAY*3 );
+				ParseIntList( S, TEXT("Rep="), State.Rep, 4 );
+				Parse( S, TEXT("LetterDay="), State.LetterDay );
+				Parse( S, TEXT("LettersRead="), State.LettersRead );
+				ParseIntList( S, TEXT("Inbox="), State.Inbox, MAX_INBOX );
 			}
 		}
 		Sanitize();
@@ -871,6 +890,14 @@ public:
 			State.Counters[i] = Max( State.Counters[i], 0 );
 		State.DetentionSeconds = Clamp( State.DetentionSeconds, 0, 3600 );
 		State.FelixSeconds = Clamp( State.FelixSeconds, 0, 3600 );
+		for( INT t=0; t<TASKS_PER_DAY; t++ )
+			if( State.Tasks[t*3]<0 || State.Tasks[t*3]>=GNumTasks )
+				State.TaskDay = 0; // re-roll
+		for( INT h=0; h<4; h++ )
+			State.Rep[h] = Clamp( State.Rep[h], -100, 100 );
+		for( INT i=0; i<MAX_INBOX; i++ )
+			if( State.Inbox[i]<0 || State.Inbox[i]>GNumLetters )
+				State.Inbox[i] = 0;
 		for( INT s=0; s<RSLOT_MAX; s++ )
 		{
 			const INT Id = State.Equip[s];
@@ -1239,6 +1266,138 @@ public:
 				return CountCards(Status,CARD_Bronze) + CountCards(Status,CARD_Silver) + CountCards(Status,CARD_Gold);
 			}
 			default: return State.Counters[Counter];
+		}
+	}
+
+	/*-------------------------------------------------------------------------
+		Daily tasks and the rival houses.
+	-------------------------------------------------------------------------*/
+
+	void RollTasks( APlayerPawn* Harry )
+	{
+		const INT Tier = Min( 2, (State.Level-1)/6 );
+		INT Picked = 0;
+		for( INT Try=0; Picked<TASKS_PER_DAY && Try<64; Try++ )
+		{
+			const INT Id = (INT)(HashMix( (DWORD)State.Day*977u, (DWORD)Try ) % (DWORD)GNumTasks);
+			UBOOL bDup = 0;
+			for( INT p=0; p<Picked; p++ )
+				if( State.Tasks[p*3]==Id )
+					bDup = 1;
+			if( bDup )
+				continue;
+			State.Tasks[Picked*3+0] = Id;
+			State.Tasks[Picked*3+1] = GTasks[Id].Goals[Tier];
+			State.Tasks[Picked*3+2] = CounterValue( Harry, GTasks[Id].Counter );
+			Picked++;
+		}
+		State.TasksDone = 0;
+		State.TaskDay = State.Day;
+	}
+
+	void SimulateRivals( APlayerPawn* Harry )
+	{
+		const INT Gains[3] = { 15 + RpgRand(31), 10 + RpgRand(26), 8 + RpgRand(23) };
+		AddHousePoints( Harry, HOUSE_Slytherin, Gains[0] );
+		AddHousePoints( Harry, HOUSE_Ravenclaw, Gains[1] );
+		AddHousePoints( Harry, HOUSE_Hufflepuff, Gains[2] );
+		bBaselineValid = 0; // don't announce these as separate house point cards
+		AddFeed( TEXT("House Cup update"), FColor(255,214,120,255), TOAST_House,
+			*FString::Printf(TEXT("Slytherin +%i, Ravenclaw +%i, Hufflepuff +%i"), Gains[0], Gains[1], Gains[2]) );
+	}
+
+	/*-------------------------------------------------------------------------
+		Owl post and house reputation.
+	-------------------------------------------------------------------------*/
+
+	UBOOL HasLetter( INT Id )
+	{
+		for( INT i=0; i<MAX_INBOX; i++ )
+			if( State.Inbox[i]==Id+1 )
+				return 1;
+		return 0;
+	}
+
+	void DeliverLetter( APlayerPawn* Harry )
+	{
+		INT Candidates[64];
+		INT N = 0;
+		for( INT l=0; l<GNumLetters && N<64; l++ )
+			if( GLetters[l].MinLevel<=State.Level && !HasLetter(l) )
+				Candidates[N++] = l;
+		if( !N )
+			return;
+		const INT Id = Candidates[ HashMix((DWORD)State.Day,77u) % (DWORD)N ];
+		for( INT i=MAX_INBOX-1; i>0; i-- )
+			State.Inbox[i] = State.Inbox[i-1];
+		State.Inbox[0] = Id+1;
+		State.LettersRead = (State.LettersRead<<1) & ((1<<MAX_INBOX)-1);
+		const FLetterDef& L = GLetters[Id];
+		FString Gift;
+		switch( L.Gift )
+		{
+			case GIFT_Beans:      GiveBeans( Harry, L.GiftAmount ); Gift = FString::Printf( TEXT("  +%i beans"), L.GiftAmount ); break;
+			case GIFT_Potion:     ApplyConsumable( Harry, CON_Potion, L.GiftAmount ); Gift = TEXT("  +Wiggenweld potion"); break;
+			case GIFT_ChocFrog:   ApplyConsumable( Harry, CON_ChocFrog, 1 ); Gift = TEXT("  +Chocolate Frog"); break;
+			case GIFT_BronzeCard: ApplyConsumable( Harry, CON_BronzeCard, 1 ); Gift = TEXT("  +Wizard Card"); break;
+			case GIFT_SkillPoint: State.SkillPoints += L.GiftAmount; Gift = TEXT("  +1 skill point"); break;
+			default: break;
+		}
+		AddFeed( FString::Printf(TEXT("Owl post from %s"), L.From), FColor(230,210,170,255), TOAST_Reward, *(FString(L.Subject) + Gift) );
+	}
+
+	static const TCHAR* RepTier( INT Rep )
+	{
+		return Rep<=-30 ? TEXT("Hostile") : (Rep<10 ? TEXT("Neutral") : (Rep<40 ? TEXT("Friendly") : TEXT("Honoured")));
+	}
+
+	// Price change in % at that house's student vendors (negative = discount).
+	static INT RepPriceDelta( INT Rep )
+	{
+		return Rep<=-30 ? 20 : (Rep<10 ? 0 : (Rep<40 ? -5 : -12));
+	}
+
+	void AddRep( INT House, INT Amount )
+	{
+		const TCHAR* Before = RepTier( State.Rep[House] );
+		State.Rep[House] = Clamp( State.Rep[House]+Amount, -100, 100 );
+		const TCHAR* After = RepTier( State.Rep[House] );
+		if( Before!=After )
+			AddFeed( FString::Printf(TEXT("%s: %s"), GHouseNames[House], After), GHouseColors[House], TOAST_House, TEXT("House reputation changed") );
+	}
+
+	void UpdateTasks( APlayerPawn* Harry )
+	{
+		if( State.LetterDay!=State.Day )
+		{
+			State.LetterDay = State.Day;
+			DeliverLetter( Harry );
+		}
+		if( State.TaskDay!=State.Day )
+		{
+			const UBOOL bNewDay = State.TaskDay!=0;
+			RollTasks( Harry );
+			if( bNewDay )
+			{
+				SimulateRivals( Harry );
+				AddFeed( FString::Printf(TEXT("School day %i"), State.Day), FColor(255,220,90,255), TOAST_Level, TEXT("New house tasks - press K, House Cup") );
+			}
+			return;
+		}
+		for( INT t=0; t<TASKS_PER_DAY; t++ )
+		{
+			if( State.TasksDone & (1<<t) )
+				continue;
+			const FTaskDef& T = GTasks[State.Tasks[t*3]];
+			if( CounterValue(Harry,T.Counter) - State.Tasks[t*3+2] < State.Tasks[t*3+1] )
+				continue;
+			State.TasksDone |= (1<<t);
+			AddHousePoints( Harry, HOUSE_Gryffindor, T.Points );
+			GiveBeans( Harry, T.Beans );
+			AddFeed( TEXT("Task complete!"), FColor(120,220,140,255), TOAST_Reward,
+				*FString::Printf(TEXT("+%i points, +%i beans"), T.Points, T.Beans) );
+			GiveXp( T.Xp, TEXT("house task") );
+			Ui.Play( RSND_Reward, Harry );
 		}
 	}
 
@@ -1730,6 +1889,7 @@ public:
 		State.Counters[CNT_Students]++;
 		AddHousePoints( Harry, HOUSE_Gryffindor, -5 );
 		AddTrouble( 12, TEXT("Hexing a student") );
+		AddRep( StudentHouse(Student), -8 );
 		RpgLog( TEXT("launched student %s"), Student->GetName() );
 	}
 
@@ -2582,6 +2742,8 @@ public:
 				}
 				CheckCardRewards( Harry );
 				CheckTrophies( Harry );
+				if( bBaselineValid )
+					UpdateTasks( Harry );
 			}
 		}
 
@@ -2715,6 +2877,7 @@ public:
 		Menus, HUD drawing, input and console commands.
 	-------------------------------------------------------------------------*/
 
+	// ApplyConsumable lives in the menus file; declared there.
 	#include "HP2RpgMenus.inl"
 };
 

@@ -428,4 +428,72 @@ static const FColor GTrophyTierColors[3] = { FColor(205,127,50,255), FColor(200,
 static const INT GTrophyXp[3] = { 50, 150, 400 };
 static const INT GTrophyBeans[3] = { 25, 75, 200 };
 
+/*-----------------------------------------------------------------------------
+	Daily house tasks.
+-----------------------------------------------------------------------------*/
+
+struct FTaskDef
+{
+	INT Counter;
+	INT Goals[3];       // easy / medium / hard, picked by level
+	const TCHAR* Desc;  // %i = goal
+	INT Points;         // Gryffindor house points
+	INT Beans;
+	INT Xp;
+};
+
+static const FTaskDef GTasks[] =
+{
+	{ CNT_Creatures, { 4, 8, 12 }, TEXT("Defeat %i creatures"), 15, 30, 40 },
+	{ CNT_Gnomes, { 2, 4, 6 }, TEXT("Throw %i garden gnomes"), 10, 25, 30 },
+	{ CNT_Beans, { 50, 100, 180 }, TEXT("Collect %i beans"), 10, 20, 30 },
+	{ CNT_Secrets, { 1, 1, 2 }, TEXT("Find %i secret area(s)"), 20, 40, 60 },
+	{ CNT_Potions, { 1, 1, 2 }, TEXT("Brew %i Wiggenweld potion(s)"), 15, 30, 50 },
+	{ CNT_Talks, { 3, 5, 8 }, TEXT("Chat with %i students"), 5, 15, 20 },
+	{ CNT_Bought, { 1, 2, 3 }, TEXT("Buy %i item(s) from vendors"), 5, 0, 25 },
+	{ CNT_HousePoints, { 15, 30, 50 }, TEXT("Earn %i points for Gryffindor"), 10, 30, 40 },
+	{ CNT_Cards, { 1, 2, 3 }, TEXT("Collect %i Wizard Card(s)"), 15, 25, 40 },
+	{ CNT_Duels, { 1, 1, 2 }, TEXT("Win %i duel(s)"), 20, 40, 60 },
+};
+static const INT GNumTasks = (INT)ARRAY_COUNT(GTasks);
+enum { TASKS_PER_DAY = 3 };
+
+/*-----------------------------------------------------------------------------
+	Owl post.
+-----------------------------------------------------------------------------*/
+
+enum EGift { GIFT_None, GIFT_Beans, GIFT_Potion, GIFT_ChocFrog, GIFT_BronzeCard, GIFT_SkillPoint };
+
+struct FLetterDef
+{
+	const TCHAR* From;
+	const TCHAR* Subject;
+	const TCHAR* Body;
+	INT MinLevel;
+	INT Gift;
+	INT GiftAmount;
+};
+
+static const FLetterDef GLetters[] =
+{
+	{ TEXT("Ron Weasley"), TEXT("Guess what"), TEXT("Harry,\nFred and George reckon they've found a way to make Bertie Bott's beans taste of treacle tart every time. They're charging five beans to tell you how. Don't pay them. I already did.\nSee you at dinner,\nRon"), 1, GIFT_Beans, 15 },
+	{ TEXT("Hermione Granger"), TEXT("Revision timetable"), TEXT("Harry,\nI've drawn up a revision timetable for you. Please actually look at it this time. Practising your spells properly really does make them stronger, you know - I've seen it in the Spells tab of your notes.\nHermione"), 1, GIFT_None, 0 },
+	{ TEXT("Rubeus Hagrid"), TEXT("Tea on Friday?"), TEXT("Dear Harry,\nCome down fer tea when yeh get a chance. I've made rock cakes. Fang's been missin' yeh. Watch out fer them gnomes in the garden, they're gettin' cheeky this year.\nHagrid"), 1, GIFT_ChocFrog, 1 },
+	{ TEXT("Molly Weasley"), TEXT("Look after yourself"), TEXT("Harry dear,\nI hope you're eating properly. I've tucked a little something in with this owl - a Wiggenweld potion, just in case. Do keep an eye on Ron and Ginny for me.\nLove,\nMolly Weasley"), 2, GIFT_Potion, 1 },
+	{ TEXT("Fred & George"), TEXT("Business proposal"), TEXT("Harrykins,\nWe've noticed you've been collecting rather a lot of beans. Should you ever wish to invest them in a certain pair of entrepreneurs, our stall is always open. Prices negotiable. Mostly upwards.\nGred and Forge"), 2, GIFT_Beans, 25 },
+	{ TEXT("Oliver Wood"), TEXT("Training schedule"), TEXT("Potter,\nPractice is at six. A.M. If we're going to win the cup this year I need my Seeker sharp. Run, jump, train - every skill point counts!\nWood"), 3, GIFT_None, 0 },
+	{ TEXT("Albus Dumbledore"), TEXT("A small observation"), TEXT("Dear Harry,\nIt is our choices that show what we truly are, far more than our abilities. I am told you have been kind to the students of every house. Do carry on.\nWith warm regards,\nA. Dumbledore\nP.S. I enclose a Chocolate Frog. I am rather fond of them."), 4, GIFT_ChocFrog, 1 },
+	{ TEXT("Neville Longbottom"), TEXT("Thank you"), TEXT("Harry,\nThanks for helping me with my Flipendo. Gran says I'm getting better. I found this card in my trunk - I've already got three of him, so you have it.\nNeville"), 4, GIFT_BronzeCard, 1 },
+	{ TEXT("Professor McGonagall"), TEXT("Your conduct"), TEXT("Mr Potter,\nIt has come to my attention that a number of students have been seen flying through the corridors. Unassisted by brooms. I trust this has nothing to do with you.\nProfessor M. McGonagall"), 5, GIFT_None, 0 },
+	{ TEXT("Ginny Weasley"), TEXT("(no subject)"), TEXT("Harry,\nI just wanted to say good luck with everything. Ron says you've beaten loads of creatures already. That's brilliant.\nGinny"), 5, GIFT_Beans, 20 },
+	{ TEXT("Hermione Granger"), TEXT("Something odd"), TEXT("Harry,\nI've been reading about secret passages in Hogwarts: A History. There are far more than the ones we know about. Keep your eyes open - and maybe try looking behind things.\nHermione"), 6, GIFT_None, 0 },
+	{ TEXT("Professor Flitwick"), TEXT("Extra credit"), TEXT("Dear Mr Potter,\nYour wandwork has impressed me greatly this term! Please accept this small token, and do come by for an extra lesson whenever you wish.\nProfessor F. Flitwick"), 7, GIFT_SkillPoint, 1 },
+	{ TEXT("Rubeus Hagrid"), TEXT("Don' tell anyone"), TEXT("Harry,\nI found an egg. Never yeh mind what sort. Point is, if anyone asks, I'm jus' keepin' it warm fer a friend.\nHagrid"), 8, GIFT_ChocFrog, 2 },
+	{ TEXT("Percy Weasley"), TEXT("Prefect's notice"), TEXT("Harry,\nAs a prefect I am obliged to remind you that hexing fellow students results in detention. As your friend's brother, I am obliged to remind you twice.\nP. Weasley, Prefect"), 3, GIFT_None, 0 },
+	{ TEXT("Fred & George"), TEXT("Urgent"), TEXT("Harry,\nIf a striped bean ever turns up, grab it. Worth five of the normal ones. Don't ask how we know. Definitely don't ask Ron.\nF & G"), 1, GIFT_None, 0 },
+	{ TEXT("Albus Dumbledore"), TEXT("The House Cup"), TEXT("Dear Harry,\nThe race for the House Cup is closer than many realise. Every task completed brings honour to your house - and to yourself.\nA. Dumbledore"), 6, GIFT_Beans, 50 },
+};
+static const INT GNumLetters = (INT)ARRAY_COUNT(GLetters);
+enum { MAX_INBOX = 12 };
+
 #endif
