@@ -55,6 +55,7 @@ set(HP2_ENGINE_SOURCES
     "${HP2_UNREAL_ROOT}/Engine/Src/UnFPoly.cpp"
     "${HP2_UNREAL_ROOT}/Engine/Src/UnGame.cpp"
     "${HP2_UNREAL_ROOT}/Engine/Src/HP2Rpg.cpp"
+    "${HP2_UNREAL_ROOT}/Engine/Src/HP2RpgUi.cpp"
     "${HP2_UNREAL_ROOT}/Engine/Src/UnGesture.cpp"
     "${HP2_UNREAL_ROOT}/Engine/Src/UnIn.cpp"
     "${HP2_UNREAL_ROOT}/Engine/Src/UnLevAct.cpp"

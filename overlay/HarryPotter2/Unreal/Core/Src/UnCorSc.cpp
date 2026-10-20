@@ -16,7 +16,8 @@ Revision history:
 #include "HP2ScriptWatch.h"
 
 CORE_API HP2ScriptWatchFunc GHP2ScriptWatch = NULL;
-CORE_API INT GHP2ScriptWatchNameIndex = -1;
+CORE_API HP2StateWatchFunc GHP2StateWatch = NULL;
+CORE_API BYTE GHP2ScriptWatchNames[HP2_SCRIPT_WATCH_BITS/8];
 
 /*-----------------------------------------------------------------------------
 	Globals.
@@ -153,6 +154,9 @@ EGotoState UObject::GotoState( FName NewState )
 	StateFrame->StateNode  = StateNode;
 	StateFrame->Code	   = NULL;
 	StateFrame->ProbeMask  = (StateNode->ProbeMask | GetClass()->ProbeMask) & StateNode->IgnoreMask;
+
+	if( GHP2StateWatch && NewState!=OldStateName )
+		GHP2StateWatch( this, OldStateName, NewState );
 
 	// Send BeginState notification.
 	if( NewState!=NAME_None && NewState!=OldStateName && IsProbing(NAME_BeginState) )
@@ -3848,8 +3852,8 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 
 		if( !SkipIt )
 		{
-			if( GHP2ScriptWatch && Function->GetFName().GetIndex()==GHP2ScriptWatchNameIndex )
-				GHP2ScriptWatch( this, Function, NewStack.Locals );
+			if( GHP2ScriptWatch && HP2IsScriptWatched(Function->GetFName().GetIndex()) )
+				GHP2ScriptWatch( this, Function, NewStack.Locals, Stack.Object );
 			FScriptDispatchObserver* Observer = GScriptDispatchObserver;
 			if( Observer )
 				Observer->OnCallEnter( this, Function, NewStack );

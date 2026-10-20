@@ -1,236 +1,29 @@
 /*=============================================================================
 	HP2Rpg.cpp: Native RPG layer for Harry Potter 2.
 
-	Adds experience/levels, skill points (Health, Speed, Jump, Luck), a bean
-	shop, a wardrobe (outfits, hats, glasses, held item) and live house point
-	feedback on top of the retail game, without touching retail packages.
+	Adds experience and levels, skills, spell mastery perks, vendors with
+	their own rotating stock, cosmetics with stats (outfits, costumes, hats,
+	glasses, held items, pets, auras), a bestiary, Wizard Card collection
+	rewards, trophies, a trouble/detention system, student interaction and
+	live house point feedback on top of the retail game, without touching
+	retail packages.
 
-	Everything is reached by name on the running HGame objects:
-	  Harry.managerStatus (StatusManager) for beans, house points, cards,
-	  potions and health potential; Harry's movement properties for skills;
-	  HPModels textures/meshes for the wardrobe.
-
+	Game state is reached by name on the running HGame objects. Script calls
+	and state changes are observed through the VM hooks in HP2ScriptWatch.h.
 	RPG progress lives in memory and is written to <SaveSlotPath>/SaveN.rpg
 	whenever the game writes SaveN.usa, and read back when slot N loads.
 =============================================================================*/
 
 #include "EnginePrivate.h"
+#include "UnRender.h"
 #include "UnSkeletalMesh.h"
 #include "HP2Rpg.h"
 #include "HP2ScriptWatch.h"
+#include "HP2RpgUi.h"
+#include "HP2RpgData.h"
 
 namespace
 {
-
-/*-----------------------------------------------------------------------------
-	Catalog.
------------------------------------------------------------------------------*/
-
-enum ERpgSkill { SKILL_Health, SKILL_Speed, SKILL_Jump, SKILL_Luck, SKILL_MAX };
-enum { SKILL_MAX_PIPS = 5 };
-
-static const TCHAR* GSkillNames[SKILL_MAX] = { TEXT("Health"), TEXT("Speed"), TEXT("Jump"), TEXT("Luck") };
-static const TCHAR* GSkillDescs[SKILL_MAX] =
-{
-	TEXT("More maximum health (+1 health bar per point)"),
-	TEXT("Run faster (+8% per point)"),
-	TEXT("Jump higher and farther (+10% per point)"),
-	TEXT("Chance of a bonus bean when you pick up beans"),
-};
-
-enum ERpgSlot { RSLOT_Outfit, RSLOT_Hat, RSLOT_Glasses, RSLOT_Held, RSLOT_MAX };
-static const TCHAR* GSlotNames[RSLOT_MAX] = { TEXT("Outfit"), TEXT("Hat"), TEXT("Glasses"), TEXT("Held item") };
-
-enum EOutfit { OUTFIT_Default, OUTFIT_Quidditch, OUTFIT_Slytherin, OUTFIT_Ravenclaw, OUTFIT_Hufflepuff, OUTFIT_Memory, OUTFIT_MAX };
-enum EHat { HAT_None, HAT_SortingHat, HAT_Helmet, HAT_Cauldron, HAT_Teapot, HAT_MAX };
-enum EGlasses { GLASSES_Default, GLASSES_None, GLASSES_Gold, GLASSES_Red, GLASSES_Green, GLASSES_MAX };
-enum EHeld { HELD_Wand, HELD_Sword, HELD_Broom, HELD_MAX };
-
-static const INT GSlotCounts[RSLOT_MAX] = { OUTFIT_MAX, HAT_MAX, GLASSES_MAX, HELD_MAX };
-
-struct FWardrobeOption
-{
-	const TCHAR* Name;
-	const TCHAR* Desc;
-	INT Price;     // 0 = owned from the start
-	INT OwnBit;    // -1 = always owned
-};
-
-static const FWardrobeOption GOutfits[OUTFIT_MAX] =
-{
-	{ TEXT("Gryffindor Uniform"), TEXT("Your own school robes."), 0, -1 },
-	{ TEXT("Quidditch Robes"), TEXT("Scarlet and gold, straight from the pitch."), 250, 0 },
-	{ TEXT("Slytherin Uniform"), TEXT("Green and silver. Draco would approve."), 200, 1 },
-	{ TEXT("Ravenclaw Uniform"), TEXT("Blue and bronze, for the wise."), 200, 2 },
-	{ TEXT("Hufflepuff Uniform"), TEXT("Yellow and black, loyal to the end."), 200, 3 },
-	{ TEXT("Memory Robes"), TEXT("Look like a page from Tom Riddle's diary."), 150, 4 },
-};
-static const FWardrobeOption GHats[HAT_MAX] =
-{
-	{ TEXT("No Hat"), TEXT("Nothing on your head."), 0, -1 },
-	{ TEXT("Sorting Hat"), TEXT("It still has opinions about you."), 200, 5 },
-	{ TEXT("Knight's Helmet"), TEXT("Borrowed from a suit of armour."), 300, 6 },
-	{ TEXT("Cauldron"), TEXT("Pewter, standard size 2."), 120, 7 },
-	{ TEXT("Hagrid's Teapot"), TEXT("Nobody will dare ask."), 80, 8 },
-};
-static const FWardrobeOption GGlasses[GLASSES_MAX] =
-{
-	{ TEXT("Harry's Glasses"), TEXT("Round and famous."), 0, -1 },
-	{ TEXT("No Glasses"), TEXT("You squint a bit."), 50, 9 },
-	{ TEXT("Gold Frames"), TEXT("Very Lockhart."), 100, 10 },
-	{ TEXT("Gryffindor Red Frames"), TEXT("House pride on your nose."), 100, 11 },
-	{ TEXT("Slytherin Green Frames"), TEXT("Sneaky."), 100, 12 },
-};
-static const FWardrobeOption GHeld[HELD_MAX] =
-{
-	{ TEXT("Wand"), TEXT("Holly and phoenix feather."), 0, -1 },
-	{ TEXT("Sword of Gryffindor"), TEXT("Looks the part. Spells still come from your wand."), 500, 13 },
-	{ TEXT("Quidditch Broom"), TEXT("Carry it around like a seeker."), 250, 14 },
-};
-
-static const FWardrobeOption* GetSlotOptions( INT Slot )
-{
-	switch( Slot )
-	{
-		case RSLOT_Outfit:  return GOutfits;
-		case RSLOT_Hat:     return GHats;
-		case RSLOT_Glasses: return GGlasses;
-		default:           return GHeld;
-	}
-}
-
-enum EShopKind { SHOP_Potion, SHOP_FMucus, SHOP_WBark, SHOP_BronzeCard, SHOP_SilverCard, SHOP_SkillPoint, SHOP_Wardrobe };
-
-struct FShopItem
-{
-	INT Category;
-	INT Kind;
-	INT Count;      // stack size for consumables
-	INT Price;
-	INT Slot;       // SHOP_Wardrobe only
-	INT Option;     // SHOP_Wardrobe only
-	const TCHAR* Name;
-	const TCHAR* Desc;
-};
-
-enum EShopCategory { CAT_Potions, CAT_Ingredients, CAT_Cards, CAT_Clothes, CAT_Hats, CAT_Glasses, CAT_Gear, CAT_Training, CAT_MAX };
-static const TCHAR* GShopCategoryNames[CAT_MAX] =
-{
-	TEXT("Potions"), TEXT("Ingredients"), TEXT("Cards"), TEXT("Clothes"), TEXT("Hats"), TEXT("Glasses"), TEXT("Gear"), TEXT("Training")
-};
-
-static const FShopItem GShopItems[] =
-{
-	{ CAT_Potions, SHOP_Potion, 1, 40, 0, 0, TEXT("Wiggenweld Potion"), TEXT("Restores your health when it runs out.") },
-	{ CAT_Potions, SHOP_Potion, 3, 110, 0, 0, TEXT("Wiggenweld Potion x3"), TEXT("A small stock for the road.") },
-	{ CAT_Potions, SHOP_Potion, 5, 175, 0, 0, TEXT("Wiggenweld Potion x5"), TEXT("Best value.") },
-	{ CAT_Ingredients, SHOP_FMucus, 1, 15, 0, 0, TEXT("Flobberworm Mucus"), TEXT("Ingredient for the Wiggenweld Potion.") },
-	{ CAT_Ingredients, SHOP_WBark, 1, 15, 0, 0, TEXT("Wiggentree Bark"), TEXT("Ingredient for the Wiggenweld Potion.") },
-	{ CAT_Ingredients, SHOP_FMucus, 5, 65, 0, 0, TEXT("Flobberworm Mucus x5"), TEXT("A jar full.") },
-	{ CAT_Ingredients, SHOP_WBark, 5, 65, 0, 0, TEXT("Wiggentree Bark x5"), TEXT("A bundle.") },
-	{ CAT_Cards, SHOP_BronzeCard, 1, 60, 0, 0, TEXT("Bronze Wizard Card"), TEXT("A random bronze card you don't own yet.") },
-	{ CAT_Cards, SHOP_SilverCard, 1, 150, 0, 0, TEXT("Silver Wizard Card"), TEXT("A random silver card you don't own yet.") },
-	{ CAT_Clothes, SHOP_Wardrobe, 1, 0, RSLOT_Outfit, OUTFIT_Quidditch, NULL, NULL },
-	{ CAT_Clothes, SHOP_Wardrobe, 1, 0, RSLOT_Outfit, OUTFIT_Slytherin, NULL, NULL },
-	{ CAT_Clothes, SHOP_Wardrobe, 1, 0, RSLOT_Outfit, OUTFIT_Ravenclaw, NULL, NULL },
-	{ CAT_Clothes, SHOP_Wardrobe, 1, 0, RSLOT_Outfit, OUTFIT_Hufflepuff, NULL, NULL },
-	{ CAT_Clothes, SHOP_Wardrobe, 1, 0, RSLOT_Outfit, OUTFIT_Memory, NULL, NULL },
-	{ CAT_Hats, SHOP_Wardrobe, 1, 0, RSLOT_Hat, HAT_SortingHat, NULL, NULL },
-	{ CAT_Hats, SHOP_Wardrobe, 1, 0, RSLOT_Hat, HAT_Helmet, NULL, NULL },
-	{ CAT_Hats, SHOP_Wardrobe, 1, 0, RSLOT_Hat, HAT_Cauldron, NULL, NULL },
-	{ CAT_Hats, SHOP_Wardrobe, 1, 0, RSLOT_Hat, HAT_Teapot, NULL, NULL },
-	{ CAT_Glasses, SHOP_Wardrobe, 1, 0, RSLOT_Glasses, GLASSES_None, NULL, NULL },
-	{ CAT_Glasses, SHOP_Wardrobe, 1, 0, RSLOT_Glasses, GLASSES_Gold, NULL, NULL },
-	{ CAT_Glasses, SHOP_Wardrobe, 1, 0, RSLOT_Glasses, GLASSES_Red, NULL, NULL },
-	{ CAT_Glasses, SHOP_Wardrobe, 1, 0, RSLOT_Glasses, GLASSES_Green, NULL, NULL },
-	{ CAT_Gear, SHOP_Wardrobe, 1, 0, RSLOT_Held, HELD_Sword, NULL, NULL },
-	{ CAT_Gear, SHOP_Wardrobe, 1, 0, RSLOT_Held, HELD_Broom, NULL, NULL },
-	{ CAT_Training, SHOP_SkillPoint, 1, 400, 0, 0, TEXT("Extra Lesson"), TEXT("A private lesson. Gives 1 skill point.") },
-};
-static const INT GNumShopItems = (INT)ARRAY_COUNT(GShopItems);
-
-static const TCHAR* ShopItemName( const FShopItem& Item )
-{
-	return Item.Kind==SHOP_Wardrobe ? GetSlotOptions(Item.Slot)[Item.Option].Name : Item.Name;
-}
-static const TCHAR* ShopItemDesc( const FShopItem& Item )
-{
-	return Item.Kind==SHOP_Wardrobe ? GetSlotOptions(Item.Slot)[Item.Option].Desc : Item.Desc;
-}
-static INT ShopItemPrice( const FShopItem& Item )
-{
-	return Item.Kind==SHOP_Wardrobe ? GetSlotOptions(Item.Slot)[Item.Option].Price : Item.Price;
-}
-
-/*-----------------------------------------------------------------------------
-	Persistent RPG state.
------------------------------------------------------------------------------*/
-
-struct FRpgState
-{
-	INT Xp;
-	INT Level;
-	INT SkillPoints;
-	INT Skill[SKILL_MAX];
-	INT AppliedHealthBonus;
-	INT Owned;
-	INT Equip[RSLOT_MAX];
-	INT StudentsHit;
-
-	void Reset()
-	{
-		appMemzero( this, sizeof(*this) );
-		Level = 1;
-	}
-};
-
-static INT XpForNextLevel( INT Level )
-{
-	return 100 + 50*(Level-1);
-}
-
-/*-----------------------------------------------------------------------------
-	Feed messages (floating text).
------------------------------------------------------------------------------*/
-
-struct FRpgFeed
-{
-	FString Text;
-	FColor Color;
-	FLOAT Age;
-};
-
-enum EMenu { MENU_None, MENU_Shop, MENU_Character };
-enum ECharTab { TAB_Skills, TAB_Wardrobe, TAB_MAX };
-
-enum EHouse { HOUSE_Gryffindor, HOUSE_Slytherin, HOUSE_Ravenclaw, HOUSE_Hufflepuff, HOUSE_MAX };
-static const TCHAR* GHouseNames[HOUSE_MAX] = { TEXT("Gryffindor"), TEXT("Slytherin"), TEXT("Ravenclaw"), TEXT("Hufflepuff") };
-static const TCHAR* GHouseGetters[HOUSE_MAX] = { TEXT("GetHPointsG"), TEXT("GetHPointsS"), TEXT("GetHPointsR"), TEXT("GetHPointsH") };
-static const TCHAR* GHouseCrests[HOUSE_MAX] = { TEXT("HP2GriffindorCrestSM"), TEXT("HP2SlytherinCrestSM"), TEXT("HP2RavenclawCrestSM"), TEXT("HP2HufflepuffCrestSM") };
-static const FColor GHouseColors[HOUSE_MAX] = { FColor(236,72,52,255), FColor(64,200,96,255), FColor(80,140,255,255), FColor(255,214,64,255) };
-
-struct FHatSpec
-{
-	const TCHAR* MeshPaths[3];
-	FLOAT Scale;
-	FLOAT Up;
-	FLOAT Forward;
-};
-static FHatSpec GHatSpecs[HAT_MAX] =
-{
-	{ { NULL, NULL, NULL }, 1.f, 0.f, 0.f },
-	{ { TEXT("HPModels.skSortingHatMesh"), TEXT("skSortingHatMesh"), NULL }, 0.45f, 3.f, 0.f },
-	{ { TEXT("HProps.skArmorHelmetMesh"), TEXT("skArmorHelmetMesh"), NULL }, 0.78f, -6.f, 0.f },
-	{ { TEXT("HProps.skCauldronSmallMesh"), TEXT("skCauldronSmallMesh"), NULL }, 0.6f, 2.f, 0.f },
-	{ { TEXT("HProps.skDishesHagridTeaPotMesh"), TEXT("skDishesHagridTeaPotMesh"), NULL }, 0.55f, 2.f, 0.f },
-};
-
-static const TCHAR* GHeldMeshPaths[HELD_MAX][2] =
-{
-	{ NULL, NULL },
-	{ TEXT("HPModels.skGryf_SwordMesh"), TEXT("skGryf_SwordMesh") },
-	{ TEXT("HProps.skBroomQudditchMesh"), TEXT("skBroomQudditchMesh") },
-};
 
 /*-----------------------------------------------------------------------------
 	Small RNG (kept separate from appRand so game RNG streams are untouched).
@@ -243,6 +36,44 @@ static INT RpgRand( INT Range )
 	return Range>0 ? (INT)((GRpgRandSeed>>8) % (DWORD)Range) : 0;
 }
 
+static DWORD HashMix( DWORD A, DWORD B )
+{
+	DWORD H = A*2654435761u ^ (B+0x9e3779b9u+(A<<6)+(A>>2));
+	H ^= H>>15; H *= 2246822519u; H ^= H>>13;
+	return H;
+}
+
+static DWORD HashString( const TCHAR* S )
+{
+	DWORD H = 2166136261u;
+	for( ; S && *S; S++ )
+		H = (H ^ (DWORD)appToLower(*S)) * 16777619u;
+	return H;
+}
+
+/*-----------------------------------------------------------------------------
+	Diagnostics: <SavePath>/HP2Rpg.log.
+-----------------------------------------------------------------------------*/
+
+static void VARARGS RpgLog( const TCHAR* Fmt, ... )
+{
+	TCHAR Buffer[1024];
+	GET_VARARGS( Buffer, ARRAY_COUNT(Buffer), Fmt );
+	debugf( NAME_Log, TEXT("HP2Rpg: %s"), Buffer );
+	static FString LogPath;
+	static INT Lines = 0;
+	if( !LogPath.Len() )
+	{
+		LogPath = GSys->SavePath + PATH_SEPARATOR TEXT("HP2Rpg.log");
+		appSaveStringToFile( FString(TEXT("HP2Rpg log\r\n")), *LogPath );
+	}
+	if( Lines++ > 3000 )
+		return;
+	FString Old;
+	appLoadFileToString( Old, *LogPath );
+	appSaveStringToFile( Old + Buffer + TEXT("\r\n"), *LogPath );
+}
+
 /*-----------------------------------------------------------------------------
 	Reflection helpers.
 -----------------------------------------------------------------------------*/
@@ -252,10 +83,76 @@ static UClass* FindClass( const TCHAR* Name )
 	return FindObject<UClass>( ANY_PACKAGE, Name );
 }
 
+static UBOOL ClassChainIs( UObject* Obj, const TCHAR* Name )
+{
+	if( !Obj || !Name )
+		return 0;
+	for( UClass* C=Obj->GetClass(); C; C=C->GetSuperClass() )
+		if( appStricmp(C->GetName(),Name)==0 )
+			return 1;
+	return 0;
+}
+
+// Matches a '|' separated list of class names along the class chain.
+static UBOOL ClassChainIsAny( UObject* Obj, const TCHAR* List )
+{
+	if( !Obj || !List )
+		return 0;
+	TCHAR Token[64];
+	INT N = 0;
+	for( const TCHAR* P=List; ; P++ )
+	{
+		if( *P=='|' || *P==0 )
+		{
+			Token[N] = 0;
+			if( N && ClassChainIs(Obj,Token) )
+				return 1;
+			N = 0;
+			if( *P==0 )
+				break;
+		}
+		else if( N < 63 )
+			Token[N++] = *P;
+	}
+	return 0;
+}
+
+static UBOOL NameMatchesFilter( const TCHAR* Name, const TCHAR* Filter )
+{
+	if( !Filter )
+		return 1;
+	TCHAR Token[64];
+	INT N = 0;
+	for( const TCHAR* P=Filter; ; P++ )
+	{
+		if( *P=='|' || *P==0 )
+		{
+			Token[N] = 0;
+			if( N && appStrfind(Name,Token) )
+				return 1;
+			N = 0;
+			if( *P==0 )
+				break;
+		}
+		else if( N < 63 )
+			Token[N++] = *P;
+	}
+	return 0;
+}
+
 static INT GetIntProp( UObject* Obj, const TCHAR* Name, INT Default=0 )
 {
 	UIntProperty* P = Obj ? FindField<UIntProperty>( Obj->GetClass(), Name ) : NULL;
 	return P ? *(INT*)((BYTE*)Obj + P->Offset) : Default;
+}
+
+static UBOOL SetIntProp( UObject* Obj, const TCHAR* Name, INT Value )
+{
+	UIntProperty* P = Obj ? FindField<UIntProperty>( Obj->GetClass(), Name ) : NULL;
+	if( !P )
+		return 0;
+	*(INT*)((BYTE*)Obj + P->Offset) = Value;
+	return 1;
 }
 
 static FLOAT GetFloatProp( UObject* Obj, const TCHAR* Name, FLOAT Default=0.f )
@@ -279,6 +176,25 @@ static UBOOL GetBoolProp( UObject* Obj, const TCHAR* Name )
 	return P ? ((*(BITFIELD*)((BYTE*)Obj + P->Offset) & P->BitMask)!=0) : 0;
 }
 
+static UBOOL SetBoolProp( UObject* Obj, const TCHAR* Name, UBOOL Value )
+{
+	UBoolProperty* P = Obj ? FindField<UBoolProperty>( Obj->GetClass(), Name ) : NULL;
+	if( !P )
+		return 0;
+	BITFIELD& Bits = *(BITFIELD*)((BYTE*)Obj + P->Offset);
+	if( Value )
+		Bits |= P->BitMask;
+	else
+		Bits &= ~P->BitMask;
+	return 1;
+}
+
+static INT GetByteProp( UObject* Obj, const TCHAR* Name, INT Default=0 )
+{
+	UByteProperty* P = Obj ? FindField<UByteProperty>( Obj->GetClass(), Name ) : NULL;
+	return P ? *((BYTE*)Obj + P->Offset) : Default;
+}
+
 static UObject* GetObjProp( UObject* Obj, const TCHAR* Name )
 {
 	UObjectProperty* P = Obj ? FindField<UObjectProperty>( Obj->GetClass(), Name ) : NULL;
@@ -292,14 +208,69 @@ static FName GetStateName( UObject* Obj )
 	return NAME_None;
 }
 
+// Parameter access inside a watched function's frame.
+static UProperty* FindParm( UFunction* Function, INT Index )
+{
+	INT I = 0;
+	for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & CPF_Parm); ++It )
+	{
+		if( It->PropertyFlags & CPF_ReturnParm )
+			continue;
+		if( I++==Index )
+			return *It;
+	}
+	return NULL;
+}
+
+static UObject* ParmObj( UFunction* F, BYTE* Locals, INT Index )
+{
+	UObjectProperty* P = Cast<UObjectProperty>( FindParm(F,Index) );
+	return P ? *(UObject**)(Locals + P->Offset) : NULL;
+}
+
+static INT* ParmIntPtr( UFunction* F, BYTE* Locals, INT Index )
+{
+	UIntProperty* P = Cast<UIntProperty>( FindParm(F,Index) );
+	return P ? (INT*)(Locals + P->Offset) : NULL;
+}
+
+static FLOAT* ParmFloatPtr( UFunction* F, BYTE* Locals, INT Index )
+{
+	UFloatProperty* P = Cast<UFloatProperty>( FindParm(F,Index) );
+	return P ? (FLOAT*)(Locals + P->Offset) : NULL;
+}
+
+static UBOOL ParmBool( UFunction* F, BYTE* Locals, INT Index )
+{
+	UBoolProperty* P = Cast<UBoolProperty>( FindParm(F,Index) );
+	return P ? ((*(BITFIELD*)(Locals + P->Offset) & P->BitMask)!=0) : 0;
+}
+
+static FName ParmName( UFunction* F, BYTE* Locals, INT Index )
+{
+	UNameProperty* P = Cast<UNameProperty>( FindParm(F,Index) );
+	return P ? *(FName*)(Locals + P->Offset) : NAME_None;
+}
+
+static const FString* ParmStr( UFunction* F, BYTE* Locals, INT Index )
+{
+	UStrProperty* P = Cast<UStrProperty>( FindParm(F,Index) );
+	return P ? (const FString*)(Locals + P->Offset) : NULL;
+}
+
 struct FRpgArg
 {
 	INT Int;
 	FLOAT Float;
 	UObject* Obj;
-	FRpgArg() : Int(0), Float(0.f), Obj(NULL) {}
-	static FRpgArg I( INT V ) { FRpgArg A; A.Int=V; return A; }
+	FName Name;
+	FVector Vec;
+	FRpgArg() : Int(0), Float(0.f), Obj(NULL), Name(NAME_None), Vec(0,0,0) {}
+	static FRpgArg I( INT V ) { FRpgArg A; A.Int=V; A.Float=(FLOAT)V; return A; }
+	static FRpgArg F( FLOAT V ) { FRpgArg A; A.Float=V; return A; }
 	static FRpgArg O( UObject* V ) { FRpgArg A; A.Obj=V; return A; }
+	static FRpgArg N( FName V ) { FRpgArg A; A.Name=V; return A; }
+	static FRpgArg V( FVector V ) { FRpgArg A; A.Vec=V; return A; }
 };
 
 static void WriteArg( UProperty* P, BYTE* Addr, const FRpgArg& A )
@@ -312,7 +283,9 @@ static void WriteArg( UProperty* P, BYTE* Addr, const FRpgArg& A )
 		if( A.Int )
 			*(BITFIELD*)Addr |= ((UBoolProperty*)P)->BitMask;
 	}
+	else if( Cast<UNameProperty>(P) )   *(FName*)Addr = A.Name;
 	else if( Cast<UObjectProperty>(P) ) *(UObject**)Addr = A.Obj;
+	else if( Cast<UStructProperty>(P) && P->ElementSize==sizeof(FVector) ) *(FVector*)Addr = A.Vec;
 }
 
 static void ReadArg( UProperty* P, BYTE* Addr, FRpgArg& A )
@@ -321,10 +294,11 @@ static void ReadArg( UProperty* P, BYTE* Addr, FRpgArg& A )
 	else if( Cast<UFloatProperty>(P) )  A.Float = *(FLOAT*)Addr;
 	else if( Cast<UByteProperty>(P) )   A.Int = *(BYTE*)Addr;
 	else if( Cast<UBoolProperty>(P) )   A.Int = (*(BITFIELD*)Addr & ((UBoolProperty*)P)->BitMask)!=0;
+	else if( Cast<UNameProperty>(P) )   A.Name = *(FName*)Addr;
 	else if( Cast<UObjectProperty>(P) ) A.Obj = *(UObject**)Addr;
 }
 
-// Calls a script function by name with int/float/bool/object arguments.
+// Calls a script function by name. String parameters are left empty.
 static UBOOL CallScript( UObject* Obj, const TCHAR* FuncName, const FRpgArg* Args=NULL, INT NumArgs=0, FRpgArg* Ret=NULL )
 {
 	if( !Obj )
@@ -346,8 +320,8 @@ static UBOOL CallScript( UObject* Obj, const TCHAR* FuncName, const FRpgArg* Arg
 	{
 		if( It->PropertyFlags & CPF_ReturnParm )
 			continue;
-		if( Cast<UStrProperty>(*It) )
-			return 0; // String parameters are not supported here.
+		if( Cast<UStrProperty>(*It) && ArgIndex < NumArgs )
+			return 0;
 		if( ArgIndex < NumArgs )
 			WriteArg( *It, Parms + It->Offset, Args[ArgIndex] );
 		ArgIndex++;
@@ -370,37 +344,144 @@ static INT CallInt( UObject* Obj, const TCHAR* FuncName, INT Default=0 )
 	return Ret.Int;
 }
 
-static UObject* LoadAny( UClass* Class, const TCHAR* const* Paths, INT NumPaths )
+static UMesh* LoadMesh( const TCHAR* Path )
 {
-	for( INT i=0; i<NumPaths; i++ )
-	{
-		if( !Paths[i] )
-			continue;
-		UObject* Obj = NULL;
-		if( appStrfind(Paths[i],TEXT(".")) )
-			Obj = UObject::StaticLoadObject( Class, NULL, Paths[i], NULL, LOAD_NoWarn|LOAD_Quiet, NULL );
-		else
-			Obj = UObject::StaticFindObject( Class, ANY_PACKAGE, Paths[i] );
-		if( Obj )
-		{
-			// Callers cache these across level loads.
-			Obj->AddToRoot();
-			return Obj;
-		}
-	}
-	return NULL;
+	return Path ? (UMesh*)FRpgUi::LoadRooted( UMesh::StaticClass(), Path ) : NULL;
 }
 
-static UTexture* FindTexture( const TCHAR* Package, const TCHAR* Name )
+static UTexture* LoadTex( const TCHAR* Path )
 {
-	UTexture* Tex = FindObject<UTexture>( ANY_PACKAGE, Name );
-	if( !Tex && Package )
-	{
-		UObject::LoadPackage( NULL, Package, LOAD_NoWarn|LOAD_Quiet );
-		Tex = FindObject<UTexture>( ANY_PACKAGE, Name );
-	}
-	return Tex;
+	return Path ? FRpgUi::LoadTexture( Path ) : NULL;
 }
+
+static UClass* LoadParticleClass( const TCHAR* Name )
+{
+	if( !Name )
+		return NULL;
+	UClass* Class = FindClass( Name );
+	if( !Class )
+		Class = (UClass*)FRpgUi::LoadRooted( UClass::StaticClass(), *FString::Printf(TEXT("HPParticle.%s"), Name) );
+	return Class;
+}
+
+/*-----------------------------------------------------------------------------
+	Persistent RPG state.
+-----------------------------------------------------------------------------*/
+
+enum ERpgSkill { SKILL_Health, SKILL_Speed, SKILL_Jump, SKILL_Luck, SKILL_MAX };
+enum { SKILL_MAX_PIPS = 5, MAX_TROPHIES = 32, MAX_MASTERED = 16 };
+
+static const TCHAR* GSkillNames[SKILL_MAX] = { TEXT("Health"), TEXT("Speed"), TEXT("Jump"), TEXT("Luck") };
+static const TCHAR* GSkillDescs[SKILL_MAX] =
+{
+	TEXT("More maximum health: one extra health bar per point."),
+	TEXT("Harry runs faster: +8% per point."),
+	TEXT("Harry jumps higher and further: +10% per point."),
+	TEXT("Bonus beans on pickup and better prices."),
+};
+
+struct FRpgState
+{
+	INT Xp;
+	INT Level;
+	INT SkillPoints;
+	INT Skill[SKILL_MAX];
+	INT AppliedHealthBonus;
+	INT Owned[MAX_COSMETICS/32];
+	INT Equip[RSLOT_MAX];
+	INT Perks;
+	INT Kills[CR_MAX];
+	INT Counters[CNT_MAX];
+	INT TrophyTier[MAX_TROPHIES];
+	INT CardRewards;
+	INT Trouble;
+	INT DetentionSeconds;
+	INT Day;
+	INT FelixSeconds;
+	INT Mastered[MAX_MASTERED];
+	INT StockDay;
+	INT StockUsed[VEN_MAX*CON_MAX];
+
+	void Reset()
+	{
+		appMemzero( this, sizeof(*this) );
+		Level = 1;
+		Day = 1;
+		StockDay = 1;
+	}
+};
+
+static INT XpForNextLevel( INT Level )
+{
+	return 100 + 50*(Level-1);
+}
+
+/*-----------------------------------------------------------------------------
+	Misc types.
+-----------------------------------------------------------------------------*/
+
+struct FRpgFeed
+{
+	FString Text;
+	FColor Color;
+	FLOAT Age;
+};
+
+enum EDeferredKind { DEF_SpawnBeans, DEF_RedispatchSpell };
+
+struct FRpgDeferred
+{
+	INT Kind;
+	AActor* Actor;
+	INT Value;
+	FVector Location;
+};
+
+struct FActorFlags
+{
+	AActor* Actor;
+	INT Flags;
+};
+
+enum EActorFlag
+{
+	AF_Pushed    = 1<<0,
+	AF_Stunned   = 1<<1,
+	AF_SpiderStun= 1<<2,
+	AF_Plant     = 1<<3,
+	AF_Ecto      = 1<<4,
+	AF_Peeves    = 1<<5,
+	AF_Rewarded  = 1<<6,
+	AF_Talked    = 1<<7,
+	AF_ImpStun   = 1<<8,
+};
+
+enum EMenu { MENU_None, MENU_Shop, MENU_Book };
+enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Trophies, BOOK_Status, BOOK_MAX };
+static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Trophies"), TEXT("Status") };
+
+enum EHouse { HOUSE_Gryffindor, HOUSE_Slytherin, HOUSE_Ravenclaw, HOUSE_Hufflepuff, HOUSE_MAX };
+static const TCHAR* GHouseNames[HOUSE_MAX] = { TEXT("Gryffindor"), TEXT("Slytherin"), TEXT("Ravenclaw"), TEXT("Hufflepuff") };
+static const TCHAR* GHouseGetters[HOUSE_MAX] = { TEXT("GetHPointsG"), TEXT("GetHPointsS"), TEXT("GetHPointsR"), TEXT("GetHPointsH") };
+static const TCHAR* GHouseItems[HOUSE_MAX] = { TEXT("StatusItemGryffindorPts"), TEXT("StatusItemSlytherinPts"), TEXT("StatusItemRavenclawPts"), TEXT("StatusItemHufflepuffPts") };
+static const TCHAR* GHouseCrests[HOUSE_MAX] =
+{
+	TEXT("HP2_Menu.Icons.HP2GriffindorCrestSM"), TEXT("HP2_Menu.Icons.HP2SlytherinCrestSM"),
+	TEXT("HP2_Menu.Icons.HP2RavenclawCrestSM"), TEXT("HP2_Menu.Icons.HP2HufflepuffCrestSM")
+};
+static const FColor GHouseColors[HOUSE_MAX] = { FColor(236,72,52,255), FColor(64,200,96,255), FColor(80,140,255,255), FColor(255,214,64,255) };
+
+// One entry in a vendor's offer list for the current day.
+enum EOfferKind { OFFER_Consumable, OFFER_Cosmetic, OFFER_Sell };
+struct FOffer
+{
+	INT Kind;
+	INT Id;
+	INT Tab;
+};
+
+// Preview framing for 3D tiles.
+enum EPreviewMode { PREV_Body, PREV_Head, PREV_Shoulder, PREV_Item };
 
 /*-----------------------------------------------------------------------------
 	The RPG layer.
@@ -412,68 +493,103 @@ public:
 	UBOOL bInitialized;
 	UBOOL bEnabled;
 	FRpgState State;
+	FRpgUi Ui;
+	INT BeanMultiplier;
 
 	// Level tracking.
 	ULevel* LastLevel;
 	APlayerPawn* LastHarry;
 	UBOOL bLoadedFromSlot;
+	INT LevelSerial;
+	FLOAT RpgClock;
+	FLOAT SecondTimer;
+	FLOAT TroubleTimer;
 
-	// Baselines for diff-based rewards (reset on level/pawn change).
+	// Baselines for diff-based rewards.
 	UBOOL bBaselineValid;
 	INT LastHouse[HOUSE_MAX];
 	INT LastCards;
 	INT LastStars;
 	INT LastSpells;
-	INT LastBeans;
 	INT PendingHouse[HOUSE_MAX];
 	FLOAT PendingHouseTimer[HOUSE_MAX];
 	FLOAT PollTimer;
-	TArray<AActor*> RewardedCreatures;
 	FLOAT HouseHudTimer;
+	INT QuidditchCountedLevel;
+	INT LuckyFeedBeans;
+	FLOAT LuckyFeedTimer;
+
+	// Per-level bookkeeping.
+	TArray<FActorFlags> ActorFlags;
+	TArray<FRpgDeferred> Deferred;
+	AActor* NearNpc;
+	INT NearVendor;
+	AActor* LastHitStudent;
+	FLOAT LastHitTime;
+	FLOAT LastCaughtTime;
+	FLOAT LastTalkTime;
 
 	// Feed.
 	TArray<FRpgFeed> Feed;
 
-	// Menu.
+	// Menu state.
 	INT Menu;
-	INT CharTab;
-	INT SkillRow;
-	INT WardrobeRow;
-	INT ShopCategory;
-	INT ShopRow;
-	FString MenuNotice;
-	FLOAT MenuNoticeTime;
+	INT BookTab;
+	INT Sel;
+	INT Scroll;
+	INT ShopTab;
+	INT WardrobeSlot;
+	INT ConfirmIndex;
+	FLOAT PreviewYaw;
+	FString Speech;
+	FString Notice;
+	FLOAT NoticeTime;
 	UBOOL bWePaused;
-	AActor* NearStudent;
+	AActor* ShopVendor;
+	INT ShopVendorDef;
+	TArray<FOffer> Offers;
 
-	// Student-hit bookkeeping.
-	AActor* LastHitStudent;
-	FLOAT LastHitTime;
-	FLOAT RpgClock;
+	// Watched names.
+	FName N_OnSpellHit, N_HandleFlipendo, N_HandleRictusempra, N_HandleDiffindo, N_HandleSkurge;
+	FName N_TakeDamage, N_PickupItem, N_ThrowCarrying, N_OnFound, N_PotionEnd, N_ChallengeScores;
+	FName N_DuelRanks, N_ComputeScore, N_DeltaHealth, N_BossDefeated, N_DestroyActor, N_LoseHead, N_KillMaim;
+	FName DeathStates[10];
+	INT NumDeathStates;
+	FName N_CaughtHarry;
 
 	// Wardrobe.
 	UTexture* HarryTex[4];
 	UPalette* OriginalPalette[4];
 	UMesh* HarryMesh;
+	FLOAT BaseDrawScale;
+	UMesh* CostumeApplied;
 	TArray<UPalette*> CustomPalettes;
 	INT CustomPaletteKeys[64];
 	TArray<BYTE> GlassesBackup[8];
 	UBOOL bGlassesHidden;
-	INT AppliedOutfit;
-	INT AppliedGlasses;
+	INT AppliedPalette[4];
 	AActor* HatActor;
 	INT HatActorKind;
+	AActor* PetActor;
+	INT PetActorKind;
+	AActor* AuraActor;
+	INT AuraActorKind;
 	AActor* HeldWeapon;
 	UMesh* HeldOriginalMesh;
 	FLOAT HeldOriginalScale;
-	UBOOL bWardrobeDirty;
-	FVector HatTweak;  // up, forward, side offsets added on top of the hat spec
+	INT FailedSpawn[RSLOT_MAX];
+	FVector HatTweak;
 	FLOAT HatScaleTweak;
+	FLOAT LastRunSpeed, LastAirSpeed, LastJump;
 
-	// UI.
-	UTexture* WhiteTex;
+	// Preview actors (hidden, render-only).
+	AActor* PreviewBody;
+	AActor* PreviewAttach;
+	AActor* PreviewItem;
+
+	// UI textures.
 	UTexture* Crests[HOUSE_MAX];
-	UBOOL bUiResolved;
+	UTexture* BeanIcon;
 
 	FHP2Rpg()
 	{
@@ -493,17 +609,64 @@ public:
 		UBOOL Value = 1;
 		if( GConfig->GetBool( TEXT("HP2Rpg"), TEXT("Enabled"), Value ) )
 			bEnabled = Value;
+		BeanMultiplier = 2;
+		INT ConfigMultiplier = 0;
+		if( GConfig->GetInt( TEXT("HP2Rpg"), TEXT("BeanMultiplier"), ConfigMultiplier ) )
+			BeanMultiplier = Clamp( ConfigMultiplier, 1, 5 );
 		State.Reset();
-		AppliedOutfit = -1;
-		AppliedGlasses = -1;
+		for( INT i=0; i<4; i++ )
+			AppliedPalette[i] = -1;
+		for( INT i=0; i<RSLOT_MAX; i++ )
+			FailedSpawn[i] = -1;
 		HatScaleTweak = 1.f;
-		Menu = MENU_None;
-		GHP2ScriptWatchNameIndex = FName(TEXT("OnSpellHit")).GetIndex();
+		ConfirmIndex = -1;
+		QuidditchCountedLevel = -1;
+		HatActorKind = PetActorKind = AuraActorKind = -1;
+
+		N_OnSpellHit = FName(TEXT("OnSpellHit"));
+		N_HandleFlipendo = FName(TEXT("HandleSpellFlipendo"));
+		N_HandleRictusempra = FName(TEXT("HandleSpellRictusempra"));
+		N_HandleDiffindo = FName(TEXT("HandleSpellDiffindo"));
+		N_HandleSkurge = FName(TEXT("HandleSpellSkurge"));
+		N_TakeDamage = FName(TEXT("TakeDamage"));
+		N_PickupItem = FName(TEXT("PickupItem"));
+		N_ThrowCarrying = FName(TEXT("ThrowCarryingActor"));
+		N_OnFound = FName(TEXT("OnFound"));
+		N_PotionEnd = FName(TEXT("DoPotionMixingEnd"));
+		N_ChallengeScores = FName(TEXT("UpdateChallengeScores"));
+		N_DuelRanks = FName(TEXT("UpdateDuelingRanks"));
+		N_ComputeScore = FName(TEXT("ComputeScore"));
+		N_DeltaHealth = FName(TEXT("DeltaHealth"));
+		N_BossDefeated = FName(TEXT("SendDefeatedTrigger"));
+		N_DestroyActor = FName(TEXT("DestroyActor"));
+		N_LoseHead = FName(TEXT("LoseHead"));
+		N_KillMaim = FName(TEXT("KillMaimDestroy"));
+		const FName Watched[] =
+		{
+			N_OnSpellHit, N_HandleFlipendo, N_HandleRictusempra, N_HandleDiffindo, N_HandleSkurge, N_TakeDamage,
+			N_PickupItem, N_ThrowCarrying, N_OnFound, N_PotionEnd, N_ChallengeScores, N_DuelRanks, N_ComputeScore,
+			N_DeltaHealth, N_BossDefeated, N_DestroyActor, N_LoseHead, N_KillMaim
+		};
+		for( INT i=0; i<ARRAY_COUNT(Watched); i++ )
+			HP2WatchScriptName( Watched[i].GetIndex() );
+
+		static const TCHAR* Deaths[] =
+		{
+			TEXT("stateDied"), TEXT("BlowUpAndDie"), TEXT("DeadSpider"), TEXT("OutForTheCount"), TEXT("KillDoxie"),
+			TEXT("stayFlipped"), TEXT("stateCrushSpider"), TEXT("FallOverLedge"), TEXT("Wilted"), TEXT("stateHiding")
+		};
+		NumDeathStates = ARRAY_COUNT(Deaths);
+		for( INT i=0; i<NumDeathStates; i++ )
+			DeathStates[i] = FName( Deaths[i] );
+		N_CaughtHarry = FName( TEXT("CaughtHarry") );
+
 		GHP2ScriptWatch = bEnabled ? &FHP2Rpg::StaticOnScriptCall : NULL;
-		debugf( NAME_Log, TEXT("HP2Rpg: %s"), bEnabled ? TEXT("enabled") : TEXT("disabled") );
+		GHP2StateWatch = bEnabled ? &FHP2Rpg::StaticOnStateChange : NULL;
+		RpgLog( TEXT("enabled=%i beans x%i"), bEnabled, BeanMultiplier );
 	}
 
-	static void StaticOnScriptCall( UObject* Self, UFunction* Function, BYTE* Locals );
+	static void StaticOnScriptCall( UObject* Self, UFunction* Function, BYTE* Locals, UObject* Caller );
+	static void StaticOnStateChange( UObject* Self, FName OldState, FName NewState );
 
 	APlayerPawn* GetHarry( UGameEngine* Engine )
 	{
@@ -520,9 +683,38 @@ public:
 		return Pawn;
 	}
 
+	APlayerPawn* CurrentHarry()
+	{
+		return LastHarry && !LastHarry->bDeleteMe ? LastHarry : NULL;
+	}
+
 	UObject* GetStatus( APlayerPawn* Harry )
 	{
 		return GetObjProp( Harry, TEXT("managerStatus") );
+	}
+
+	/*-------------------------------------------------------------------------
+		Actor flags (per level).
+	-------------------------------------------------------------------------*/
+
+	INT& FlagsFor( AActor* Actor )
+	{
+		for( INT i=0; i<ActorFlags.Num(); i++ )
+			if( ActorFlags(i).Actor==Actor )
+				return ActorFlags(i).Flags;
+		FActorFlags* Entry = new(ActorFlags) FActorFlags;
+		Entry->Actor = Actor;
+		Entry->Flags = 0;
+		return Entry->Flags;
+	}
+
+	UBOOL TestAndSet( AActor* Actor, INT Flag )
+	{
+		INT& F = FlagsFor( Actor );
+		if( F & Flag )
+			return 1;
+		F |= Flag;
+		return 0;
 	}
 
 	/*-------------------------------------------------------------------------
@@ -534,20 +726,50 @@ public:
 		return FString::Printf( TEXT("%s") PATH_SEPARATOR TEXT("Save%i.rpg"), *GSys->SaveSlotPath, Slot );
 	}
 
+	static FString IntList( const INT* Values, INT Num )
+	{
+		FString Out;
+		for( INT i=0; i<Num; i++ )
+			Out += FString::Printf( TEXT("%s%i"), i ? TEXT(",") : TEXT(""), Values[i] );
+		return Out;
+	}
+
+	static void ParseIntList( const TCHAR* Stream, const TCHAR* Key, INT* Values, INT Num )
+	{
+		const TCHAR* P = appStrfind( Stream, Key );
+		if( !P )
+			return;
+		P += appStrlen( Key );
+		for( INT i=0; i<Num; i++ )
+		{
+			Values[i] = appAtoi( P );
+			while( *P && *P!=',' && *P!=' ' && *P!='\r' && *P!='\n' )
+				P++;
+			if( *P!=',' )
+				break;
+			P++;
+		}
+	}
+
 	void SaveSlot( INT Slot )
 	{
 		FString Text = FString::Printf
 		(
-			TEXT("HP2RPG Version=1 Xp=%i Level=%i SkillPoints=%i Health=%i Speed=%i Jump=%i Luck=%i HealthBonus=%i Owned=%i Outfit=%i Hat=%i Glasses=%i Held=%i StudentsHit=%i\r\n"),
-			State.Xp, State.Level, State.SkillPoints,
-			State.Skill[SKILL_Health], State.Skill[SKILL_Speed], State.Skill[SKILL_Jump], State.Skill[SKILL_Luck],
-			State.AppliedHealthBonus, State.Owned,
-			State.Equip[RSLOT_Outfit], State.Equip[RSLOT_Hat], State.Equip[RSLOT_Glasses], State.Equip[RSLOT_Held],
-			State.StudentsHit
+			TEXT("HP2RPG Version=2 Xp=%i Level=%i SkillPoints=%i HealthBonus=%i Perks=%i CardRewards=%i Trouble=%i Detention=%i Day=%i Felix=%i StockDay=%i\r\n"),
+			State.Xp, State.Level, State.SkillPoints, State.AppliedHealthBonus, State.Perks, State.CardRewards,
+			State.Trouble, State.DetentionSeconds, State.Day, State.FelixSeconds, State.StockDay
 		);
+		Text += FString(TEXT("Skills=")) + IntList(State.Skill,SKILL_MAX) + TEXT("\r\n");
+		Text += FString(TEXT("Owned=")) + IntList(State.Owned,MAX_COSMETICS/32) + TEXT("\r\n");
+		Text += FString(TEXT("Equip=")) + IntList(State.Equip,RSLOT_MAX) + TEXT("\r\n");
+		Text += FString(TEXT("Kills=")) + IntList(State.Kills,CR_MAX) + TEXT("\r\n");
+		Text += FString(TEXT("Counters=")) + IntList(State.Counters,CNT_MAX) + TEXT("\r\n");
+		Text += FString(TEXT("Trophies=")) + IntList(State.TrophyTier,MAX_TROPHIES) + TEXT("\r\n");
+		Text += FString(TEXT("Mastered=")) + IntList(State.Mastered,MAX_MASTERED) + TEXT("\r\n");
+		Text += FString(TEXT("Stock=")) + IntList(State.StockUsed,VEN_MAX*CON_MAX) + TEXT("\r\n");
 		const FString Path = SidecarPath( Slot );
 		if( !appSaveStringToFile( Text, *Path ) )
-			debugf( NAME_Warning, TEXT("HP2Rpg: could not write %s"), *Path );
+			RpgLog( TEXT("could not write %s"), *Path );
 	}
 
 	void LoadSlot( INT Slot )
@@ -558,41 +780,153 @@ public:
 		if( appLoadFileToString( Text, *Path ) )
 		{
 			const TCHAR* S = *Text;
+			INT Version = 1;
+			Parse( S, TEXT("Version="), Version );
 			Parse( S, TEXT("Xp="), State.Xp );
 			Parse( S, TEXT("Level="), State.Level );
 			Parse( S, TEXT("SkillPoints="), State.SkillPoints );
-			Parse( S, TEXT("Health="), State.Skill[SKILL_Health] );
-			Parse( S, TEXT("Speed="), State.Skill[SKILL_Speed] );
-			Parse( S, TEXT("Jump="), State.Skill[SKILL_Jump] );
-			Parse( S, TEXT("Luck="), State.Skill[SKILL_Luck] );
 			Parse( S, TEXT("HealthBonus="), State.AppliedHealthBonus );
-			Parse( S, TEXT("Owned="), State.Owned );
-			Parse( S, TEXT("Outfit="), State.Equip[RSLOT_Outfit] );
-			Parse( S, TEXT("Hat="), State.Equip[RSLOT_Hat] );
-			Parse( S, TEXT("Glasses="), State.Equip[RSLOT_Glasses] );
-			Parse( S, TEXT("Held="), State.Equip[RSLOT_Held] );
-			Parse( S, TEXT("StudentsHit="), State.StudentsHit );
+			if( Version<2 )
+			{
+				// Version 1 stored skills by name and used other cosmetic ids.
+				Parse( S, TEXT("Health="), State.Skill[SKILL_Health] );
+				Parse( S, TEXT("Speed="), State.Skill[SKILL_Speed] );
+				Parse( S, TEXT("Jump="), State.Skill[SKILL_Jump] );
+				Parse( S, TEXT("Luck="), State.Skill[SKILL_Luck] );
+				INT OldOwned = 0, OldHat = 0;
+				Parse( S, TEXT("Owned="), OldOwned );
+				Parse( S, TEXT("Hat="), OldHat );
+				// v1 bit 5 was the Sorting Hat; carry it over.
+				if( OldOwned & (1<<5) )
+					SetOwned( FindCosmetic(TEXT("Sorting Hat")) );
+				if( OldHat==1 )
+					State.Equip[RSLOT_Hat] = FindCosmetic( TEXT("Sorting Hat") );
+			}
+			else
+			{
+				Parse( S, TEXT("Perks="), State.Perks );
+				Parse( S, TEXT("CardRewards="), State.CardRewards );
+				Parse( S, TEXT("Trouble="), State.Trouble );
+				Parse( S, TEXT("Detention="), State.DetentionSeconds );
+				Parse( S, TEXT("Day="), State.Day );
+				Parse( S, TEXT("Felix="), State.FelixSeconds );
+				Parse( S, TEXT("StockDay="), State.StockDay );
+				ParseIntList( S, TEXT("Skills="), State.Skill, SKILL_MAX );
+				ParseIntList( S, TEXT("Owned="), State.Owned, MAX_COSMETICS/32 );
+				ParseIntList( S, TEXT("Equip="), State.Equip, RSLOT_MAX );
+				ParseIntList( S, TEXT("Kills="), State.Kills, CR_MAX );
+				ParseIntList( S, TEXT("Counters="), State.Counters, CNT_MAX );
+				ParseIntList( S, TEXT("Trophies="), State.TrophyTier, MAX_TROPHIES );
+				ParseIntList( S, TEXT("Mastered="), State.Mastered, MAX_MASTERED );
+				ParseIntList( S, TEXT("Stock="), State.StockUsed, VEN_MAX*CON_MAX );
+			}
 		}
 		Sanitize();
-		bWardrobeDirty = 1;
+		MarkWardrobeDirty();
+		RpgLog( TEXT("loaded slot %i: level %i xp %i points %i"), Slot, State.Level, State.Xp, State.SkillPoints );
 	}
 
 	void Sanitize()
 	{
 		State.Level = Clamp( State.Level, 1, 99 );
 		State.Xp = Max( State.Xp, 0 );
-		State.SkillPoints = Clamp( State.SkillPoints, 0, 99 );
+		State.SkillPoints = Clamp( State.SkillPoints, 0, 199 );
+		State.Day = Max( State.Day, 1 );
+		State.Trouble = Clamp( State.Trouble, 0, 100 );
 		for( INT i=0; i<SKILL_MAX; i++ )
 			State.Skill[i] = Clamp( State.Skill[i], 0, (INT)SKILL_MAX_PIPS );
-		for( INT i=0; i<RSLOT_MAX; i++ )
-			if( State.Equip[i]<0 || State.Equip[i]>=GSlotCounts[i] || !IsOwned(i,State.Equip[i]) )
-				State.Equip[i] = 0;
+		for( INT s=0; s<RSLOT_MAX; s++ )
+		{
+			const INT Id = State.Equip[s];
+			if( Id<0 || Id>=GNumCosmetics || GCosmetics[Id].Slot!=s || !IsOwned(Id) )
+				State.Equip[s] = DefaultCosmetic( s );
+		}
 	}
 
-	UBOOL IsOwned( INT Slot, INT Option )
+	/*-------------------------------------------------------------------------
+		Cosmetics bookkeeping.
+	-------------------------------------------------------------------------*/
+
+	static INT FindCosmetic( const TCHAR* Name )
 	{
-		const INT Bit = GetSlotOptions(Slot)[Option].OwnBit;
-		return Bit<0 || (State.Owned & (1<<Bit))!=0;
+		for( INT i=0; i<GNumCosmetics; i++ )
+			if( appStricmp(GCosmetics[i].Name,Name)==0 )
+				return i;
+		return 0;
+	}
+
+	static INT DefaultCosmetic( INT Slot )
+	{
+		for( INT i=0; i<GNumCosmetics; i++ )
+			if( GCosmetics[i].Slot==Slot && GCosmetics[i].Price==0 )
+				return i;
+		return 0;
+	}
+
+	UBOOL IsOwned( INT Id )
+	{
+		if( Id<0 || Id>=GNumCosmetics )
+			return 0;
+		return GCosmetics[Id].Price==0 || (State.Owned[Id>>5] & (1<<(Id&31)))!=0;
+	}
+
+	void SetOwned( INT Id )
+	{
+		if( Id>=0 && Id<GNumCosmetics )
+			State.Owned[Id>>5] |= (1<<(Id&31));
+	}
+
+	INT CountOwnedCosmetics()
+	{
+		INT N = 0;
+		for( INT i=0; i<GNumCosmetics; i++ )
+			if( GCosmetics[i].Price>0 && IsOwned(i) )
+				N++;
+		return N;
+	}
+
+	/*-------------------------------------------------------------------------
+		Stats.
+	-------------------------------------------------------------------------*/
+
+	INT GetStat( INT Stat )
+	{
+		INT Total = 0;
+		for( INT s=0; s<RSLOT_MAX; s++ )
+		{
+			const FCosmetic& C = GCosmetics[State.Equip[s]];
+			if( C.Stat==Stat )
+				Total += C.StatValue;
+		}
+		for( INT r=0; r<GNumCardRewards; r++ )
+			if( (State.CardRewards & (1<<r)) && GCardRewards[r].Stat==Stat )
+				Total += GCardRewards[r].StatValue;
+		if( Stat==STAT_Discount )
+			Total += 2*State.Skill[SKILL_Luck];
+		if( Stat==STAT_BeanFind )
+			Total += 8*State.Skill[SKILL_Luck];
+		if( State.FelixSeconds>0 && (Stat==STAT_BeanFind || Stat==STAT_XpGain) )
+			Total += 100;
+		return Total;
+	}
+
+	FLOAT SpellPower()
+	{
+		return 1.f + GetStat(STAT_SpellPower)/100.f;
+	}
+
+	UBOOL HasPerk( INT Perk )
+	{
+		return (State.Perks & (1<<Perk))!=0;
+	}
+
+	INT CountPerks()
+	{
+		INT N = 0;
+		for( INT p=0; p<PERK_MAX; p++ )
+			if( HasPerk(p) )
+				N++;
+		return N;
 	}
 
 	/*-------------------------------------------------------------------------
@@ -610,13 +944,14 @@ public:
 	}
 
 	/*-------------------------------------------------------------------------
-		Experience.
+		Experience, beans, house points, trouble.
 	-------------------------------------------------------------------------*/
 
-	void GiveXp( INT Amount, const TCHAR* Reason, APlayerPawn* Harry )
+	void GiveXp( INT Amount, const TCHAR* Reason )
 	{
 		if( Amount<=0 )
 			return;
+		Amount = Amount*(100 + GetStat(STAT_XpGain))/100;
 		State.Xp += Amount;
 		AddFeed( FString::Printf(TEXT("+%i XP  %s"), Amount, Reason), FColor(170,220,255,255) );
 		while( State.Xp >= XpForNextLevel(State.Level) && State.Level<99 )
@@ -625,25 +960,65 @@ public:
 			State.Level++;
 			State.SkillPoints++;
 			AddFeed( FString::Printf(TEXT("Level %i!  +1 skill point (press K)"), State.Level), FColor(255,220,90,255) );
-			// A level up earns Gryffindor a few points, like a good lesson would.
-			AddHousePoints( Harry, HOUSE_Gryffindor, 5 );
+			Ui.Play( RSND_Reward, CurrentHarry() );
+			AddHousePoints( CurrentHarry(), HOUSE_Gryffindor, 5 );
 		}
+	}
+
+	void GiveBeans( APlayerPawn* Harry, INT Amount )
+	{
+		UObject* Status = GetStatus( Harry );
+		if( !Status || !Amount )
+			return;
+		FRpgArg Arg = FRpgArg::I( Amount );
+		CallScript( Status, TEXT("AddBeans"), &Arg, 1 );
+	}
+
+	INT GetBeans( APlayerPawn* Harry )
+	{
+		return CallInt( GetStatus(Harry), TEXT("GetBeanCount") );
 	}
 
 	void AddHousePoints( APlayerPawn* Harry, INT House, INT Points )
 	{
-		static const TCHAR* Items[HOUSE_MAX] =
-		{
-			TEXT("StatusItemGryffindorPts"), TEXT("StatusItemSlytherinPts"), TEXT("StatusItemRavenclawPts"), TEXT("StatusItemHufflepuffPts")
-		};
 		UObject* Status = GetStatus( Harry );
 		UClass* Group = FindClass( TEXT("StatusGroupHousePoints") );
-		UClass* Item = FindClass( Items[House] );
+		UClass* Item = FindClass( GHouseItems[House] );
 		if( !Status || !Group || !Item )
 			return;
 		FRpgArg Args[3] = { FRpgArg::O(Group), FRpgArg::O(Item), FRpgArg::I(Points) };
 		CallScript( Status, TEXT("IncrementCount"), Args, 3 );
 	}
+
+	void AddTrouble( INT Amount, const TCHAR* Reason )
+	{
+		const INT Before = State.Trouble;
+		State.Trouble = Clamp( State.Trouble + Amount, 0, 100 );
+		if( Amount>0 )
+			AddFeed( FString::Printf(TEXT("Trouble +%i  %s"), Amount, Reason), FColor(255,150,90,255) );
+		if( Before<70 && State.Trouble>=70 && State.Trouble<100 )
+			AddFeed( TEXT("Careful! A little more and it's detention."), FColor(255,110,80,255) );
+		if( State.Trouble>=100 )
+			GiveDetention();
+	}
+
+	void GiveDetention()
+	{
+		APlayerPawn* Harry = CurrentHarry();
+		State.Trouble = 40;
+		State.DetentionSeconds = 600;
+		State.Counters[CNT_Detentions]++;
+		AddHousePoints( Harry, HOUSE_Gryffindor, -20 );
+		const INT Fine = Min( 50, GetBeans(Harry) );
+		GiveBeans( Harry, -Fine );
+		AddFeed( FString::Printf(TEXT("Detention! -20 points, -%i beans. Vendors won't trade for 10 minutes."), Fine), FColor(255,90,70,255) );
+		Ui.Play( RSND_Deny, Harry );
+		RpgLog( TEXT("detention #%i"), State.Counters[CNT_Detentions] );
+	}
+
+	/*-------------------------------------------------------------------------
+		Polling rewards (house points, cards, stars, spells).
+	-------------------------------------------------------------------------*/
 
 	INT GetStatusCount( UObject* Status, const TCHAR* GroupName, const TCHAR* ItemName )
 	{
@@ -658,11 +1033,10 @@ public:
 		return GetIntProp( Ret.Obj, TEXT("nCount") );
 	}
 
-	INT CountCards( UObject* Status )
+	INT CountCards( UObject* Status, INT Kind )
 	{
-		return GetStatusCount( Status, TEXT("StatusGroupWizardCards"), TEXT("StatusItemBronzeCards") )
-			+ GetStatusCount( Status, TEXT("StatusGroupWizardCards"), TEXT("StatusItemSilverCards") )
-			+ GetStatusCount( Status, TEXT("StatusGroupWizardCards"), TEXT("StatusItemGoldCards") );
+		static const TCHAR* Items[3] = { TEXT("StatusItemBronzeCards"), TEXT("StatusItemSilverCards"), TEXT("StatusItemGoldCards") };
+		return GetStatusCount( Status, TEXT("StatusGroupWizardCards"), Items[Kind] );
 	}
 
 	INT CountSpells( APlayerPawn* Harry )
@@ -677,7 +1051,7 @@ public:
 		return Count;
 	}
 
-	void PollRewards( APlayerPawn* Harry, FLOAT DeltaSeconds )
+	void PollRewards( APlayerPawn* Harry )
 	{
 		UObject* Status = GetStatus( Harry );
 		if( !Status )
@@ -686,10 +1060,9 @@ public:
 		INT House[HOUSE_MAX];
 		for( INT i=0; i<HOUSE_MAX; i++ )
 			House[i] = CallInt( Status, GHouseGetters[i] );
-		const INT Cards = CountCards( Status );
+		const INT Cards = CountCards(Status,CARD_Bronze) + CountCards(Status,CARD_Silver) + CountCards(Status,CARD_Gold);
 		const INT Stars = GetStatusCount( Status, TEXT("StatusGroupStars"), TEXT("StatusItemStars") );
 		const INT Spells = CountSpells( Harry );
-		const INT Beans = CallInt( Status, TEXT("GetBeanCount") );
 
 		if( !bBaselineValid )
 		{
@@ -702,11 +1075,9 @@ public:
 			LastCards = Cards;
 			LastStars = Stars;
 			LastSpells = Spells;
-			LastBeans = Beans;
 			return;
 		}
 
-		// House points: merge bursts (challenge tallies) into one message.
 		for( INT i=0; i<HOUSE_MAX; i++ )
 		{
 			const INT Diff = House[i] - LastHouse[i];
@@ -716,42 +1087,25 @@ public:
 				PendingHouseTimer[i] = 0.f;
 				HouseHudTimer = 6.f;
 				if( i==HOUSE_Gryffindor && Diff>0 )
-					GiveXp( Diff/2, TEXT("house points"), Harry );
+				{
+					State.Counters[CNT_HousePoints] += Diff;
+					GiveXp( Diff/2, TEXT("house points") );
+				}
 			}
 			LastHouse[i] = House[i];
 		}
 
 		if( Cards > LastCards )
-			GiveXp( 25*(Cards-LastCards), TEXT("wizard card"), Harry );
+			GiveXp( 25*(Cards-LastCards), TEXT("wizard card") );
 		LastCards = Cards;
 
 		if( Stars > LastStars )
-			GiveXp( 5*(Stars-LastStars), TEXT("challenge star"), Harry );
+			GiveXp( 5*(Stars-LastStars), TEXT("challenge star") );
 		LastStars = Stars;
 
 		if( Spells > LastSpells )
-			GiveXp( 100*(Spells-LastSpells), TEXT("new spell learned"), Harry );
+			GiveXp( 100*(Spells-LastSpells), TEXT("new spell learned") );
 		LastSpells = Spells;
-
-		// Luck: bonus beans on pickup.
-		if( Beans > LastBeans && State.Skill[SKILL_Luck]>0 )
-		{
-			INT Bonus = 0;
-			for( INT i=0; i<Min(Beans-LastBeans,50); i++ )
-				if( RpgRand(100) < 8*State.Skill[SKILL_Luck] )
-					Bonus++;
-			if( Bonus )
-			{
-				FRpgArg Arg = FRpgArg::I( Bonus );
-				CallScript( Status, TEXT("AddBeans"), &Arg, 1 );
-				AddFeed( FString::Printf(TEXT("+%i lucky bean%s"), Bonus, Bonus==1 ? TEXT("") : TEXT("s")), FColor(140,255,140,255) );
-				LastBeans = CallInt( Status, TEXT("GetBeanCount") );
-			}
-			else
-				LastBeans = Beans;
-		}
-		else
-			LastBeans = Beans;
 	}
 
 	void FlushHouseFeed( FLOAT DeltaSeconds )
@@ -772,119 +1126,467 @@ public:
 		}
 	}
 
-	UBOOL IsDeathState( FName StateName )
+	/*-------------------------------------------------------------------------
+		Collections and trophies (checked once a second).
+	-------------------------------------------------------------------------*/
+
+	void CheckCardRewards( APlayerPawn* Harry )
 	{
-		static FName Names[6];
-		static UBOOL bInit = 0;
-		if( !bInit )
+		UObject* Status = GetStatus( Harry );
+		if( !Status )
+			return;
+		INT Owned[3];
+		for( INT k=0; k<3; k++ )
+			Owned[k] = CountCards( Status, k );
+		for( INT r=0; r<GNumCardRewards; r++ )
 		{
-			bInit = 1;
-			Names[0] = FName( TEXT("stateDied") );
-			Names[1] = FName( TEXT("BlowUpAndDie") );
-			Names[2] = FName( TEXT("DeadSpider") );
-			Names[3] = FName( TEXT("OutForTheCount") );
-			Names[4] = FName( TEXT("KillDoxie") );
-			Names[5] = FName( TEXT("stayFlipped") );
+			const FCardReward& R = GCardRewards[r];
+			if( (State.CardRewards & (1<<r)) || Owned[R.Kind] < R.Count )
+				continue;
+			State.CardRewards |= (1<<r);
+			State.SkillPoints += R.SkillPoints;
+			FString Bonus = R.Stat!=STAT_None ? FString::Printf( GStatFormat[R.Stat], R.StatValue ) : FString();
+			if( R.SkillPoints )
+				Bonus += FString::Printf( TEXT("%s+%i skill point%s"), Bonus.Len() ? TEXT(", ") : TEXT(""), R.SkillPoints, R.SkillPoints>1 ? TEXT("s") : TEXT("") );
+			AddFeed( FString::Printf(TEXT("Collection: %s!  %s"), R.Name, *Bonus), FColor(255,214,120,255) );
+			Ui.Play( RSND_Reward, Harry );
 		}
-		for( INT i=0; i<ARRAY_COUNT(Names); i++ )
-			if( StateName==Names[i] )
-				return 1;
+	}
+
+	INT CounterValue( APlayerPawn* Harry, INT Counter )
+	{
+		switch( Counter )
+		{
+			case CNT_Level: return State.Level;
+			case CNT_Cosmetics: return CountOwnedCosmetics();
+			case CNT_Perks: return CountPerks();
+			case CNT_Cards:
+			{
+				UObject* Status = GetStatus( Harry );
+				return CountCards(Status,CARD_Bronze) + CountCards(Status,CARD_Silver) + CountCards(Status,CARD_Gold);
+			}
+			default: return State.Counters[Counter];
+		}
+	}
+
+	void CheckTrophies( APlayerPawn* Harry )
+	{
+		for( INT t=0; t<GNumTrophies && t<MAX_TROPHIES; t++ )
+		{
+			const FTrophyDef& T = GTrophies[t];
+			const INT Value = CounterValue( Harry, T.Counter );
+			INT Tier = 0;
+			while( Tier<3 && Value>=T.Goals[Tier] )
+				Tier++;
+			while( State.TrophyTier[t] < Tier )
+			{
+				const INT Won = State.TrophyTier[t]++;
+				AddFeed( FString::Printf(TEXT("Trophy: %s (%s)!"), T.Name, GTrophyTierNames[Won]), GTrophyTierColors[Won] );
+				GiveXp( GTrophyXp[Won], TEXT("trophy") );
+				GiveBeans( Harry, GTrophyBeans[Won] );
+				Ui.Play( RSND_Reward, Harry );
+			}
+		}
+	}
+
+	/*-------------------------------------------------------------------------
+		Bestiary.
+	-------------------------------------------------------------------------*/
+
+	INT CreatureType( UObject* Obj )
+	{
+		if( !Obj )
+			return -1;
+		for( INT c=0; c<CR_MAX; c++ )
+			if( ClassChainIsAny(Obj,GCreatures[c].Classes) )
+				return c;
+		return -1;
+	}
+
+	INT BestiaryTier( INT Type )
+	{
+		INT Tier = 0;
+		while( Tier<3 && State.Kills[Type]>=GBestiaryTiers[Tier] )
+			Tier++;
+		return Tier;
+	}
+
+	void CreditKill( AActor* Creature, INT Type )
+	{
+		if( !Creature || Type<0 || TestAndSet(Creature,AF_Rewarded) )
+			return;
+		const INT OldTier = BestiaryTier( Type );
+		State.Kills[Type]++;
+		State.Counters[CNT_Creatures]++;
+		const INT Tier = BestiaryTier( Type );
+		INT Xp = GCreatures[Type].Xp;
+		if( Tier>=1 )
+			Xp += Xp/5;
+		GiveXp( Xp, *FString::Printf(TEXT("%s defeated"), GCreatures[Type].Name) );
+		if( Tier>OldTier )
+		{
+			static const TCHAR* TierText[3] =
+			{
+				TEXT("+20% XP from them"), TEXT("-15% damage from them"), TEXT("-30% damage, and they drop a bean")
+			};
+			AddFeed( FString::Printf(TEXT("Bestiary: %s rank %i!  %s"), GCreatures[Type].Name, Tier, TierText[Tier-1]), FColor(200,255,170,255) );
+		}
+		if( Tier>=3 )
+			QueueBeans( Creature->Location, 1 );
+	}
+
+	INT CreatureDamageReduction( UObject* Source )
+	{
+		if( !Source )
+			return 0;
+		INT Type = CreatureType( Source );
+		if( Type<0 && Source->IsA(AActor::StaticClass()) )
+			Type = CreatureType( ((AActor*)Source)->Owner );
+		if( Type<0 )
+			return 0;
+		const INT Tier = BestiaryTier( Type );
+		return Tier>=3 ? 30 : (Tier>=2 ? 15 : 0);
+	}
+
+	/*-------------------------------------------------------------------------
+		Deferred actions (never run inside a VM hook).
+	-------------------------------------------------------------------------*/
+
+	void QueueBeans( FVector Location, INT Count )
+	{
+		FRpgDeferred* D = new(Deferred) FRpgDeferred;
+		D->Kind = DEF_SpawnBeans;
+		D->Actor = NULL;
+		D->Value = Count;
+		D->Location = Location;
+	}
+
+	void QueueRedispatch( AActor* Target, INT SpellType )
+	{
+		FRpgDeferred* D = new(Deferred) FRpgDeferred;
+		D->Kind = DEF_RedispatchSpell;
+		D->Actor = Target;
+		D->Value = SpellType;
+		D->Location = Target->Location;
+	}
+
+	UBOOL IsLiveActor( UGameEngine* Engine, AActor* Actor )
+	{
+		if( !Actor )
+			return 0;
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+			if( Engine->GLevel->Actors(i)==Actor )
+				return !Actor->bDeleteMe;
 		return 0;
 	}
 
-	void PollCreatures( UGameEngine* Engine, APlayerPawn* Harry )
+	void RunDeferred( UGameEngine* Engine )
 	{
-		static UClass* HChar = NULL;
-		static UClass* Firecrab = NULL;
-		static UClass* SpiderLarge = NULL;
-		if( !HChar )
-		{
-			HChar = FindClass( TEXT("HChar") );
-			Firecrab = FindClass( TEXT("firecrab") );
-			SpiderLarge = FindClass( TEXT("SpiderLarge") );
-		}
-		if( !HChar )
+		if( !Deferred.Num() )
 			return;
-		NearStudent = NULL;
-		FLOAT NearestDist = 170.f;
-		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		TArray<FRpgDeferred> Work = Deferred;
+		Deferred.Empty();
+		static UClass* BeanClass = NULL;
+		if( !BeanClass )
+			BeanClass = FindClass( TEXT("Jellybean") );
+		for( INT i=0; i<Work.Num(); i++ )
 		{
-			AActor* Actor = Engine->GLevel->Actors(i);
-			if( !Actor || Actor->bDeleteMe || Actor==Harry || !Actor->IsA(HChar) )
-				continue;
-			if( IsStudent(Actor) || IsVendor(Actor) )
+			const FRpgDeferred& D = Work(i);
+			if( D.Kind==DEF_SpawnBeans && BeanClass )
 			{
-				if( !Actor->bHidden )
+				for( INT b=0; b<D.Value; b++ )
 				{
-					const FLOAT Dist = (Actor->Location - Harry->Location).Size();
-					if( Dist < NearestDist )
+					AActor* Bean = Engine->GLevel->SpawnActor( BeanClass, NAME_None, NULL, NULL, D.Location + FVector(0,0,25), FRotator(0,0,0), NULL, 1 );
+					if( Bean )
 					{
-						NearestDist = Dist;
-						NearStudent = Actor;
+						Bean->Velocity = FVector( RpgRand(160)-80.f, RpgRand(160)-80.f, 180.f + RpgRand(80) );
+						FRpgArg Phys = FRpgArg::I( PHYS_Falling );
+						if( !CallScript( Bean, TEXT("SetPhysics"), &Phys, 1 ) )
+							Bean->Physics = PHYS_Falling;
 					}
 				}
-				continue;
 			}
-			if( !IsDeathState(GetStateName(Actor)) || RewardedCreatures.FindItemIndex(Actor)!=INDEX_NONE )
-				continue;
-			RewardedCreatures.AddItem( Actor );
-			if( Firecrab && Actor->IsA(Firecrab) )
-				GiveXp( 10, TEXT("fire crab flipped"), Harry );
-			else if( SpiderLarge && Actor->IsA(SpiderLarge) )
-				GiveXp( 40, TEXT("creature defeated"), Harry );
-			else
-				GiveXp( 20, TEXT("creature defeated"), Harry );
+			else if( D.Kind==DEF_RedispatchSpell && IsLiveActor(Engine,D.Actor) )
+			{
+				FRpgArg Args[2] = { FRpgArg::I(D.Value), FRpgArg::V(D.Location) };
+				CallScript( D.Actor, TEXT("CallHandleSpellBySpellType"), Args, 2 );
+			}
 		}
 	}
+
+	/*-------------------------------------------------------------------------
+		NPC classification.
+	-------------------------------------------------------------------------*/
 
 	UBOOL IsStudent( AActor* Actor )
 	{
-		static UClass* Classes[4];
-		static UBOOL bInit = 0;
-		if( !bInit )
-		{
-			bInit = 1;
-			Classes[0] = FindClass( TEXT("GFemGry1") );
-			Classes[1] = FindClass( TEXT("GOldMaleGry1") );
-			Classes[2] = FindClass( TEXT("GenMale1") );
-			Classes[3] = FindClass( TEXT("GenMale2") );
-		}
-		for( INT i=0; i<ARRAY_COUNT(Classes); i++ )
-			if( Classes[i] && Actor->IsA(Classes[i]) )
-				return 1;
-		return 0;
+		return ClassChainIsAny( Actor, TEXT("GFemGry1|GOldMaleGry1|GenMale1|GenMale2") );
 	}
 
-	UBOOL IsVendor( AActor* Actor )
+	UBOOL IsHolding( AActor* Actor )
 	{
-		static UClass* Classes[2];
-		static UBOOL bInit = 0;
-		if( !bInit )
-		{
-			bInit = 1;
-			Classes[0] = FindClass( TEXT("FredWeasley") );
-			Classes[1] = FindClass( TEXT("GeorgeWeasley") );
-		}
-		for( INT i=0; i<ARRAY_COUNT(Classes); i++ )
-			if( Classes[i] && Actor->IsA(Classes[i]) )
-				return 1;
-		return 0;
+		// Cutscene casts wait in a "PeopleRm" group; they never trade.
+		const TCHAR* G = *Actor->Group;
+		return appStrfind(G,TEXT("PeopleRm")) || appStrfind(G,TEXT("peoplerm")) || appStrfind(G,TEXT("PEOPLERM"));
 	}
 
-	void OnScriptCall( UObject* Self, UFunction* Function, BYTE* Locals )
+	INT StudentHouse( AActor* Actor )
+	{
+		const TCHAR* N = Actor->GetClass()->GetName();
+		if( appStrfind(N,TEXT("Sly")) ) return HOUSE_Slytherin;
+		if( appStrfind(N,TEXT("Rav")) ) return HOUSE_Ravenclaw;
+		if( appStrfind(N,TEXT("Huf")) ) return HOUSE_Hufflepuff;
+		return HOUSE_Gryffindor;
+	}
+
+	// Which vendor (if any) this actor is, given the current story state.
+	INT VendorFor( AActor* Actor )
+	{
+		if( !Actor || Actor->bHidden || !Actor->bInCurrentGameState || IsHolding(Actor) )
+			return -1;
+		for( INT v=0; v<VEN_StudentGryffindor; v++ )
+			if( GVendors[v].ClassName && ClassChainIs(Actor,GVendors[v].ClassName) )
+				return v;
+		if( ClassChainIs(Actor,TEXT("GeorgeWeasley")) )
+			return VEN_Weasleys;
+		// Only the students the game itself made traders sell anything.
+		if( IsStudent(Actor) )
+		{
+			const INT Sells = GetByteProp( Actor, TEXT("CharacterSells"), 7 );
+			if( Sells>=2 && Sells<=5 )
+				return VEN_StudentGryffindor + StudentHouse( Actor );
+		}
+		return -1;
+	}
+
+	FString NpcName( AActor* Actor )
+	{
+		const INT V = VendorFor( Actor );
+		if( V>=0 && V<VEN_StudentGryffindor )
+			return GVendors[V].Name;
+		if( IsStudent(Actor) )
+			return FString::Printf( TEXT("%s student"), GHouseNames[StudentHouse(Actor)] );
+		return Actor->GetClass()->GetName();
+	}
+
+	void PollNearby( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		static UClass* HChar = NULL;
+		if( !HChar )
+			HChar = FindClass( TEXT("HChar") );
+		NearNpc = NULL;
+		NearVendor = -1;
+		if( !HChar )
+			return;
+		FLOAT Nearest = 170.f;
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AActor* Actor = Engine->GLevel->Actors(i);
+			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden || !Actor->IsA(HChar) )
+				continue;
+			const INT Vendor = VendorFor( Actor );
+			if( Vendor<0 && !(IsStudent(Actor) && Actor->bInCurrentGameState && !IsHolding(Actor)) )
+				continue;
+			const FLOAT Dist = (Actor->Location - Harry->Location).Size();
+			if( Dist < Nearest )
+			{
+				Nearest = Dist;
+				NearNpc = Actor;
+				NearVendor = Vendor;
+			}
+		}
+	}
+
+	/*-------------------------------------------------------------------------
+		VM hooks.
+	-------------------------------------------------------------------------*/
+
+	void OnScriptCall( UObject* Self, UFunction* Function, BYTE* Locals, UObject* Caller )
+	{
+		if( !bEnabled )
+			return;
+		APlayerPawn* Harry = CurrentHarry();
+		const FName Name = Function->GetFName();
+
+		if( Name==N_HandleFlipendo || Name==N_HandleRictusempra || Name==N_HandleDiffindo || Name==N_HandleSkurge )
+		{
+			// Only the most-derived handler acts, so Super chains don't stack perks.
+			if( !Self->IsA(AActor::StaticClass()) || Self->FindFunction(Name)!=Function )
+				return;
+			AActor* Spell = (AActor*)ParmObj( Function, Locals, 0 );
+			if( !Spell || !Harry || Spell->Owner!=Harry )
+				return; // re-dispatches and other casters pass a None or foreign spell
+			OnHarrySpellHit( (AActor*)Self, Name, Spell );
+			return;
+		}
+		if( Name==N_OnSpellHit )
+		{
+			OnSpellHitPawn( Self, Function, Locals );
+			return;
+		}
+		if( Name==N_TakeDamage )
+		{
+			// State versions call Global.TakeDamage; act only in the class one.
+			if( !Harry || Self!=Harry || appStricmp(Function->GetOuter()->GetName(),TEXT("harry"))!=0 )
+				return;
+			INT* Damage = ParmIntPtr( Function, Locals, 0 );
+			const FName Type = ParmName( Function, Locals, 4 );
+			if( !Damage || *Damage<=0 )
+				return;
+			const TCHAR* T = *Type;
+			if( appStricmp(T,TEXT("ZonePain"))==0 || appStricmp(T,TEXT("pit"))==0 || appStricmp(T,TEXT("Crushed"))==0 || appStricmp(T,TEXT("Falling"))==0 )
+				return;
+			const INT Pct = Min( 60, GetStat(STAT_DamageReduce) + CreatureDamageReduction(Caller) );
+			if( Pct>0 )
+				*Damage = Max( 1, appRound(*Damage*(100-Pct)/100.f) );
+			return;
+		}
+		if( Name==N_PickupItem )
+		{
+			UObject* Prop = ParmObj( Function, Locals, 0 );
+			if( !Prop || !ClassChainIs(Prop,TEXT("Jellybean")) )
+				return;
+			const INT Base = Max( 1, GetIntProp(Prop,TEXT("nPickupIncrement"),1) );
+			INT Total = Base*BeanMultiplier;
+			const INT Chance = GetStat( STAT_BeanFind );
+			INT Bonus = 0;
+			for( INT i=0; i<Base; i++ )
+				if( RpgRand(100) < Chance )
+					Bonus += Chance>100 ? 2 : 1;
+			Total += Bonus;
+			SetIntProp( Prop, TEXT("nPickupIncrement"), Total );
+			State.Counters[CNT_Beans] += Total;
+			if( Bonus )
+			{
+				LuckyFeedBeans += Bonus;
+				LuckyFeedTimer = 0.f;
+			}
+			return;
+		}
+		if( Name==N_ThrowCarrying )
+		{
+			if( Harry && Self==Harry && ClassChainIs(GetObjProp(Self,TEXT("CarryingActor")),TEXT("GNOME")) )
+				State.Counters[CNT_Gnomes]++;
+			return;
+		}
+		if( Name==N_OnFound )
+		{
+			if( ClassChainIs(Self,TEXT("SecretAreaMarker")) && !GetBoolProp(Self,TEXT("bFound")) )
+			{
+				State.Counters[CNT_Secrets]++;
+				GiveXp( 30, TEXT("secret found") );
+			}
+			return;
+		}
+		if( Name==N_PotionEnd )
+		{
+			if( Harry && Self==Harry )
+			{
+				State.Counters[CNT_Potions]++;
+				GiveXp( 40, TEXT("potion brewed") );
+			}
+			return;
+		}
+		if( Name==N_ChallengeScores )
+		{
+			const FString* Url = ParmStr( Function, Locals, 0 );
+			INT* High = ParmIntPtr( Function, Locals, 1 );
+			INT* MaxScore = ParmIntPtr( Function, Locals, 2 );
+			if( Url && High && MaxScore && *MaxScore>0 && *High>=*MaxScore )
+			{
+				const INT H = (INT)(HashString(**Url) & 0x7fffffff) | 1;
+				INT Slot = -1;
+				for( INT i=0; i<MAX_MASTERED; i++ )
+				{
+					if( State.Mastered[i]==H )
+						return;
+					if( !State.Mastered[i] && Slot<0 )
+						Slot = i;
+				}
+				if( Slot>=0 )
+				{
+					State.Mastered[Slot] = H;
+					State.Counters[CNT_Mastered]++;
+					GiveXp( 150, TEXT("challenge mastered") );
+				}
+			}
+			return;
+		}
+		if( Name==N_DuelRanks )
+		{
+			if( Harry && Self==Harry && ParmBool(Function,Locals,0) )
+			{
+				State.Counters[CNT_Duels]++;
+				GiveXp( 75, TEXT("duel won") );
+			}
+			return;
+		}
+		if( Name==N_ComputeScore )
+		{
+			if( ClassChainIs(Self,TEXT("QuidditchDirector")) && GetBoolProp(Self,TEXT("bGryffWon")) && QuidditchCountedLevel!=LevelSerial )
+			{
+				QuidditchCountedLevel = LevelSerial;
+				State.Counters[CNT_Quidditch]++;
+				GiveXp( 150, TEXT("Quidditch match won") );
+			}
+			return;
+		}
+		if( Name==N_DeltaHealth )
+		{
+			if( HasPerk(PERK_Duelist) && ClassChainIs(Self,TEXT("Duellist")) )
+			{
+				FLOAT* Charge = ParmFloatPtr( Function, Locals, 2 );
+				if( Charge )
+					*Charge *= ParmBool(Function,Locals,0) ? 0.7f : 1.4f;
+			}
+			return;
+		}
+		if( Name==N_BossDefeated )
+		{
+			if( ClassChainIs(Self,TEXT("baseBoss")) && Self->IsA(AActor::StaticClass()) )
+				CreditKill( (AActor*)Self, CR_Boss );
+			return;
+		}
+		if( Name==N_DestroyActor || Name==N_LoseHead || Name==N_KillMaim )
+		{
+			if( !Self->IsA(AActor::StaticClass()) )
+				return;
+			const INT Type = CreatureType( Self );
+			if( Type==CR_Bowtruckle || Type==CR_Horklump || Type==CR_SpikyPlant )
+				CreditKill( (AActor*)Self, Type );
+			return;
+		}
+	}
+
+	void OnStateChange( UObject* Self, FName OldState, FName NewState )
+	{
+		if( !bEnabled || !Self->IsA(AActor::StaticClass()) )
+			return;
+		if( NewState==N_CaughtHarry )
+		{
+			if( RpgClock-LastCaughtTime > 10.f )
+			{
+				LastCaughtTime = RpgClock;
+				AddTrouble( 30, TEXT("caught out of bounds") );
+			}
+			return;
+		}
+		for( INT i=0; i<NumDeathStates; i++ )
+			if( NewState==DeathStates[i] )
+			{
+				const INT Type = CreatureType( Self );
+				if( Type>=0 && Type!=CR_Boss )
+					CreditKill( (AActor*)Self, Type );
+				return;
+			}
+	}
+
+	void OnSpellHitPawn( UObject* Self, UFunction* Function, BYTE* Locals )
 	{
 		// OnSpellHit( optional baseSpell spell, optional vector vHitLocation ) on the victim.
-		if( !bEnabled || !Self->IsA(AActor::StaticClass()) || !IsStudent((AActor*)Self) )
+		if( !Self->IsA(AActor::StaticClass()) || !IsStudent((AActor*)Self) )
 			return;
-		UObjectProperty* SpellParm = NULL;
-		for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & CPF_Parm); ++It )
-		{
-			SpellParm = Cast<UObjectProperty>( *It );
-			break;
-		}
-		if( !SpellParm )
-			return;
-		AActor* Spell = *(AActor**)(Locals + SpellParm->Offset);
+		AActor* Spell = (AActor*)ParmObj( Function, Locals, 0 );
 		AActor* Caster = Spell ? Spell->Owner : NULL;
 		if( !Caster || !Caster->IsA(APlayerPawn::StaticClass()) )
 			return;
@@ -892,19 +1594,163 @@ public:
 			return;
 		LastHitStudent = (AActor*)Self;
 		LastHitTime = RpgClock;
-		State.StudentsHit++;
+		State.Counters[CNT_Students]++;
 		AddHousePoints( (APlayerPawn*)Caster, HOUSE_Gryffindor, -5 );
+		AddTrouble( 12, TEXT("hexing a student") );
+	}
+
+	void ScaleOnce( AActor* A, INT Flag, const TCHAR* Prop, FLOAT Factor )
+	{
+		if( TestAndSet(A,Flag) )
+			return;
+		const FLOAT V = GetFloatProp( A, Prop, -1.f );
+		if( V>0.f )
+			SetFloatProp( A, Prop, V*Factor );
+	}
+
+	void DecrementInt( AActor* A, const TCHAR* Prop, INT Floor )
+	{
+		const INT V = GetIntProp( A, Prop, -1000 );
+		if( V>Floor )
+			SetIntProp( A, Prop, V-1 );
+	}
+
+	void OnHarrySpellHit( AActor* Target, FName Spell, AActor* SpellActor )
+	{
+		const FLOAT K = SpellPower();
+		const INT Type = CreatureType( Target );
+
+		if( Spell==N_HandleFlipendo )
+		{
+			if( IsStudent(Target) )
+			{
+				// Students go flying. Bully.
+				const FLOAT Boost = HasPerk(PERK_PowerPush) ? 1.5f : 1.f;
+				SetBoolProp( Target, TEXT("bFlipPushable"), 1 );
+				SetFloatProp( Target, TEXT("fFlipPushForceXY"), 420.f*Boost*K );
+				SetFloatProp( Target, TEXT("fFlipPushForceZ"), 620.f*Boost*K );
+				return;
+			}
+			if( Type<0 )
+				return;
+			if( HasPerk(PERK_PowerPush) && !TestAndSet(Target,AF_Pushed) )
+			{
+				const FLOAT XY = GetFloatProp( Target, TEXT("fFlipPushForceXY"), -1.f );
+				const FLOAT Z = GetFloatProp( Target, TEXT("fFlipPushForceZ"), -1.f );
+				if( XY>0.f ) SetFloatProp( Target, TEXT("fFlipPushForceXY"), XY*1.6f*K );
+				if( Z>0.f )  SetFloatProp( Target, TEXT("fFlipPushForceZ"), Z*1.4f*K );
+			}
+			if( HasPerk(PERK_DoubleImpact) )
+			{
+				if( Type==CR_Gnome )
+					DecrementInt( Target, TEXT("Lives"), 1 );
+				else if( Type==CR_Doxy )
+				{
+					const FLOAT S = GetFloatProp( Target, TEXT("strength"), 0.f );
+					if( S>1.f )
+						SetFloatProp( Target, TEXT("strength"), S-1.f );
+				}
+				else if( Type==CR_Imp )
+					ScaleOnce( Target, AF_ImpStun, TEXT("timeStunned"), 1.5f*K );
+			}
+			if( HasPerk(PERK_BeanShaker) && RpgRand(100) < 30 )
+				QueueBeans( Target->Location, 1 + RpgRand(2) );
+			return;
+		}
+
+		if( Spell==N_HandleRictusempra )
+		{
+			if( Type<0 )
+				return;
+			if( HasPerk(PERK_StunningSmile) )
+			{
+				if( Type==CR_Pixie || Type==CR_Imp )
+					ScaleOnce( Target, AF_Stunned, TEXT("timeStunned"), 1.6f*K );
+				else if( Type==CR_SpiderLarge )
+					ScaleOnce( Target, AF_SpiderStun, TEXT("timeStunnedWhenHit"), 1.5f*K );
+			}
+			if( HasPerk(PERK_DoubleTickle) )
+			{
+				if( Type==CR_SpiderLarge )
+					DecrementInt( Target, TEXT("numSpells"), 1 );
+				else if( Type==CR_FireCrab )
+					DecrementInt( Target, TEXT("iNumSpellHitsToFlip"), 1 );
+			}
+			if( HasPerk(PERK_Splash) && Target->XLevel )
+			{
+				INT Count = 0;
+				for( INT i=0; i<Target->XLevel->Actors.Num() && Count<3; i++ )
+				{
+					AActor* Other = Target->XLevel->Actors(i);
+					if( !Other || Other==Target || Other->bDeleteMe || Other->GetClass()!=Target->GetClass() )
+						continue;
+					if( (Other->Location-Target->Location).SizeSquared() > 230.f*230.f )
+						continue;
+					QueueRedispatch( Other, 22 );
+					Count++;
+				}
+			}
+			return;
+		}
+
+		if( Spell==N_HandleDiffindo )
+		{
+			if( HasPerk(PERK_SharpCut) )
+			{
+				if( Type==CR_SpikyPlant )
+					ScaleOnce( Target, AF_Plant, TEXT("durationNoSpikes"), 2.f*K );
+				else if( Type==CR_Tentacula )
+					DecrementInt( Target, TEXT("NumLimbs"), 1 );
+			}
+			if( HasPerk(PERK_Harvest) && (Type==CR_Bowtruckle || Type==CR_SpikyPlant || Type==CR_Tentacula || Type==CR_Horklump) )
+				QueueBeans( Target->Location, 2 );
+			return;
+		}
+
+		if( Spell==N_HandleSkurge )
+		{
+			if( HasPerk(PERK_DeepClean) && Type==CR_Ectoplasm )
+				ScaleOnce( Target, AF_Ecto, TEXT("fShrinkTime"), 2.f*K );
+			if( HasPerk(PERK_Ghostbuster) && ClassChainIs(Target,TEXT("Peeves")) && !TestAndSet(Target,AF_Peeves) )
+			{
+				const INT D = GetIntProp( Target, TEXT("HitDamage"), 0 );
+				if( D>0 )
+					SetIntProp( Target, TEXT("HitDamage"), appRound(D*2.f*K) );
+			}
+			return;
+		}
 	}
 
 	/*-------------------------------------------------------------------------
-		Skills.
+		Skills and wand perks.
 	-------------------------------------------------------------------------*/
+
+	static UBOOL Near( FLOAT A, FLOAT B ) { return Abs(A-B) < 0.01f; }
+
+	// Applies a multiplier to a float property, but only while the game uses
+	// the stock value or the value we set earlier, so game effects (webs,
+	// sleepiness, boss fights) keep working.
+	void ApplyScaled( APlayerPawn* Harry, UObject* Defaults, const TCHAR* Prop, FLOAT Factor, FLOAT* LastSet )
+	{
+		const FLOAT Base = GetFloatProp( Defaults, Prop, 0.f );
+		const FLOAT Cur = GetFloatProp( Harry, Prop, 0.f );
+		if( Base<=0.f )
+			return;
+		const FLOAT Want = Base*Factor;
+		if( Near(Cur,Want) )
+			return;
+		if( Near(Cur,Base) || (LastSet && Near(Cur,*LastSet)) )
+		{
+			SetFloatProp( Harry, Prop, Want );
+			if( LastSet )
+				*LastSet = Want;
+		}
+	}
 
 	void ApplySkills( APlayerPawn* Harry )
 	{
-		APawn* Defaults = (APawn*)Harry->GetClass()->GetDefaultObject();
+		UObject* Defaults = Harry->GetClass()->GetDefaultObject();
 
-		// Health: +100 health potential (one HUD bar) per point.
 		const INT DesiredBonus = 100*State.Skill[SKILL_Health];
 		if( DesiredBonus!=State.AppliedHealthBonus && !GetBoolProp(Harry,TEXT("bInDuelingMode")) )
 		{
@@ -917,44 +1763,32 @@ public:
 			}
 		}
 
-		// Speed: scale run speed only while the game is using the stock value,
-		// so web/sleepy/sword effects keep working.
-		const FLOAT BaseRun = Defaults->GroundRunSpeed;
-		const FLOAT WantRun = BaseRun*(1.f + 0.08f*State.Skill[SKILL_Speed]);
-		if( Harry->GroundRunSpeed!=WantRun && (Harry->GroundRunSpeed==BaseRun || IsScaled(Harry->GroundRunSpeed,BaseRun)) )
-		{
-			if( Harry->GroundSpeed==Harry->GroundRunSpeed )
-				Harry->GroundSpeed = WantRun;
-			Harry->GroundRunSpeed = WantRun;
-		}
-		const FLOAT BaseAir = GetFloatProp( Defaults, TEXT("GroundJumpSpeed"), 0.f );
-		const FLOAT CurAir = GetFloatProp( Harry, TEXT("GroundJumpSpeed"), 0.f );
-		const FLOAT WantAir = BaseAir*(1.f + 0.08f*State.Skill[SKILL_Speed]);
-		if( BaseAir>0.f && CurAir!=WantAir && (CurAir==BaseAir || IsScaled(CurAir,BaseAir)) )
-			SetFloatProp( Harry, TEXT("GroundJumpSpeed"), WantAir );
+		const FLOAT Speed = 1.f + 0.08f*State.Skill[SKILL_Speed] + GetStat(STAT_Speed)/100.f;
+		const FLOAT Jump = 1.f + 0.10f*State.Skill[SKILL_Jump] + GetStat(STAT_Jump)/100.f;
+		const FLOAT OldRun = Harry->GroundRunSpeed;
+		ApplyScaled( Harry, Defaults, TEXT("GroundRunSpeed"), Speed, &LastRunSpeed );
+		if( Harry->GroundRunSpeed!=OldRun && Near(Harry->GroundSpeed,OldRun) )
+			Harry->GroundSpeed = Harry->GroundRunSpeed;
+		ApplyScaled( Harry, Defaults, TEXT("GroundJumpSpeed"), Speed, &LastAirSpeed );
+		ApplyScaled( Harry, Defaults, TEXT("JumpZ"), Jump, &LastJump );
 
-		// Jump.
-		const FLOAT BaseJump = Defaults->JumpZ;
-		const FLOAT WantJump = BaseJump*(1.f + 0.10f*State.Skill[SKILL_Jump]);
-		if( Harry->JumpZ!=WantJump && (Harry->JumpZ==BaseJump || IsScaled(Harry->JumpZ,BaseJump)) )
-			Harry->JumpZ = WantJump;
-	}
-
-	// True when Value is Base scaled by one of our own skill multipliers.
-	static UBOOL IsScaled( FLOAT Value, FLOAT Base )
-	{
-		for( INT Pips=1; Pips<=SKILL_MAX_PIPS; Pips++ )
+		if( HasPerk(PERK_QuickWand) )
+			SetBoolProp( Harry, TEXT("bCastFastSpells"), 1 );
+		if( HasPerk(PERK_FarSight) )
 		{
-			if( Abs(Value - Base*(1.f+0.08f*Pips)) < 0.01f )
-				return 1;
-			if( Abs(Value - Base*(1.f+0.10f*Pips)) < 0.01f )
-				return 1;
+			UObject* Cursor = GetObjProp( Harry, TEXT("SpellCursor") );
+			if( Cursor )
+			{
+				UObject* CursorDefaults = Cursor->GetClass()->GetDefaultObject();
+				const FLOAT Base = GetFloatProp( CursorDefaults, TEXT("fLOS_Distance"), 0.f );
+				if( Base>0.f && Near(GetFloatProp(Cursor,TEXT("fLOS_Distance")),Base) )
+					SetFloatProp( Cursor, TEXT("fLOS_Distance"), Base*1.5f );
+			}
 		}
-		return 0;
 	}
 
 	/*-------------------------------------------------------------------------
-		Wardrobe.
+		Wardrobe: Harry's textures and palettes.
 	-------------------------------------------------------------------------*/
 
 	UBOOL ResolveHarryAssets( APlayerPawn* Harry )
@@ -965,20 +1799,27 @@ public:
 				HarryMesh = Harry->Mesh;
 			else
 				HarryMesh = (UMesh*)UObject::StaticFindObject( UMesh::StaticClass(), ANY_PACKAGE, TEXT("skharryMesh") );
+			if( HarryMesh )
+			{
+				HarryMesh->AddToRoot();
+				BaseDrawScale = ((AActor*)Harry->GetClass()->GetDefaultObject())->DrawScale;
+				if( BaseDrawScale<=0.f )
+					BaseDrawScale = 1.f;
+			}
 		}
 		static const TCHAR* Names[4] = { TEXT("skharryTex0"), TEXT("skharryTex1"), TEXT("skharryTex2"), TEXT("skharryTex3") };
 		for( INT i=0; i<4; i++ )
 			if( !HarryTex[i] )
 			{
-				HarryTex[i] = FindTexture( TEXT("HPModels"), Names[i] );
+				HarryTex[i] = LoadTex( *FString::Printf(TEXT("HPModels.Skins.%s"), Names[i]) );
 				if( HarryTex[i] )
 				{
-					// Keep everything we hold across LoadMap's garbage collection.
-					HarryTex[i]->AddToRoot();
 					OriginalPalette[i] = HarryTex[i]->Palette;
 					if( OriginalPalette[i] )
 						OriginalPalette[i]->AddToRoot();
 				}
+				else
+					RpgLog( TEXT("missing texture %s"), Names[i] );
 			}
 		return HarryMesh && HarryTex[0] && HarryTex[1] && HarryTex[2] && HarryTex[3];
 	}
@@ -1023,36 +1864,37 @@ public:
 		return (BYTE)Clamp( appRound(F*255.f), 0, 255 );
 	}
 
-	// Variant keys: 1..4 house recolors, 5 sepia, 10+n glasses frame colors.
+	// Variant keys: PV_* for robes/body/face, 10+n for glasses frame colours.
 	UPalette* GetPalette( INT TexIndex, INT Variant )
 	{
+		if( Variant<=0 )
+			return OriginalPalette[TexIndex];
 		const INT Key = TexIndex*100 + Variant;
 		for( INT i=0; i<CustomPalettes.Num(); i++ )
 			if( CustomPaletteKeys[i]==Key )
 				return CustomPalettes(i);
 		UPalette* Source = OriginalPalette[TexIndex];
 		if( !Source || CustomPalettes.Num()>=ARRAY_COUNT(CustomPaletteKeys) )
-			return NULL;
+			return Source;
 
 		UPalette* Palette = ConstructObject<UPalette>( UPalette::StaticClass(), UObject::GetTransientPackage(), NAME_None, RF_Transient );
 		Palette->AddToRoot();
 		Palette->Colors = Source->Colors;
+		static const FColor Frames[6] =
+		{
+			FColor(0,0,0,255), FColor(0,0,0,255), FColor(212,170,60,255), FColor(170,24,24,255), FColor(20,120,50,255), FColor(40,80,190,255)
+		};
 		for( INT i=0; i<Palette->Colors.Num(); i++ )
 		{
 			FColor& C = Palette->Colors(i);
 			if( TexIndex==3 )
 			{
-				// Glasses: entry 0 is the mask, entry 1 the frame.
-				if( i==1 )
-				{
-					if( Variant==10+GLASSES_Gold )       C = FColor(212,170,60,C.A);
-					else if( Variant==10+GLASSES_Red )   C = FColor(170,24,24,C.A);
-					else if( Variant==10+GLASSES_Green ) C = FColor(20,120,50,C.A);
-				}
+				if( i==1 && Variant>=12 && Variant<=15 )
+					C = FColor( Frames[Variant-10].R, Frames[Variant-10].G, Frames[Variant-10].B, C.A );
 				continue;
 			}
 			const FLOAT R = C.R/255.f, G = C.G/255.f, B = C.B/255.f;
-			if( Variant==OUTFIT_Memory )
+			if( Variant==PV_Memory )
 			{
 				const FLOAT L = 0.30f*R + 0.59f*G + 0.11f*B;
 				C = FColor( ToByte(L*1.07f), ToByte(L*0.92f), ToByte(L*0.72f), C.A );
@@ -1067,15 +1909,15 @@ public:
 			FLOAT NR=R, NG=G, NB=B;
 			switch( Variant )
 			{
-				case OUTFIT_Slytherin:
+				case PV_Slytherin:
 					if( bRed ) HsvToRgb( 0.36f, S*0.85f, V*0.85f, NR, NG, NB );
 					else       HsvToRgb( 0.f, 0.05f, Min(1.f,V*1.05f), NR, NG, NB );
 					break;
-				case OUTFIT_Ravenclaw:
+				case PV_Ravenclaw:
 					if( bRed ) HsvToRgb( 0.62f, S*0.9f, V, NR, NG, NB );
 					else       HsvToRgb( 0.07f, S*0.75f, V*0.8f, NR, NG, NB );
 					break;
-				case OUTFIT_Hufflepuff:
+				case PV_Hufflepuff:
 					if( bRed ) HsvToRgb( 0.13f, Min(1.f,S*1.05f), Min(1.f,V*1.35f), NR, NG, NB );
 					else       HsvToRgb( 0.f, 0.f, V*0.18f, NR, NG, NB );
 					break;
@@ -1124,119 +1966,250 @@ public:
 		Tex->bRealtimeChanged = 1;
 	}
 
-	void ApplyTextures()
+	// Sets Harry's four textures for an outfit + glasses combination.
+	void ApplyLook( INT OutfitId, INT GlassesId )
 	{
-		const INT Outfit = State.Equip[RSLOT_Outfit];
-		const INT Glasses = State.Equip[RSLOT_Glasses];
-		if( Outfit==AppliedOutfit && Glasses==AppliedGlasses )
-			return;
-
-		// Robe (tex1), body (tex0) and face (tex2).
-		for( INT t=0; t<3; t++ )
-		{
-			UPalette* Palette = OriginalPalette[t];
-			if( Outfit==OUTFIT_Memory )
-				Palette = GetPalette( t, OUTFIT_Memory );
-			else if( t==1 && Outfit>=OUTFIT_Slytherin && Outfit<=OUTFIT_Hufflepuff )
-				Palette = GetPalette( t, Outfit );
-			SetTexturePalette( t, Palette ? Palette : OriginalPalette[t] );
-		}
-
-		// Glasses (tex3).
-		SetGlassesHidden( Glasses==GLASSES_None );
-		if( Glasses==GLASSES_Gold || Glasses==GLASSES_Red || Glasses==GLASSES_Green )
-			SetTexturePalette( 3, GetPalette(3,10+Glasses) );
-		else
-			SetTexturePalette( 3, OriginalPalette[3] );
-
-		AppliedOutfit = Outfit;
-		AppliedGlasses = Glasses;
-	}
-
-	void ApplyQuidditchSkins( APlayerPawn* Harry, UBOOL bOn )
-	{
-		static UTexture* Quid[3] = { NULL, NULL, NULL };
-		static const TCHAR* Names[3] = { TEXT("skharryquidTex0"), TEXT("skharryquidTex1"), TEXT("skharryquidTex2") };
-		for( INT i=0; i<3; i++ )
-		{
-			if( !Quid[i] )
+		const FCosmetic& O = GCosmetics[OutfitId];
+		const INT PV = O.OutfitKind==OK_Palette ? O.Palette : PV_None;
+		INT Want[4];
+		Want[0] = PV==PV_Memory ? PV_Memory : 0;
+		Want[1] = PV;
+		Want[2] = PV==PV_Memory ? PV_Memory : 0;
+		const INT Frame = GCosmetics[GlassesId].Palette;
+		Want[3] = Frame>=2 ? 10+Frame : 0;
+		for( INT t=0; t<4; t++ )
+			if( Want[t]!=AppliedPalette[t] )
 			{
-				Quid[i] = FindTexture( TEXT("HPModels"), Names[i] );
-				if( Quid[i] )
-					Quid[i]->AddToRoot();
+				SetTexturePalette( t, GetPalette(t,Want[t]) );
+				AppliedPalette[t] = Want[t];
 			}
-			if( !Quid[i] )
-				return;
-		}
-		for( INT i=0; i<3; i++ )
+		SetGlassesHidden( Frame==1 );
+	}
+
+	void MarkWardrobeDirty()
+	{
+		for( INT t=0; t<4; t++ )
+			AppliedPalette[t] = -1;
+		for( INT s=0; s<RSLOT_MAX; s++ )
+			FailedSpawn[s] = -1;
+	}
+
+	/*-------------------------------------------------------------------------
+		Wardrobe: costumes (mesh swaps on Harry).
+	-------------------------------------------------------------------------*/
+
+	void SetCostume( AActor* Body, INT OutfitId, UBOOL bIsHarry )
+	{
+		const FCosmetic& O = GCosmetics[OutfitId];
+		if( O.OutfitKind==OK_Mesh )
 		{
-			if( bOn )
-				Harry->MultiSkins[i] = Quid[i];
-			else if( Harry->MultiSkins[i]==Quid[i] )
+			UMesh* Mesh = LoadMesh( O.Mesh );
+			if( !Mesh )
+			{
+				if( bIsHarry && FailedSpawn[RSLOT_Outfit]!=OutfitId )
+				{
+					RpgLog( TEXT("costume mesh missing: %s"), O.Mesh );
+					FailedSpawn[RSLOT_Outfit] = OutfitId;
+				}
+				return;
+			}
+			UTexture* S0 = LoadTex( O.Skin0 );
+			UTexture* S1 = LoadTex( O.Skin1 );
+			if( Body->Mesh!=Mesh || Body->MultiSkins[0]!=S0 || Body->MultiSkins[1]!=S1 )
+			{
+				Body->Mesh = Mesh;
+				for( INT i=0; i<8; i++ )
+					Body->MultiSkins[i] = NULL;
+				Body->MultiSkins[0] = S0;
+				Body->MultiSkins[1] = S1;
+				Body->DrawScale = BaseDrawScale*O.Scale;
+				if( bIsHarry )
+					RpgLog( TEXT("costume on: %s"), Mesh->GetPathName() );
+			}
+			if( bIsHarry )
+				CostumeApplied = Mesh;
+		}
+		else if( Body->Mesh!=HarryMesh )
+		{
+			Body->Mesh = HarryMesh;
+			for( INT i=0; i<8; i++ )
+				Body->MultiSkins[i] = NULL;
+			Body->DrawScale = BaseDrawScale;
+			if( bIsHarry )
+				CostumeApplied = NULL;
+		}
+	}
+
+	void UpdateCostume( APlayerPawn* Harry )
+	{
+		// The game swaps Harry's mesh for cutscenes and Polyjuice; never fight it.
+		if( Harry->Mesh!=HarryMesh && (!CostumeApplied || Harry->Mesh!=CostumeApplied) )
+			return;
+		SetCostume( Harry, State.Equip[RSLOT_Outfit], 1 );
+	}
+
+	void RestoreCostume( APlayerPawn* Harry )
+	{
+		if( Harry && CostumeApplied && Harry->Mesh==CostumeApplied && HarryMesh )
+		{
+			Harry->Mesh = HarryMesh;
+			for( INT i=0; i<8; i++ )
 				Harry->MultiSkins[i] = NULL;
+			Harry->DrawScale = BaseDrawScale;
 		}
+		CostumeApplied = NULL;
 	}
 
-	void DestroyHat( UGameEngine* Engine )
+	/*-------------------------------------------------------------------------
+		Wardrobe: attachments (hat, pet, aura) and held item.
+	-------------------------------------------------------------------------*/
+
+	AActor* SpawnRenderActor( UGameEngine* Engine, UClass* Class, FVector Location )
 	{
-		if( HatActor && Engine->GLevel && !HatActor->bDeleteMe )
-			Engine->GLevel->DestroyActor( HatActor );
-		HatActor = NULL;
-		HatActorKind = HAT_None;
+		if( !Class )
+			Class = FindClass( TEXT("Effects") );
+		if( !Class || (Class->ClassFlags & CLASS_Abstract) )
+			return NULL;
+		AActor* A = Engine->GLevel->SpawnActor( Class, NAME_None, NULL, NULL, Location, FRotator(0,0,0), NULL, 1 );
+		if( !A )
+			return NULL;
+		A->SetCollision( 0, 0, 0 );
+		A->bCollideWorld = 0;
+		A->Physics = PHYS_None;
+		A->Tag = FName( TEXT("HP2RpgActor") );
+		return A;
 	}
 
-	void UpdateHat( UGameEngine* Engine, APlayerPawn* Harry, UBOOL bWearingHarryMesh )
+	void DestroyActorSafe( UGameEngine* Engine, AActor*& A )
 	{
-		const INT Hat = State.Equip[RSLOT_Hat];
-		if( Hat==HAT_None || !bWearingHarryMesh )
-		{
-			DestroyHat( Engine );
-			return;
-		}
-		if( HatActor && (HatActor->bDeleteMe || HatActor->XLevel!=Engine->GLevel || HatActorKind!=Hat) )
-			DestroyHat( Engine );
-		if( !HatActor )
-		{
-			UMesh* Mesh = (UMesh*)LoadAny( UMesh::StaticClass(), GHatSpecs[Hat].MeshPaths, 3 );
-			UClass* EffectsClass = FindClass( TEXT("Effects") );
-			if( !Mesh || !EffectsClass || (EffectsClass->ClassFlags & CLASS_Abstract) )
-				return;
-			HatActor = Engine->GLevel->SpawnActor( EffectsClass, NAME_None, NULL, NULL, Harry->Location, Harry->Rotation, NULL, 1 );
-			if( !HatActor )
-				return;
-			HatActor->SetCollision( 0, 0, 0 );
-			HatActor->bCollideWorld = 0;
-			HatActor->Physics = PHYS_None;
-			HatActor->DrawType = DT_Mesh;
-			HatActor->Mesh = Mesh;
-			HatActor->AmbientGlow = Harry->AmbientGlow;
-			HatActor->Tag = FName( TEXT("HP2RpgHat") );
-			HatActorKind = Hat;
-		}
+		if( A && Engine->GLevel && !A->bDeleteMe && A->XLevel==Engine->GLevel )
+			Engine->GLevel->DestroyActor( A );
+		A = NULL;
+	}
 
-		USkeletalMesh* SkelMesh = Cast<USkeletalMesh>( Harry->Mesh );
+	static INT HeadBone( AActor* Body, USkeletalMesh*& Skel )
+	{
+		Skel = Cast<USkeletalMesh>( Body->Mesh );
+		if( !Skel )
+			return -1;
 		static FName HeadNub( TEXT("Bip01 HeadNub") );
-		const INT Bone = SkelMesh ? SkelMesh->BoneIndex( HeadNub ) : -1;
+		static FName Head( TEXT("Bip01 Head") );
+		INT Bone = Skel->BoneIndex( HeadNub );
 		if( Bone<0 )
+			Bone = Skel->BoneIndex( Head );
+		return Bone;
+	}
+
+	static INT ShoulderBone( AActor* Body, USkeletalMesh*& Skel )
+	{
+		Skel = Cast<USkeletalMesh>( Body->Mesh );
+		if( !Skel )
+			return -1;
+		static FName Clavicle( TEXT("Bip01 L Clavicle") );
+		static FName Neck( TEXT("Bip01 Neck") );
+		INT Bone = Skel->BoneIndex( Clavicle );
+		if( Bone<0 )
+			Bone = Skel->BoneIndex( Neck );
+		return Bone;
+	}
+
+	// Positions a hat actor on Body's head. Returns false if there is no head bone.
+	UBOOL PlaceHat( AActor* Body, AActor* Hat, const FCosmetic& Spec, ULevel* WorldLevel )
+	{
+		USkeletalMesh* Skel = NULL;
+		const INT Bone = HeadBone( Body, Skel );
+		if( Bone<0 )
+			return 0;
+		const FCoords C = Skel->GetBoneCoords( Body, Bone );
+		FCoords HatCoords = C;
+		HatCoords.XAxis = C.YAxis;
+		HatCoords.ZAxis = C.XAxis;
+		HatCoords.YAxis = HatCoords.ZAxis ^ HatCoords.XAxis;
+		const FLOAT BodyScale = Body->DrawScale/Max(0.01f,BaseDrawScale);
+		const FVector Loc = C.Origin
+			+ C.XAxis.SafeNormal()*(Spec.Up + HatTweak.X)*BodyScale
+			+ C.YAxis.SafeNormal()*(Spec.Forward + HatTweak.Y)*BodyScale
+			+ C.ZAxis.SafeNormal()*(Spec.Side + HatTweak.Z)*BodyScale;
+		if( WorldLevel )
+			WorldLevel->FarMoveActor( Hat, Loc, 0, 1 );
+		else
+			Hat->Location = Loc;
+		Hat->Rotation = HatCoords.OrthoRotation();
+		Hat->DrawScale = Spec.Scale*HatScaleTweak*BodyScale;
+		return 1;
+	}
+
+	UBOOL PlacePet( AActor* Body, AActor* Pet, const FCosmetic& Spec, ULevel* WorldLevel )
+	{
+		USkeletalMesh* Skel = NULL;
+		const INT Bone = ShoulderBone( Body, Skel );
+		if( Bone<0 )
+			return 0;
+		const FCoords C = Skel->GetBoneCoords( Body, Bone );
+		const FLOAT Yaw = Body->Rotation.Yaw*(2.f*PI/65536.f);
+		const FVector Right( -(FLOAT)appSin(Yaw), (FLOAT)appCos(Yaw), 0.f );
+		const FVector Loc = C.Origin + FVector(0,0,Spec.Up) + Right*Spec.Side;
+		if( WorldLevel )
+			WorldLevel->FarMoveActor( Pet, Loc, 0, 1 );
+		else
+			Pet->Location = Loc;
+		Pet->Rotation = FRotator( 0, Body->Rotation.Yaw, 0 );
+		Pet->DrawScale = Spec.Scale;
+		return 1;
+	}
+
+	void UpdateAttachment( UGameEngine* Engine, APlayerPawn* Harry, INT Slot, AActor*& Actor, INT& Kind, UBOOL bVisible )
+	{
+		const INT Id = State.Equip[Slot];
+		const FCosmetic& Spec = GCosmetics[Id];
+		if( !Spec.Mesh || !bVisible )
 		{
-			HatActor->bHidden = 1;
+			DestroyActorSafe( Engine, Actor );
+			Kind = -1;
 			return;
 		}
-		const FCoords Bonec = SkelMesh->GetBoneCoords( Harry, Bone );
-		const FHatSpec& Spec = GHatSpecs[Hat];
-		// Head X points up the head, Y forward, Z sideways; hats are Z-up.
-		FCoords HatCoords = Bonec;
-		HatCoords.XAxis = Bonec.YAxis;
-		HatCoords.ZAxis = Bonec.XAxis;
-		HatCoords.YAxis = HatCoords.ZAxis ^ HatCoords.XAxis;
-		HatActor->Location = Bonec.Origin
-			+ Bonec.XAxis.SafeNormal()*(Spec.Up + HatTweak.X)
-			+ Bonec.YAxis.SafeNormal()*(Spec.Forward + HatTweak.Y)
-			+ Bonec.ZAxis.SafeNormal()*HatTweak.Z;
-		HatActor->Rotation = HatCoords.OrthoRotation();
-		HatActor->DrawScale = Spec.Scale*HatScaleTweak*Harry->DrawScale;
-		HatActor->bHidden = Harry->bHidden;
-		HatActor->ScaleGlow = Harry->ScaleGlow;
+		if( Actor && (Actor->bDeleteMe || Actor->XLevel!=Engine->GLevel || Kind!=Id) )
+			DestroyActorSafe( Engine, Actor );
+		if( !Actor )
+		{
+			if( FailedSpawn[Slot]==Id )
+				return;
+			if( Slot==RSLOT_Aura )
+			{
+				UClass* Particle = LoadParticleClass( Spec.Mesh );
+				Actor = Particle ? SpawnRenderActor( Engine, Particle, Harry->Location ) : NULL;
+				if( Actor )
+					RpgLog( TEXT("aura %s spawned"), Spec.Mesh );
+			}
+			else
+			{
+				UMesh* Mesh = LoadMesh( Spec.Mesh );
+				Actor = Mesh ? SpawnRenderActor( Engine, NULL, Harry->Location ) : NULL;
+				if( Actor )
+				{
+					Actor->DrawType = DT_Mesh;
+					Actor->Mesh = Mesh;
+					Actor->AmbientGlow = Harry->AmbientGlow;
+					RpgLog( TEXT("%s %s spawned with %s"), GSlotNames[Slot], Spec.Name, Mesh->GetPathName() );
+				}
+			}
+			if( !Actor )
+			{
+				RpgLog( TEXT("%s %s could not spawn (%s)"), GSlotNames[Slot], Spec.Name, Spec.Mesh );
+				FailedSpawn[Slot] = Id;
+				return;
+			}
+			Kind = Id;
+		}
+		UBOOL bPlaced = 1;
+		if( Slot==RSLOT_Hat )
+			bPlaced = PlaceHat( Harry, Actor, Spec, Engine->GLevel );
+		else if( Slot==RSLOT_Pet )
+			bPlaced = PlacePet( Harry, Actor, Spec, Engine->GLevel );
+		else
+			Engine->GLevel->FarMoveActor( Actor, Harry->Location + FVector(0,0,Spec.Up), 0, 1 );
+		Actor->bHidden = Harry->bHidden || !bPlaced;
+		Actor->ScaleGlow = Harry->ScaleGlow;
 	}
 
 	void RestoreHeld()
@@ -1253,23 +2226,24 @@ public:
 
 	void UpdateHeld( APlayerPawn* Harry )
 	{
-		const INT Held = State.Equip[RSLOT_Held];
+		const INT Id = State.Equip[RSLOT_Held];
+		const FCosmetic& Spec = GCosmetics[Id];
 		AWeapon* Weapon = Harry->Weapon;
 		if( HeldWeapon && HeldWeapon!=Weapon )
 			RestoreHeld();
-		if( Held==HELD_Wand || !Weapon )
+		if( !Spec.Mesh || !Weapon )
 		{
 			RestoreHeld();
 			return;
 		}
-		UMesh* Mesh = (UMesh*)LoadAny( UMesh::StaticClass(), GHeldMeshPaths[Held], 2 );
+		UMesh* Mesh = LoadMesh( Spec.Mesh );
 		if( !Mesh )
 			return;
 		static UMesh* SwordMesh = NULL;
 		if( !SwordMesh )
-			SwordMesh = (UMesh*)LoadAny( UMesh::StaticClass(), GHeldMeshPaths[HELD_Sword], 2 );
-		if( Weapon->ThirdPersonMesh==SwordMesh && HeldWeapon==NULL )
-			return; // The game itself is using the sword right now.
+			SwordMesh = LoadMesh( TEXT("HPModels.skGryf_SwordMesh") );
+		if( Weapon->ThirdPersonMesh==SwordMesh && !HeldWeapon )
+			return; // the game itself is using the sword
 		if( !HeldWeapon )
 		{
 			HeldWeapon = Weapon;
@@ -1279,7 +2253,7 @@ public:
 		if( Weapon->ThirdPersonMesh!=Mesh )
 		{
 			Weapon->ThirdPersonMesh = Mesh;
-			Weapon->ThirdPersonScale = Held==HELD_Broom ? HeldOriginalScale*0.7f : HeldOriginalScale;
+			Weapon->ThirdPersonScale = HeldOriginalScale*Spec.Scale;
 		}
 	}
 
@@ -1287,16 +2261,12 @@ public:
 	{
 		if( !ResolveHarryAssets(Harry) )
 			return;
-		const UBOOL bHarryMesh = Harry->Mesh==HarryMesh;
-		if( bWardrobeDirty )
-		{
-			AppliedOutfit = -1;
-			AppliedGlasses = -1;
-			bWardrobeDirty = 0;
-		}
-		ApplyTextures();
-		ApplyQuidditchSkins( Harry, bHarryMesh && State.Equip[RSLOT_Outfit]==OUTFIT_Quidditch );
-		UpdateHat( Engine, Harry, bHarryMesh );
+		ApplyLook( State.Equip[RSLOT_Outfit], State.Equip[RSLOT_Glasses] );
+		UpdateCostume( Harry );
+		const UBOOL bOurBody = Harry->Mesh==HarryMesh || (CostumeApplied && Harry->Mesh==CostumeApplied);
+		UpdateAttachment( Engine, Harry, RSLOT_Hat, HatActor, HatActorKind, bOurBody );
+		UpdateAttachment( Engine, Harry, RSLOT_Pet, PetActor, PetActorKind, bOurBody );
+		UpdateAttachment( Engine, Harry, RSLOT_Aura, AuraActor, AuraActorKind, 1 );
 		UpdateHeld( Harry );
 	}
 
@@ -1352,9 +2322,11 @@ public:
 		{
 			LastHarry = Harry;
 			bBaselineValid = 0;
-			bWardrobeDirty = 1;
+			MarkWardrobeDirty();
 			HeldWeapon = NULL;
 			HeldOriginalMesh = NULL;
+			CostumeApplied = NULL;
+			LastRunSpeed = LastAirSpeed = LastJump = 0.f;
 		}
 		if( !Harry )
 		{
@@ -1370,40 +2342,79 @@ public:
 				Feed.Remove( i );
 		}
 		HouseHudTimer = Max( 0.f, HouseHudTimer-DeltaSeconds );
-		MenuNoticeTime = Max( 0.f, MenuNoticeTime-DeltaSeconds );
+		NoticeTime = Max( 0.f, NoticeTime-DeltaSeconds );
+		if( Menu!=MENU_None )
+			PreviewYaw += DeltaSeconds*2600.f;
+
+		LuckyFeedTimer += DeltaSeconds;
+		if( LuckyFeedBeans && LuckyFeedTimer>0.6f )
+		{
+			AddFeed( FString::Printf(TEXT("+%i lucky bean%s"), LuckyFeedBeans, LuckyFeedBeans==1 ? TEXT("") : TEXT("s")), FColor(140,255,140,255) );
+			LuckyFeedBeans = 0;
+		}
+
+		const UBOOL bPaused = Engine->GLevel->GetLevelInfo()->Pauser.Len()>0;
+		if( !bPaused )
+		{
+			SecondTimer += DeltaSeconds;
+			while( SecondTimer>=1.f )
+			{
+				SecondTimer -= 1.f;
+				if( State.DetentionSeconds>0 && --State.DetentionSeconds==0 )
+					AddFeed( TEXT("Detention is over. Vendors will trade with you again."), FColor(200,230,255,255) );
+				if( State.FelixSeconds>0 && --State.FelixSeconds==0 )
+					AddFeed( TEXT("The Felix Felicis wears off."), FColor(255,220,120,255) );
+				TroubleTimer += 1.f;
+				if( TroubleTimer>=20.f )
+				{
+					TroubleTimer = 0.f;
+					if( State.Trouble>0 )
+						State.Trouble--;
+				}
+				CheckCardRewards( Harry );
+				CheckTrophies( Harry );
+			}
+		}
 
 		PollTimer += DeltaSeconds;
 		if( PollTimer >= 0.2f )
 		{
 			PollTimer = 0.f;
-			PollRewards( Harry, DeltaSeconds );
-			PollCreatures( Engine, Harry );
+			PollRewards( Harry );
+			PollNearby( Engine, Harry );
 			ApplySkills( Harry );
 		}
 		FlushHouseFeed( DeltaSeconds );
+		RunDeferred( Engine );
 		UpdateWardrobe( Engine, Harry );
 	}
 
 	void OnLevelChanged( UGameEngine* Engine )
 	{
-		RewardedCreatures.Empty();
+		LevelSerial++;
+		ActorFlags.Empty();
+		Deferred.Empty();
 		bBaselineValid = 0;
-		HatActor = NULL;
-		HatActorKind = HAT_None;
+		HatActor = PetActor = AuraActor = NULL;
+		HatActorKind = PetActorKind = AuraActorKind = -1;
+		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
 		HeldWeapon = NULL;
 		HeldOriginalMesh = NULL;
-		NearStudent = NULL;
+		CostumeApplied = NULL;
+		NearNpc = NULL;
+		ShopVendor = NULL;
 		LastHitStudent = NULL;
 		bWePaused = 0;
 		Menu = MENU_None;
-		bWardrobeDirty = 1;
+		MarkWardrobeDirty();
 
-		// Hats saved into older .usa files are stale; drop them.
-		static FName HatTag( TEXT("HP2RpgHat") );
+		// Actors saved into .usa files by older builds are stale; drop them.
+		static FName OldHatTag( TEXT("HP2RpgHat") );
+		static FName ActorTag( TEXT("HP2RpgActor") );
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
 			AActor* Actor = Engine->GLevel->Actors(i);
-			if( Actor && !Actor->bDeleteMe && Actor->Tag==HatTag )
+			if( Actor && !Actor->bDeleteMe && (Actor->Tag==OldHatTag || Actor->Tag==ActorTag) )
 				Engine->GLevel->DestroyActor( Actor );
 		}
 
@@ -1412,605 +2423,52 @@ public:
 			bLoadedFromSlot = 0;
 		else if( appStrfind(MapName,TEXT("PrivetDr")) || appStrfind(MapName,TEXT("privetdr")) )
 		{
-			// A fresh game starts in Privet Drive.
 			State.Reset();
-			debugf( NAME_Log, TEXT("HP2Rpg: new game, RPG progress reset") );
+			RpgLog( TEXT("new game, RPG progress reset") );
 		}
+		else
+			State.Day++;
+		if( State.StockDay!=State.Day )
+		{
+			State.StockDay = State.Day;
+			appMemzero( State.StockUsed, sizeof(State.StockUsed) );
+		}
+		RpgLog( TEXT("level %s, day %i"), MapName, State.Day );
 	}
 
 	void PreSave( UGameEngine* Engine )
 	{
 		if( !bEnabled )
 			return;
-		DestroyHat( Engine );
+		DestroyActorSafe( Engine, HatActor );
+		DestroyActorSafe( Engine, PetActor );
+		DestroyActorSafe( Engine, AuraActor );
+		DestroyActorSafe( Engine, PreviewBody );
+		DestroyActorSafe( Engine, PreviewAttach );
+		DestroyActorSafe( Engine, PreviewItem );
+		DestroyActorSafe( Engine, PreviewNpc );
+		HatActorKind = PetActorKind = AuraActorKind = -1;
 		RestoreHeld();
-		APlayerPawn* Harry = GetHarry( Engine );
-		if( Harry )
-			ApplyQuidditchSkins( Harry, 0 );
+		RestoreCostume( GetHarry(Engine) );
 	}
 
 	/*-------------------------------------------------------------------------
-		Menus.
+		Menus, HUD drawing, input and console commands.
 	-------------------------------------------------------------------------*/
 
-	void OpenMenu( UGameEngine* Engine, INT NewMenu )
-	{
-		Menu = NewMenu;
-		MenuNotice = TEXT("");
-		ALevelInfo* Info = Engine->GLevel->GetLevelInfo();
-		if( !Info->Pauser.Len() )
-		{
-			Info->Pauser = TEXT("HP2Rpg");
-			bWePaused = 1;
-		}
-	}
-
-	void CloseMenu( UGameEngine* Engine )
-	{
-		Menu = MENU_None;
-		if( bWePaused && Engine->GLevel )
-		{
-			ALevelInfo* Info = Engine->GLevel->GetLevelInfo();
-			if( Info->Pauser==TEXT("HP2Rpg") )
-				Info->Pauser = TEXT("");
-		}
-		bWePaused = 0;
-	}
-
-	void Notice( const FString& Text )
-	{
-		MenuNotice = Text;
-		MenuNoticeTime = 2.5f;
-	}
-
-	INT ShopItemsInCategory( INT Category, INT* Indices )
-	{
-		INT Count = 0;
-		for( INT i=0; i<GNumShopItems; i++ )
-			if( GShopItems[i].Category==Category )
-				Indices[Count++] = i;
-		return Count;
-	}
-
-	UBOOL GiveRandomCard( UObject* Status, UBOOL bSilver )
-	{
-		static const INT Bronze[] = { 1,2,4,5,6,7,9,10,12,18,19,21,24,25,26,28,29,31,32,33,37,44,46,47,49,50,51,53,57,58,61,63,64,66,67,75,76,77,78,80,81,83,84,86,88,91,93,94,95,96 };
-		static const INT Gold[] = { 11,15,40,41,48,69,72,74,82,100,101 };
-		INT Candidates[128];
-		INT Num = 0;
-		for( INT Id=1; Id<=99; Id++ )
-		{
-			UBOOL bIsBronze = 0, bIsGold = 0;
-			for( INT i=0; i<ARRAY_COUNT(Bronze); i++ ) if( Bronze[i]==Id ) bIsBronze = 1;
-			for( INT i=0; i<ARRAY_COUNT(Gold); i++ ) if( Gold[i]==Id ) bIsGold = 1;
-			if( bIsGold || (bSilver ? bIsBronze : !bIsBronze) )
-				continue;
-			FRpgArg Arg = FRpgArg::I( Id );
-			FRpgArg Ret;
-			if( !CallScript( Status, TEXT("IsOwnedByHarry"), &Arg, 1, &Ret ) )
-				return 0;
-			if( !Ret.Int )
-				Candidates[Num++] = Id;
-		}
-		if( !Num )
-			return 0;
-		FRpgArg Arg = FRpgArg::I( Candidates[RpgRand(Num)] );
-		return CallScript( Status, TEXT("GiveCardToHarry"), &Arg, 1 );
-	}
-
-	void Buy( APlayerPawn* Harry, const FShopItem& Item )
-	{
-		UObject* Status = GetStatus( Harry );
-		if( !Status )
-			return;
-		const INT Price = ShopItemPrice( Item );
-		if( Item.Kind==SHOP_Wardrobe && IsOwned(Item.Slot,Item.Option) )
-		{
-			State.Equip[Item.Slot] = Item.Option;
-			Notice( TEXT("Already yours. Equipped!") );
-			return;
-		}
-		const INT Beans = CallInt( Status, TEXT("GetBeanCount") );
-		if( Beans < Price )
-		{
-			Notice( TEXT("Not enough beans.") );
-			return;
-		}
-
-		UBOOL bOk = 1;
-		FRpgArg Count = FRpgArg::I( Item.Count );
-		switch( Item.Kind )
-		{
-			case SHOP_Potion:     bOk = CallScript( Status, TEXT("AddPotions"), &Count, 1 ); break;
-			case SHOP_FMucus:     bOk = CallScript( Status, TEXT("AddFMucus"), &Count, 1 ); break;
-			case SHOP_WBark:      bOk = CallScript( Status, TEXT("AddWBark"), &Count, 1 ); break;
-			case SHOP_BronzeCard: bOk = GiveRandomCard( Status, 0 ); break;
-			case SHOP_SilverCard: bOk = GiveRandomCard( Status, 1 ); break;
-			case SHOP_SkillPoint: State.SkillPoints++; break;
-			case SHOP_Wardrobe:
-				State.Owned |= 1 << GetSlotOptions(Item.Slot)[Item.Option].OwnBit;
-				State.Equip[Item.Slot] = Item.Option;
-				break;
-		}
-		if( !bOk )
-		{
-			Notice( Item.Kind==SHOP_BronzeCard || Item.Kind==SHOP_SilverCard ? TEXT("You already own all of those cards!") : TEXT("The vendor can't sell that right now.") );
-			return;
-		}
-		FRpgArg Pay = FRpgArg::I( -Price );
-		CallScript( Status, TEXT("AddBeans"), &Pay, 1 );
-		LastBeans = CallInt( Status, TEXT("GetBeanCount") );
-		Notice( FString::Printf(TEXT("Bought %s!"), ShopItemName(Item)) );
-	}
-
-	UBOOL InputEvent( UGameEngine* Engine, UViewport* Viewport, EInputKey Key, EInputAction Action, FLOAT Delta )
-	{
-		if( !bInitialized || !bEnabled || !Engine->GLevel || Engine->Replay.Replaying() || Engine->Replay.Recording() )
-			return 0;
-		APlayerPawn* Harry = GetHarry( Engine );
-
-		if( Menu==MENU_None )
-		{
-			if( Action!=IST_Press || !Harry )
-				return 0;
-			if( Key==IK_K && IsFreeGameplay(Engine,Harry) )
-			{
-				OpenMenu( Engine, MENU_Character );
-				return 1;
-			}
-			if( Key==IK_B && IsFreeGameplay(Engine,Harry) )
-			{
-				if( NearStudent )
-					OpenMenu( Engine, MENU_Shop );
-				else
-					AddFeed( TEXT("Find a student or the Weasley twins to trade with."), FColor(220,220,220,255) );
-				return 1;
-			}
-			return 0;
-		}
-
-		// A menu is open: it owns all input, except releases, so keys held
-		// when the menu opened are not left stuck down.
-		if( Action!=IST_Press )
-			return Action==IST_Release ? 0 : 1;
-		if( !Harry )
-		{
-			CloseMenu( Engine );
-			return 1;
-		}
-		const UBOOL bUp = Key==IK_Up || Key==IK_W;
-		const UBOOL bDown = Key==IK_Down || Key==IK_S;
-		const UBOOL bLeft = Key==IK_Left || Key==IK_A;
-		const UBOOL bRight = Key==IK_Right || Key==IK_D;
-		const UBOOL bAccept = Key==IK_Enter || Key==IK_Space;
-		const UBOOL bClose = Key==IK_Escape || Key==IK_Backspace || (Menu==MENU_Shop && Key==IK_B) || (Menu==MENU_Character && Key==IK_K);
-		if( bClose )
-		{
-			CloseMenu( Engine );
-			return 1;
-		}
-
-		if( Menu==MENU_Shop )
-		{
-			INT Indices[64];
-			if( bLeft )  { ShopCategory = (ShopCategory+CAT_MAX-1)%CAT_MAX; ShopRow = 0; }
-			if( bRight ) { ShopCategory = (ShopCategory+1)%CAT_MAX; ShopRow = 0; }
-			const INT Count = ShopItemsInCategory( ShopCategory, Indices );
-			if( Count>0 )
-			{
-				if( bUp )   ShopRow = (ShopRow+Count-1)%Count;
-				if( bDown ) ShopRow = (ShopRow+1)%Count;
-				ShopRow = Clamp( ShopRow, 0, Count-1 );
-				if( bAccept )
-					Buy( Harry, GShopItems[Indices[ShopRow]] );
-			}
-			return 1;
-		}
-
-		// Character menu.
-		if( Key==IK_Tab || Key==IK_Q || Key==IK_E )
-		{
-			CharTab = (CharTab+1)%TAB_MAX;
-			return 1;
-		}
-		if( CharTab==TAB_Skills )
-		{
-			if( bUp )   SkillRow = (SkillRow+SKILL_MAX-1)%SKILL_MAX;
-			if( bDown ) SkillRow = (SkillRow+1)%SKILL_MAX;
-			if( bAccept || bRight )
-			{
-				if( State.SkillPoints<=0 )
-					Notice( TEXT("No skill points. Level up or buy an Extra Lesson.") );
-				else if( State.Skill[SkillRow]>=SKILL_MAX_PIPS )
-					Notice( TEXT("That skill is maxed out.") );
-				else
-				{
-					State.SkillPoints--;
-					State.Skill[SkillRow]++;
-					ApplySkills( Harry );
-					Notice( FString::Printf(TEXT("%s improved!"), GSkillNames[SkillRow]) );
-				}
-			}
-		}
-		else
-		{
-			if( bUp )   WardrobeRow = (WardrobeRow+RSLOT_MAX-1)%RSLOT_MAX;
-			if( bDown ) WardrobeRow = (WardrobeRow+1)%RSLOT_MAX;
-			if( bLeft || bRight || bAccept )
-			{
-				// Cycle through owned options only.
-				const INT Num = GSlotCounts[WardrobeRow];
-				INT Option = State.Equip[WardrobeRow];
-				for( INT Step=0; Step<Num; Step++ )
-				{
-					Option = (Option + (bLeft ? Num-1 : 1)) % Num;
-					if( IsOwned(WardrobeRow,Option) )
-						break;
-				}
-				if( Option==State.Equip[WardrobeRow] )
-					Notice( TEXT("Buy more items from a student vendor (press B near one).") );
-				State.Equip[WardrobeRow] = Option;
-			}
-		}
-		return 1;
-	}
-
-	/*-------------------------------------------------------------------------
-		Drawing.
-	-------------------------------------------------------------------------*/
-
-	void ResolveUi()
-	{
-		if( bUiResolved )
-			return;
-		bUiResolved = 1;
-		WhiteTex = FindTexture( TEXT("UWindow"), TEXT("WhiteTexture") );
-		if( !WhiteTex )
-			WhiteTex = FindTexture( NULL, TEXT("DefaultTexture") );
-		if( WhiteTex )
-			WhiteTex->AddToRoot();
-		for( INT i=0; i<HOUSE_MAX; i++ )
-		{
-			Crests[i] = FindTexture( TEXT("HP2_Menu"), GHouseCrests[i] );
-			if( Crests[i] )
-				Crests[i]->AddToRoot();
-		}
-	}
-
-	void Rect( UCanvas* C, FLOAT X, FLOAT Y, FLOAT W, FLOAT H, FColor Color )
-	{
-		if( !WhiteTex )
-			return;
-		C->DrawTile( WhiteTex, X, Y, W, H, 0, 0, 1, 1, NULL, 1.f, FPlane(Color.R/255.f,Color.G/255.f,Color.B/255.f,1.f), FPlane(0,0,0,0), PF_NoSmooth );
-	}
-
-	void Frame( UCanvas* C, FLOAT X, FLOAT Y, FLOAT W, FLOAT H, FLOAT S, FColor Fill, FColor Border )
-	{
-		Rect( C, X, Y, W, H, Border );
-		Rect( C, X+2*S, Y+2*S, W-4*S, H-4*S, Fill );
-	}
-
-	void Icon( UCanvas* C, UTexture* Tex, FLOAT X, FLOAT Y, FLOAT W, FLOAT H, FLOAT Bright=1.f )
-	{
-		if( !Tex )
-			return;
-		C->DrawTile( Tex, X, Y, W, H, 0, 0, Tex->USize, Tex->VSize, NULL, 1.f, FPlane(Bright,Bright,Bright,1.f), FPlane(0,0,0,0), PF_Masked );
-	}
-
-	FLOAT TextWidth( UCanvas* C, UFont* Font, const TCHAR* Text )
-	{
-		INT XL=0, YL=0;
-		C->CurX = 0.f;
-		C->CurY = 0.f;
-		C->WrappedStrLenf( Font, XL, YL, TEXT("%s"), Text );
-		return XL;
-	}
-
-	FLOAT TextHeight( UCanvas* C, UFont* Font )
-	{
-		INT XL=0, YL=0;
-		C->CurX = 0.f;
-		C->CurY = 0.f;
-		C->WrappedStrLenf( Font, XL, YL, TEXT("Ag") );
-		return YL>0 ? YL : 12;
-	}
-
-	void Text( UCanvas* C, UFont* Font, FLOAT X, FLOAT Y, FColor Color, const TCHAR* Str, INT Align=0 )
-	{
-		if( !Font )
-			return;
-		if( Align==1 )
-			X -= TextWidth( C, Font, Str )*0.5f;
-		else if( Align==2 )
-			X -= TextWidth( C, Font, Str );
-		C->CurX = X;
-		C->CurY = Y;
-		C->Color = Color;
-		C->WrappedPrintf( Font, 0, TEXT("%s"), Str );
-	}
-
-	void Draw( UGameEngine* Engine, UViewport* Viewport, UCanvas* C )
-	{
-		if( !bInitialized || !bEnabled || !Engine->GLevel )
-			return;
-		APlayerPawn* Harry = GetHarry( Engine );
-		if( !Harry )
-			return;
-		ResolveUi();
-
-		const FLOAT SavedOrgX = C->OrgX, SavedOrgY = C->OrgY, SavedClipX = C->ClipX, SavedClipY = C->ClipY;
-		const FLOAT SavedCurX = C->CurX, SavedCurY = C->CurY;
-		const FColor SavedColor = C->Color;
-		const BYTE SavedStyle = C->Style;
-		C->OrgX = 0.f;
-		C->OrgY = 0.f;
-		C->ClipX = C->X;
-		C->ClipY = C->Y;
-		C->Style = STY_Normal;
-
-		const FLOAT S = Max( 1.f, C->ClipY/480.f );
-		UFont* Small = C->SmallFont ? C->SmallFont : C->MedFont;
-		UFont* Med = C->MedFont ? C->MedFont : Small;
-		UFont* Big = C->BigFont ? C->BigFont : Med;
-
-		const UBOOL bGameplay = IsFreeGameplay( Engine, Harry );
-		if( Menu==MENU_None && (bGameplay || HouseHudTimer>0.f) )
-			DrawStatusHud( C, Harry, S, Small, bGameplay );
-		DrawFeed( C, S, Med );
-		if( Menu==MENU_Shop )
-			DrawShop( C, Harry, S, Small, Med, Big );
-		else if( Menu==MENU_Character )
-			DrawCharacter( C, Harry, S, Small, Med, Big );
-
-		C->OrgX = SavedOrgX;
-		C->OrgY = SavedOrgY;
-		C->ClipX = SavedClipX;
-		C->ClipY = SavedClipY;
-		C->CurX = SavedCurX;
-		C->CurY = SavedCurY;
-		C->Color = SavedColor;
-		C->Style = SavedStyle;
-	}
-
-	void DrawStatusHud( UCanvas* C, APlayerPawn* Harry, FLOAT S, UFont* Small, UBOOL bGameplay )
-	{
-		// House crests with totals, top centre.
-		const FLOAT Crest = 18*S;
-		const FLOAT Gap = 50*S;
-		const FLOAT X0 = C->ClipX*0.5f - Gap*1.5f;
-		const FLOAT Y0 = 6*S;
-		for( INT i=0; i<HOUSE_MAX; i++ )
-		{
-			const FLOAT X = X0 + Gap*i;
-			const FLOAT Bright = (PendingHouse[i] || i==HOUSE_Gryffindor) ? 1.f : 0.7f;
-			if( Crests[i] )
-				Icon( C, Crests[i], X-Crest*0.5f, Y0, Crest, Crest, Bright );
-			Text( C, Small, X, Y0+Crest+1*S, GHouseColors[i], *FString::Printf(TEXT("%i"), bBaselineValid ? LastHouse[i] : 0), 1 );
-		}
-
-		// Level and XP bar under the crests.
-		const FLOAT BarW = 120*S, BarH = 4*S;
-		const FLOAT BarX = C->ClipX*0.5f - BarW*0.5f;
-		const FLOAT BarY = Y0 + Crest + 14*S;
-		Rect( C, BarX, BarY, BarW, BarH, FColor(30,30,40,255) );
-		const FLOAT Pct = Clamp( (FLOAT)State.Xp/XpForNextLevel(State.Level), 0.f, 1.f );
-		Rect( C, BarX, BarY, BarW*Pct, BarH, FColor(120,190,255,255) );
-		Text( C, Small, BarX-4*S, BarY-4*S, FColor(255,230,140,255), *FString::Printf(TEXT("Lv %i"), State.Level), 2 );
-		if( State.SkillPoints>0 )
-			Text( C, Small, BarX+BarW+4*S, BarY-4*S, FColor(255,230,140,255), *FString::Printf(TEXT("+%i [K]"), State.SkillPoints), 0 );
-
-		if( bGameplay && NearStudent )
-			Text( C, Small, C->ClipX*0.5f, C->ClipY*0.78f, FColor(255,240,200,255), TEXT("[B] Trade"), 1 );
-	}
-
-	void DrawFeed( UCanvas* C, FLOAT S, UFont* Font )
-	{
-		const FLOAT LineH = TextHeight( C, Font ) + 2*S;
-		FLOAT Y = C->ClipY*0.30f;
-		for( INT i=0; i<Feed.Num(); i++ )
-		{
-			const FRpgFeed& Entry = Feed(i);
-			const FLOAT Fade = Entry.Age<3.5f ? 1.f : Max( 0.f, 1.f-(Entry.Age-3.5f) );
-			const FLOAT Rise = Entry.Age*6*S;
-			FColor Color( (BYTE)(Entry.Color.R*Fade), (BYTE)(Entry.Color.G*Fade), (BYTE)(Entry.Color.B*Fade), 255 );
-			Text( C, Font, C->ClipX*0.5f+1*S, Y-Rise+1*S, FColor(0,0,0,(BYTE)(255*Fade)), *Entry.Text, 1 );
-			Text( C, Font, C->ClipX*0.5f, Y-Rise, Color, *Entry.Text, 1 );
-			Y += LineH;
-		}
-	}
-
-	void DrawPanel( UCanvas* C, FLOAT S, FLOAT& X, FLOAT& Y, FLOAT& W, FLOAT& H )
-	{
-		W = Min( C->ClipX-20*S, 560*S );
-		H = Min( C->ClipY-20*S, 380*S );
-		X = (C->ClipX-W)*0.5f;
-		Y = (C->ClipY-H)*0.5f;
-		Frame( C, X, Y, W, H, S, FColor(16,20,44,255), FColor(196,160,64,255) );
-	}
-
-	void DrawBeans( UCanvas* C, APlayerPawn* Harry, FLOAT X, FLOAT Y, UFont* Font )
-	{
-		const INT Beans = CallInt( GetStatus(Harry), TEXT("GetBeanCount") );
-		Text( C, Font, X, Y, FColor(255,220,120,255), *FString::Printf(TEXT("Your beans: %i"), Beans) );
-	}
-
-	void DrawNotice( UCanvas* C, FLOAT X, FLOAT Y, UFont* Font )
-	{
-		if( MenuNoticeTime>0.f && MenuNotice.Len() )
-			Text( C, Font, X, Y, FColor(255,255,255,255), *MenuNotice, 1 );
-	}
-
-	void DrawShop( UCanvas* C, APlayerPawn* Harry, FLOAT S, UFont* Small, UFont* Med, UFont* Big )
-	{
-		FLOAT X, Y, W, H;
-		DrawPanel( C, S, X, Y, W, H );
-		const FLOAT Pad = 12*S;
-		Text( C, Big, X+W*0.5f, Y+Pad, FColor(230,190,90,255), TEXT("Shop"), 1 );
-
-		// Category tabs.
-		FLOAT TabY = Y + Pad + TextHeight(C,Big) + 6*S;
-		const FLOAT TabW = (W-2*Pad)/CAT_MAX;
-		for( INT i=0; i<CAT_MAX; i++ )
-		{
-			const FLOAT TX = X + Pad + TabW*i;
-			if( i==ShopCategory )
-				Rect( C, TX+1*S, TabY-2*S, TabW-2*S, TextHeight(C,Small)+4*S, FColor(70,60,30,255) );
-			Text( C, Small, TX+TabW*0.5f, TabY, i==ShopCategory ? FColor(255,230,140,255) : FColor(160,160,190,255), GShopCategoryNames[i], 1 );
-		}
-
-		// Items.
-		const INT Beans = CallInt( GetStatus(Harry), TEXT("GetBeanCount") );
-		INT Indices[64];
-		const INT Count = ShopItemsInCategory( ShopCategory, Indices );
-		FLOAT RowY = TabY + TextHeight(C,Small) + 14*S;
-		const FLOAT RowH = TextHeight(C,Med) + 8*S;
-		for( INT r=0; r<Count; r++ )
-		{
-			const FShopItem& Item = GShopItems[Indices[r]];
-			const UBOOL bSel = r==ShopRow;
-			const UBOOL bOwned = Item.Kind==SHOP_Wardrobe && IsOwned(Item.Slot,Item.Option);
-			const INT Price = ShopItemPrice( Item );
-			if( bSel )
-				Rect( C, X+Pad, RowY-3*S, W-2*Pad, RowH, FColor(44,52,96,255) );
-			Text( C, Med, X+Pad+8*S, RowY, bSel ? FColor(255,255,255,255) : FColor(200,200,220,255), ShopItemName(Item) );
-			if( bOwned )
-				Text( C, Med, X+W-Pad-8*S, RowY, FColor(120,230,120,255), TEXT("Owned"), 2 );
-			else
-				Text( C, Med, X+W-Pad-8*S, RowY, Price<=Beans ? FColor(255,220,120,255) : FColor(230,70,70,255), *FString::Printf(TEXT("%i beans"), Price), 2 );
-			RowY += RowH;
-		}
-		if( Count>0 )
-		{
-			const FShopItem& Sel = GShopItems[Indices[Clamp(ShopRow,0,Count-1)]];
-			Text( C, Small, X+Pad+8*S, Y+H-Pad-TextHeight(C,Small)*3-10*S, FColor(210,210,230,255), ShopItemDesc(Sel) );
-			const UBOOL bOwned = Sel.Kind==SHOP_Wardrobe && IsOwned(Sel.Slot,Sel.Option);
-			const TCHAR* Action = bOwned ? TEXT("[Enter] Equip") : (ShopItemPrice(Sel)<=Beans ? TEXT("[Enter] Confirm") : TEXT("Too expensive"));
-			Text( C, Med, X+W-Pad-8*S, Y+H-Pad-TextHeight(C,Med)-TextHeight(C,Small)-6*S, FColor(255,230,140,255), Action, 2 );
-		}
-		DrawBeans( C, Harry, X+Pad+8*S, Y+H-Pad-TextHeight(C,Small)*2-4*S, Med );
-		Text( C, Small, X+W*0.5f, Y+H-Pad-TextHeight(C,Small), FColor(150,150,180,255), TEXT("Left/Right: category   Up/Down: choose   Enter: buy   B/Esc: close"), 1 );
-		DrawNotice( C, X+W*0.5f, Y+H*0.5f+60*S, Med );
-	}
-
-	void DrawCharacter( UCanvas* C, APlayerPawn* Harry, FLOAT S, UFont* Small, UFont* Med, UFont* Big )
-	{
-		FLOAT X, Y, W, H;
-		DrawPanel( C, S, X, Y, W, H );
-		const FLOAT Pad = 12*S;
-
-		// Tabs.
-		static const TCHAR* Tabs[TAB_MAX] = { TEXT("Skills"), TEXT("Wardrobe") };
-		for( INT i=0; i<TAB_MAX; i++ )
-		{
-			const FLOAT TX = X + W*0.5f + (i==0 ? -70*S : 70*S);
-			Text( C, Big, TX, Y+Pad, i==CharTab ? FColor(230,190,90,255) : FColor(120,120,150,255), Tabs[i], 1 );
-		}
-		FLOAT RowY = Y + Pad + TextHeight(C,Big) + 12*S;
-
-		// Level line.
-		Text( C, Med, X+Pad+8*S, RowY, FColor(255,230,140,255),
-			*FString::Printf(TEXT("Level %i   XP %i / %i   Skill points: %i"), State.Level, State.Xp, XpForNextLevel(State.Level), State.SkillPoints) );
-		RowY += TextHeight(C,Med) + 14*S;
-
-		const FLOAT RowH = TextHeight(C,Med) + TextHeight(C,Small) + 12*S;
-		if( CharTab==TAB_Skills )
-		{
-			for( INT i=0; i<SKILL_MAX; i++ )
-			{
-				const UBOOL bSel = i==SkillRow;
-				if( bSel )
-					Rect( C, X+Pad, RowY-3*S, W-2*Pad, RowH-4*S, FColor(44,52,96,255) );
-				Text( C, Med, X+Pad+8*S, RowY, bSel ? FColor(255,255,255,255) : FColor(200,200,220,255), GSkillNames[i] );
-				Text( C, Small, X+Pad+8*S, RowY+TextHeight(C,Med)+2*S, FColor(160,160,190,255), GSkillDescs[i] );
-				const FLOAT Pip = 14*S;
-				for( INT p=0; p<SKILL_MAX_PIPS; p++ )
-				{
-					const FLOAT PX = X+W-Pad-8*S-(SKILL_MAX_PIPS-p)*(Pip+4*S);
-					Frame( C, PX, RowY+2*S, Pip, Pip, S*0.5f, p<State.Skill[i] ? FColor(230,190,70,255) : FColor(30,34,60,255), FColor(150,130,70,255) );
-				}
-				RowY += RowH;
-			}
-			Text( C, Small, X+W*0.5f, Y+H-Pad-TextHeight(C,Small), FColor(150,150,180,255), TEXT("Up/Down: choose   Enter: spend point   Tab/Q/E: wardrobe   K/Esc: close"), 1 );
-		}
-		else
-		{
-			for( INT i=0; i<RSLOT_MAX; i++ )
-			{
-				const UBOOL bSel = i==WardrobeRow;
-				const FWardrobeOption& Opt = GetSlotOptions(i)[State.Equip[i]];
-				if( bSel )
-					Rect( C, X+Pad, RowY-3*S, W-2*Pad, RowH-4*S, FColor(44,52,96,255) );
-				Text( C, Med, X+Pad+8*S, RowY, bSel ? FColor(255,255,255,255) : FColor(200,200,220,255), GSlotNames[i] );
-				Text( C, Med, X+W-Pad-8*S, RowY, FColor(255,230,140,255), *FString::Printf(TEXT("< %s >"), Opt.Name), 2 );
-				Text( C, Small, X+Pad+8*S, RowY+TextHeight(C,Med)+2*S, FColor(160,160,190,255), Opt.Desc );
-				RowY += RowH;
-			}
-			// Locked items in the selected slot.
-			FString Locked;
-			const FWardrobeOption* Opts = GetSlotOptions( WardrobeRow );
-			for( INT o=0; o<GSlotCounts[WardrobeRow]; o++ )
-				if( !IsOwned(WardrobeRow,o) )
-					Locked += FString::Printf( TEXT("%s%s (%i)"), Locked.Len() ? TEXT(", ") : TEXT(""), Opts[o].Name, Opts[o].Price );
-			if( Locked.Len() )
-				Text( C, Small, X+Pad+8*S, RowY+4*S, FColor(200,120,120,255), *(FString(TEXT("Locked, buy from a vendor: ")) + Locked) );
-			Text( C, Small, X+W*0.5f, Y+H-Pad-TextHeight(C,Small), FColor(150,150,180,255), TEXT("Up/Down: choose   Left/Right: change   Tab/Q/E: skills   K/Esc: close"), 1 );
-		}
-		DrawNotice( C, X+W*0.5f, Y+H-Pad-TextHeight(C,Small)*2-10*S, Med );
-	}
-
-	/*-------------------------------------------------------------------------
-		Console commands.
-	-------------------------------------------------------------------------*/
-
-	UBOOL Exec( UGameEngine* Engine, const TCHAR* Cmd, FOutputDevice& Ar )
-	{
-		Init();
-		if( !ParseCommand(&Cmd,TEXT("RPG")) )
-			return 0;
-		APlayerPawn* Harry = GetHarry( Engine );
-		if( ParseCommand(&Cmd,TEXT("STATUS")) )
-		{
-			Ar.Logf( TEXT("HP2Rpg %s: Level %i Xp %i SkillPoints %i Health %i Speed %i Jump %i Luck %i Owned %i"),
-				bEnabled ? TEXT("on") : TEXT("off"), State.Level, State.Xp, State.SkillPoints,
-				State.Skill[0], State.Skill[1], State.Skill[2], State.Skill[3], State.Owned );
-			return 1;
-		}
-		if( ParseCommand(&Cmd,TEXT("XP")) )
-		{
-			if( Harry )
-				GiveXp( appAtoi(Cmd), TEXT("console"), Harry );
-			return 1;
-		}
-		if( ParseCommand(&Cmd,TEXT("BEANS")) )
-		{
-			FRpgArg Arg = FRpgArg::I( appAtoi(Cmd) );
-			if( Harry )
-				CallScript( GetStatus(Harry), TEXT("AddBeans"), &Arg, 1 );
-			return 1;
-		}
-		if( ParseCommand(&Cmd,TEXT("HAT")) )
-		{
-			// RPG HAT <up> <forward> <side> <scale>: tune hat placement live.
-			FLOAT Values[4] = { 0.f, 0.f, 0.f, 1.f };
-			INT N = 0;
-			FString Token;
-			while( N<4 && ParseToken(Cmd,Token,0) )
-				Values[N++] = appAtof( *Token );
-			HatTweak = FVector( Values[0], Values[1], Values[2] );
-			HatScaleTweak = Values[3]>0.f ? Values[3] : 1.f;
-			Ar.Logf( TEXT("HP2Rpg hat tweak up=%.1f fwd=%.1f side=%.1f scale=%.2f"), HatTweak.X, HatTweak.Y, HatTweak.Z, HatScaleTweak );
-			return 1;
-		}
-		Ar.Logf( TEXT("Usage: RPG STATUS | RPG XP <n> | RPG BEANS <n> | RPG HAT <up> <forward> <side> <scale>") );
-		return 1;
-	}
+	#include "HP2RpgMenus.inl"
 };
 
 static FHP2Rpg GRpg;
 
-void FHP2Rpg::StaticOnScriptCall( UObject* Self, UFunction* Function, BYTE* Locals )
+void FHP2Rpg::StaticOnScriptCall( UObject* Self, UFunction* Function, BYTE* Locals, UObject* Caller )
 {
-	GRpg.OnScriptCall( Self, Function, Locals );
+	GRpg.OnScriptCall( Self, Function, Locals, Caller );
+}
+
+void FHP2Rpg::StaticOnStateChange( UObject* Self, FName OldState, FName NewState )
+{
+	GRpg.OnStateChange( Self, OldState, NewState );
 }
 
 } // namespace
@@ -2071,13 +2529,16 @@ void HP2RpgOnLevelLoaded( UGameEngine* Engine )
 	// even if the new ULevel happens to reuse the old address.
 	GRpg.LastLevel = NULL;
 	GRpg.LastHarry = NULL;
-	GRpg.HatActor = NULL;
-	GRpg.HatActorKind = HAT_None;
+	GRpg.HatActor = GRpg.PetActor = GRpg.AuraActor = NULL;
+	GRpg.PreviewBody = GRpg.PreviewAttach = GRpg.PreviewItem = GRpg.PreviewNpc = NULL;
 	GRpg.HeldWeapon = NULL;
 	GRpg.HeldOriginalMesh = NULL;
-	GRpg.NearStudent = NULL;
+	GRpg.CostumeApplied = NULL;
+	GRpg.NearNpc = NULL;
+	GRpg.ShopVendor = NULL;
 	GRpg.LastHitStudent = NULL;
-	GRpg.RewardedCreatures.Empty();
+	GRpg.ActorFlags.Empty();
+	GRpg.Deferred.Empty();
 	unguard;
 }
 
@@ -2089,8 +2550,6 @@ void HP2RpgOnLoadedSlot( UGameEngine* Engine, INT Slot )
 	{
 		GRpg.LoadSlot( Slot );
 		GRpg.bLoadedFromSlot = 1;
-		// LoadMap already replaced GLevel before we got here; treat the
-		// next level-change check as coming from this load.
 		GRpg.LastLevel = NULL;
 	}
 	unguard;
