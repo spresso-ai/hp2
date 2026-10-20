@@ -76,6 +76,8 @@ UFont* FRpgUi::MakeNativeFont( UFont* Fallback, const TCHAR* FaceName, INT Heigh
 	UFont* Font = ConstructObject<UFont>( UFont::StaticClass(), UObject::GetTransientPackage(), NAME_None, RF_Transient );
 	Font->CharactersPerPage = Fallback->CharactersPerPage;
 	Font->Pages = Fallback->Pages;
+	Font->CharRemap = Fallback->CharRemap;
+	Font->IsRemapped = Fallback->IsRemapped;
 	Font->FontName = FaceName;
 	Font->FontHeight = Height;
 	Font->AddToRoot();

@@ -646,6 +646,7 @@ public:
 			FailedSpawn[i] = -1;
 		HatScaleTweak = 1.f;
 		ConfirmIndex = -1;
+		SpellsKnownNotified = -1;
 		QuidditchCountedLevel = -1;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 
@@ -870,6 +871,7 @@ public:
 		}
 		Sanitize();
 		MarkWardrobeDirty();
+		SpellsKnownNotified = -1;
 		RpgLog( TEXT("loaded slot %i: level %i xp %i points %i"), Slot, State.Level, State.Xp, State.SkillPoints );
 	}
 
@@ -895,9 +897,12 @@ public:
 				State.TaskDay = 0; // re-roll
 		for( INT h=0; h<4; h++ )
 			State.Rep[h] = Clamp( State.Rep[h], -100, 100 );
+		INT Kept = 0;
 		for( INT i=0; i<MAX_INBOX; i++ )
-			if( State.Inbox[i]<0 || State.Inbox[i]>GNumLetters )
-				State.Inbox[i] = 0;
+			if( State.Inbox[i]>0 && State.Inbox[i]<=GNumLetters )
+				State.Inbox[Kept++] = State.Inbox[i];
+		for( INT i=Kept; i<MAX_INBOX; i++ )
+			State.Inbox[i] = 0;
 		for( INT s=0; s<RSLOT_MAX; s++ )
 		{
 			const INT Id = State.Equip[s];
@@ -1304,6 +1309,7 @@ public:
 		bBaselineValid = 0; // don't announce these as separate house point cards
 		AddFeed( TEXT("House Cup update"), FColor(255,214,120,255), TOAST_House,
 			*FString::Printf(TEXT("Slytherin +%i, Ravenclaw +%i, Hufflepuff +%i"), Gains[0], Gains[1], Gains[2]) );
+		Feed(Feed.Num()-1).Amount = HOUSE_Slytherin;
 	}
 
 	/*-------------------------------------------------------------------------
@@ -1338,7 +1344,7 @@ public:
 		{
 			case GIFT_Beans:      GiveBeans( Harry, L.GiftAmount ); Gift = FString::Printf( TEXT("  +%i beans"), L.GiftAmount ); break;
 			case GIFT_Potion:     ApplyConsumable( Harry, CON_Potion, L.GiftAmount ); Gift = TEXT("  +Wiggenweld potion"); break;
-			case GIFT_ChocFrog:   ApplyConsumable( Harry, CON_ChocFrog, 1 ); Gift = TEXT("  +Chocolate Frog"); break;
+			case GIFT_ChocFrog:   ApplyConsumable( Harry, CON_ChocFrog, 1 ); Gift = TEXT("  +Chocolate Frog (health restored)"); break;
 			case GIFT_BronzeCard: ApplyConsumable( Harry, CON_BronzeCard, 1 ); Gift = TEXT("  +Wizard Card"); break;
 			case GIFT_SkillPoint: State.SkillPoints += L.GiftAmount; Gift = TEXT("  +1 skill point"); break;
 			default: break;
@@ -1363,7 +1369,10 @@ public:
 		State.Rep[House] = Clamp( State.Rep[House]+Amount, -100, 100 );
 		const TCHAR* After = RepTier( State.Rep[House] );
 		if( Before!=After )
+		{
 			AddFeed( FString::Printf(TEXT("%s: %s"), GHouseNames[House], After), GHouseColors[House], TOAST_House, TEXT("House reputation changed") );
+			Feed(Feed.Num()-1).Amount = House;
+		}
 	}
 
 	void UpdateTasks( APlayerPawn* Harry )
@@ -2768,6 +2777,8 @@ public:
 		RunDeferred( Engine );
 		UpdateWardrobe( Engine, Harry );
 		UpdateSpells( Engine, Harry, DeltaSeconds );
+		UpdateOwls( Engine, Harry, DeltaSeconds );
+		UpdateStudents( Engine, Harry, IsFreeGameplay(Engine,Harry), DeltaSeconds );
 	}
 
 	void OnLevelChanged( UGameEngine* Engine )
@@ -2808,6 +2819,7 @@ public:
 		{
 			State.Reset();
 			Sanitize();
+			SpellsKnownNotified = -1;
 			RpgLog( TEXT("new game, RPG progress reset") );
 		}
 		else if( appStrstr(MapName,TEXT("_hub")) && RpgClock-LastDayClock > 300.f )
@@ -2837,6 +2849,11 @@ public:
 		DestroyActorSafe( Engine, PreviewNpc );
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 		EndAllSpells( Engine );
+		EndWorld();
+		for( INT o=0; o<Owls.Num(); o++ )
+			DestroyActorSafe( Engine, Owls(o).Actor );
+		Owls.Empty();
+		bOwlsSpawned = 0;
 		RestoreHeld();
 		APlayerPawn* Harry = GetHarry( Engine );
 		RestoreCostume( Harry );
@@ -2882,6 +2899,7 @@ public:
 		ActorFlags.Empty();
 		Deferred.Empty();
 		ForgetSpells();
+		ForgetWorld();
 	}
 
 	/*-------------------------------------------------------------------------
@@ -2891,6 +2909,7 @@ public:
 	// ApplyConsumable lives in the menus file; declared there.
 	#include "HP2RpgMenus.inl"
 	#include "HP2RpgSpells.inl"
+	#include "HP2RpgWorld.inl"
 };
 
 static FHP2Rpg GRpg;
@@ -2963,7 +2982,10 @@ void HP2RpgOnLevelUnloading( UGameEngine* Engine )
 	if( GRpg.Menu!=MENU_None && Engine->GLevel )
 		GRpg.CloseMenu( Engine );
 	if( Engine->GLevel && Engine->GLevel==GRpg.LastLevel )
+	{
 		GRpg.EndAllSpells( Engine );
+		GRpg.EndWorld();
+	}
 	GRpg.ForgetLevel();
 	GRpg.bLevelTransition = 1;
 	unguard;

@@ -102,8 +102,11 @@
 		static const TCHAR* States[] = { TEXT("stateBiteHarry"), TEXT("stateBeingCarried"), TEXT("stateBeingThrown"), TEXT("AttachToHarry"), TEXT("stateWasHoldingByHarry") };
 		const FName S = GetStateName( A );
 		for( INT i=0; i<ARRAY_COUNT(States); i++ )
-			if( S==FName(States[i],FNAME_Find) )
+		{
+			const FName N( States[i], FNAME_Find );
+			if( N!=NAME_None && S==N )
 				return 1;
+		}
 		for( INT i=0; i<NumDeathStates; i++ )
 			if( S==DeathStates[i] )
 				return 1;
@@ -128,6 +131,8 @@
 			if( !bCreature && !bStudent && !bProp )
 				continue;
 			if( bCreature && IsGrabbingHarry(A) )
+				continue;
+			if( !Harry->LineOfSightTo(A) )
 				continue;
 			FVector D = A->Location - Harry->Location;
 			const FLOAT Dist = D.Size();
@@ -193,7 +198,7 @@
 			static FName PickupProp( TEXT("PickupProp") );
 			if( GetStateName(A)==PickupProp || !GetBoolProp(A,TEXT("bPickupOnTouch")) )
 				continue;
-			if( (A->Location - Harry->Location).SizeSquared() > 700.f*700.f )
+			if( (A->Location - Harry->Location).SizeSquared() > 700.f*700.f || !Harry->LineOfSightTo(A) )
 				continue;
 			UBOOL bAlready = 0;
 			for( INT p=0; p<Pulls.Num(); p++ )
@@ -224,6 +229,12 @@
 			if( !IsInLevel(E.Actor) )
 			{
 				Pulls.Remove( p );
+				continue;
+			}
+			static FName PickupProp( TEXT("PickupProp") );
+			if( E.Actor->bHidden || GetStateName(E.Actor)==PickupProp )
+			{
+				Pulls.Remove( p ); // the game is already collecting it
 				continue;
 			}
 			E.Age += DeltaSeconds;
@@ -262,11 +273,11 @@
 				Kind = 0;
 			else if( ClassChainIsAny(A,TEXT("chestbronze|bronzecauldron")) && !GetBoolProp(A,TEXT("bOpened")) )
 				Kind = 1;
-			else if( ClassChainIs(A,TEXT("HFlipendo")) && S==FName(TEXT("waitforspell"),FNAME_Find) )
+			else if( ClassChainIs(A,TEXT("HFlipendo")) && S==FName(TEXT("waitforspell")) )
 				Kind = 1;
-			else if( ClassChainIs(A,TEXT("WizardCardIcon")) && !A->Owner && S!=FName(TEXT("PickupProp"),FNAME_Find) )
+			else if( ClassChainIs(A,TEXT("WizardCardIcon")) && !A->Owner && !A->bHidden && S!=FName(TEXT("PickupProp")) )
 				Kind = 2;
-			else if( ClassChainIsAny(A,TEXT("ChallengeStar|PotionIngredients|WiggenWell")) && !A->Owner )
+			else if( ClassChainIsAny(A,TEXT("ChallengeStar|PotionIngredients|WiggenWell")) && !A->Owner && !A->bHidden && S!=FName(TEXT("PickupProp")) )
 				Kind = 3;
 			if( Kind<0 )
 				continue;
@@ -361,11 +372,11 @@
 				continue;
 			// Landed: hand control back, and let props react like a Flipendo hit.
 			T->Role = E.OldRole;
-			if( E.OldPhysics==PHYS_Flying )
-				T->setPhysics( PHYS_Flying );
+			if( E.OldPhysics!=PHYS_Walking && E.OldPhysics!=PHYS_None && E.OldPhysics!=PHYS_Falling )
+				T->setPhysics( E.OldPhysics );
 			const INT Vuln = GetByteProp( T, TEXT("eVulnerableToSpell"), 0 );
-			if( E.bProp && Vuln )
-				QueueRedispatch( T, Vuln );
+			if( E.bProp && Vuln==13 )
+				QueueRedispatch( T, Vuln ); // only props a Flipendo would open
 			else if( CreatureType(T)>=0 )
 				QueueRedispatch( T, 13 );
 			Lifts.Remove( l );
@@ -439,6 +450,21 @@
 		return 1;
 	}
 
+	struct FClassType { UClass* Class; INT Type; };
+	TArray<FClassType> ClassTypes;
+
+	INT CreatureTypeCached( AActor* A )
+	{
+		UClass* C = A->GetClass();
+		for( INT i=0; i<ClassTypes.Num(); i++ )
+			if( ClassTypes(i).Class==C )
+				return ClassTypes(i).Type;
+		FClassType* E = new(ClassTypes) FClassType;
+		E->Class = C;
+		E->Type = CreatureType( A );
+		return E->Type;
+	}
+
 	// Runs right after the level tick: anything whose bTicked matches the
 	// level's flag skips its next tick.
 	void HoldActorTicks( UGameEngine* Engine, APlayerPawn* Harry )
@@ -461,7 +487,10 @@
 				AActor* A = Engine->GLevel->Actors(i);
 				if( !A || A==Harry || A->bDeleteMe )
 					continue;
-				const UBOOL bEnemy = CreatureType(A)>=0 && !IsStudent(A);
+				if( A==(AActor*)GetObjProp(Harry,TEXT("CarryingActor")) )
+					continue;
+				const INT Type = CreatureTypeCached( A );
+				const UBOOL bEnemy = Type>=0 && Type!=CR_Boss;
 				const UBOOL bHostileSpell = Spell && A->IsA(Spell) && !IsHarrysSpell(A,Harry);
 				const UBOOL bHazard = ClassChainIsAny( A, TEXT("Fireball|FireballLarge|ThrownSpike|ThrownPoisonCloud|Bludger") );
 				if( bEnemy || bHostileSpell || bHazard )
@@ -470,8 +499,22 @@
 		}
 	}
 
+	INT CountKnownSpells()
+	{
+		INT Known = 0;
+		for( INT i=0; i<SP2_MAX; i++ )
+			if( SpellUnlocked(i) )
+				Known = i+1;
+		return Known;
+	}
+
 	void UpdateSpells( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
 	{
+		if( Engine->GLevel->GetLevelInfo()->Pauser.Len() )
+		{
+			HoldActorTicks( Engine, Harry ); // keep frozen actors in step
+			return;
+		}
 		for( INT i=0; i<SP2_MAX; i++ )
 			SpellCooldown[i] = Max( 0.f, SpellCooldown[i]-DeltaSeconds );
 		RevealLeft = Max( 0.f, RevealLeft-DeltaSeconds );
@@ -503,18 +546,14 @@
 		}
 		HoldActorTicks( Engine, Harry );
 
-		// Announce newly unlocked spells.
-		INT Known = 0;
-		for( INT i=0; i<SP2_MAX; i++ )
-			if( SpellUnlocked(i) )
-				Known = i+1;
-		if( Known>SpellsKnownNotified )
-		{
-			if( SpellsKnownNotified>0 || Known>0 )
-				for( INT i=SpellsKnownNotified; i<Known; i++ )
-					AddFeed( FString::Printf(TEXT("New spell: %s"), Spell2(i).Name), Spell2(i).Color, TOAST_Reward, *FString::Printf(TEXT("Press %i to cast"), i+4) );
+		// Announce spells unlocked by levelling up (SpellsKnownNotified is
+		// synced silently whenever a save is loaded).
+		const INT Known = CountKnownSpells();
+		if( SpellsKnownNotified<0 )
 			SpellsKnownNotified = Known;
-		}
+		for( INT i=SpellsKnownNotified; i<Known; i++ )
+			AddFeed( FString::Printf(TEXT("New spell: %s"), Spell2(i).Name), Spell2(i).Color, TOAST_Reward, *FString::Printf(TEXT("Press %i to cast"), i+4) );
+		SpellsKnownNotified = Known;
 	}
 
 	// Ends every running spell and restores the actors it changed (before a
@@ -530,7 +569,8 @@
 			{
 				AActor* T = Lifts(l).Actor;
 				T->Role = Lifts(l).OldRole;
-				T->setPhysics( Lifts(l).OldPhysics==PHYS_Flying ? PHYS_Flying : PHYS_Falling );
+				const BYTE OldP = Lifts(l).OldPhysics;
+				T->setPhysics( (OldP==PHYS_Walking || OldP==PHYS_None) ? PHYS_Falling : OldP );
 			}
 		Lifts.Empty();
 		for( INT p=0; p<Pulls.Num(); p++ )
@@ -538,8 +578,8 @@
 				Pulls(p).Actor->setPhysics( Pulls(p).OldPhysics );
 		Pulls.Empty();
 		Reveals.Empty();
-		ShieldFx = NULL;
-		ArrestoLeft = RevealLeft = 0.f;
+		DestroyActorSafe( Engine, ShieldFx );
+		ArrestoLeft = RevealLeft = ShieldLeft = 0.f;
 	}
 
 	void ForgetSpells()
@@ -589,7 +629,7 @@
 			for( INT r=0; r<Reveals.Num(); r++ )
 			{
 				const FRevealEntry& E = Reveals(r);
-				if( E.Actor && !IsInLevel(E.Actor) )
+				if( E.Actor && (!IsInLevel(E.Actor) || (E.Kind>=2 && (E.Actor->bHidden || GetStateName(E.Actor)==FName(TEXT("PickupProp"))))) )
 					continue;
 				FLOAT SX, SY;
 				if( !WorldToScreen( E.Location + FVector(0,0,30), SX, SY ) )

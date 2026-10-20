@@ -1466,12 +1466,14 @@
 			const FRpgRect Row( Area.X, Area.Y + i*RowH, ListW, RowH-2*S );
 			if( Row.Y+Row.H > Area.Y+Area.H )
 				break;
-			RowActivated( Row, i, &State.Inbox[i] );
+			if( RowActivated( Row, i, &State.Inbox[i] ) )
+				State.LettersRead |= (1<<i);
 			const UBOOL bRead = (State.LettersRead & (1<<i))!=0;
 			Ui.Text( Ui.FontBody, Row.X+6*S, Row.Y+2*S, i==Sel ? RpgGoldBright : (bRead ? RpgParchment : FColor(255,255,255,255)), *Ui.FitText(Ui.FontBody,L.From,Row.W-12*S) );
 			Ui.Text( Ui.FontSmall, Row.X+6*S, Row.Y+Ui.TextHeight(Ui.FontBody)+2*S, bRead ? RpgMuted : RpgGoldBright, *Ui.FitText(Ui.FontSmall,L.Subject,Row.W-12*S) );
 		}
-		State.LettersRead |= (1<<Sel);
+		if( Ui.Hovered( FRpgRect(Area.X+ListW, Area.Y, Area.W-ListW, Area.H), &State.LettersRead ) )
+			State.LettersRead |= (1<<Sel);
 		// The letter itself, on parchment.
 		const FLetterDef& L = GLetters[State.Inbox[Sel]-1];
 		const FRpgRect Paper( Area.X+ListW+12*S, Area.Y, Area.W-ListW-12*S, Area.H );
@@ -1563,9 +1565,9 @@
 		LastTalkTime = RpgClock;
 		FRpgArg JustTalk = FRpgArg::I( 1 );
 		CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
-		State.Counters[CNT_Talks]++;
 		if( !TestAndSet(Npc,AF_Talked) )
 		{
+			State.Counters[CNT_Talks]++;
 			GiveXp( 3, TEXT("new friend") );
 			if( IsStudent(Npc) )
 				AddRep( StudentHouse(Npc), 3 );
