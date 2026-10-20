@@ -19,8 +19,10 @@ env:
   UPSTREAM_SHA: 7b1bebb66e76a45aff0fb9fde69ca364a6283f25
 
 jobs:
+  # Apple silicon runner (native build).
   macos:
     runs-on: macos-15
+    timeout-minutes: 60
     steps:
       - name: Checkout mod
         uses: actions/checkout@v4
@@ -69,5 +71,72 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HarryPotter2-RPG-macos-arm64
+          path: upstream/dist/macos-arm64/*.dmg
+          if-no-files-found: error
+
+  # Fallback when Apple silicon runners are scarce: cross-compile the same
+  # arm64 app on an Intel runner. Experimental.
+  macos-intel:
+    runs-on: macos-13
+    timeout-minutes: 90
+    steps:
+      - name: Checkout mod
+        uses: actions/checkout@v4
+        with:
+          path: mod
+
+      - name: Checkout upstream port
+        run: |
+          set -euo pipefail
+          git init upstream
+          cd upstream
+          git remote add origin "${UPSTREAM_REPO}"
+          git fetch --depth 1 origin "${UPSTREAM_SHA}"
+          git checkout --detach FETCH_HEAD
+
+      - name: Apply mod overlay
+        run: |
+          set -euo pipefail
+          cp -R mod/overlay/. upstream/
+          cd upstream
+          git status --short
+
+      - name: Allow configuring arm64 on an Intel host
+        working-directory: upstream
+        run: |
+          python3 - <<'PY'
+          p = "CMakeLists.txt"
+          s = open(p).read()
+          s = s.replace('message(FATAL_ERROR "HarryPotter2Native must be configured natively on an arm64 Darwin host.")',
+                        'message(WARNING "Cross-compiling arm64 on an Intel host.")')
+          open(p, "w").write(s)
+          PY
+
+      - name: Configure
+        working-directory: upstream
+        run: cmake --preset macos-arm64
+
+      - name: Build
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          cmake --build --preset macos-arm64 2>&1 | tee ../build-intel.log
+
+      - name: Package DMG
+        working-directory: upstream
+        run: cmake --build out/macos-arm64 --target hp2_macos_dmg
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-intel
+          path: build-intel.log
+          if-no-files-found: ignore
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarryPotter2-RPG-macos-arm64-intelbuilt
           path: upstream/dist/macos-arm64/*.dmg
           if-no-files-found: error
