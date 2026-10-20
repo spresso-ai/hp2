@@ -574,22 +574,48 @@
 	{
 		UCanvas* C = Ui.C;
 		const FLOAT S = Ui.S;
-		const FLOAT Crest = 18*S, Gap = 50*S;
-		const FLOAT X0 = C->ClipX*0.5f - Gap*1.5f, Y0 = 6*S;
+		UFont* Num = Ui.FontModernBold;
+		const FLOAT NumH = Ui.TextHeight( Num );
+
+		// Row 1: four crests, each followed by its total.
+		const FLOAT Crest = NumH*1.15f, Gap = 4*S, Space = 16*S;
+		FString Values[HOUSE_MAX];
+		FLOAT RowW = 0.f;
 		for( INT i=0; i<HOUSE_MAX; i++ )
 		{
-			const FLOAT X = X0 + Gap*i;
-			if( Crests[i] )
-				Ui.Icon( Crests[i], FRpgRect(X-Crest*0.5f, Y0, Crest, Crest), (PendingHouse[i] || i==HOUSE_Gryffindor) ? 1.f : 0.7f );
-			Ui.Text( Ui.FontModernBold, X, Y0+Crest+1*S, GHouseColors[i], *FString::Printf(TEXT("%i"), bBaselineValid ? LastHouse[i] : 0), RALIGN_Center );
+			Values[i] = FString::Printf( TEXT("%i"), bBaselineValid ? LastHouse[i] : 0 );
+			RowW += Crest + Gap + Ui.TextWidth( Num, *Values[i] ) + (i ? Space : 0.f);
 		}
-		const FLOAT BarW = 120*S, BarH = 4*S;
-		const FLOAT BarX = C->ClipX*0.5f - BarW*0.5f, BarY = Y0 + Crest + 16*S;
-		Ui.Bar( FRpgRect(BarX,BarY,BarW,BarH), (FLOAT)State.Xp/XpForNextLevel(State.Level), FColor(120,190,255,255) );
-		Ui.Text( Ui.FontModernBold, BarX-6*S, BarY-Ui.TextHeight(Ui.FontModernBold)*0.5f, RpgGoldBright, *FString::Printf(TEXT("Lv %i"), State.Level), RALIGN_Right );
-		if( State.SkillPoints>0 )
-			Ui.Text( Ui.FontModern, BarX+BarW+6*S, BarY-Ui.TextHeight(Ui.FontModern)*0.5f, RpgGreen, *FString::Printf(TEXT("%i point%s [K]"), State.SkillPoints, State.SkillPoints>1 ? TEXT("s") : TEXT("")) );
-		FLOAT LineY = BarY + 8*S;
+		FLOAT X = (C->ClipX - RowW)*0.5f;
+		const FLOAT Y0 = 8*S;
+		for( INT i=0; i<HOUSE_MAX; i++ )
+		{
+			if( i )
+				X += Space;
+			if( Crests[i] )
+				Ui.Icon( Crests[i], FRpgRect(X, Y0+(NumH-Crest)*0.5f, Crest, Crest), (PendingHouse[i] || i==HOUSE_Gryffindor) ? 1.f : 0.75f );
+			X += Crest + Gap;
+			Ui.Text( Num, X, Y0, GHouseColors[i], *Values[i] );
+			X += Ui.TextWidth( Num, *Values[i] );
+		}
+
+		// Row 2: level, XP bar, skill points.
+		UFont* Small = Ui.FontModern;
+		const FString Lv = FString::Printf( TEXT("Lv %i"), State.Level );
+		const FString Pts = State.SkillPoints>0 ? FString::Printf( TEXT("%i point%s  [K]"), State.SkillPoints, State.SkillPoints>1 ? TEXT("s") : TEXT("") ) : FString();
+		const FLOAT BarW = 130*S, BarH = 4*S;
+		const FLOAT LvW = Ui.TextWidth( Num, *Lv ), PtsW = Pts.Len() ? Ui.TextWidth( Small, *Pts ) + 8*S : 0.f;
+		const FLOAT Row2W = LvW + 8*S + BarW + PtsW;
+		const FLOAT Y1 = Y0 + NumH + 6*S;
+		X = (C->ClipX - Row2W)*0.5f;
+		Ui.Text( Num, X, Y1, RpgGoldBright, *Lv );
+		X += LvW + 8*S;
+		const FLOAT BarY = Y1 + (NumH-BarH)*0.5f;
+		Ui.Bar( FRpgRect(X, BarY, BarW, BarH), (FLOAT)State.Xp/XpForNextLevel(State.Level), FColor(120,190,255,255) );
+		X += BarW + 8*S;
+		if( Pts.Len() )
+			Ui.Text( Small, X, Y1+(NumH-Ui.TextHeight(Small))*0.5f, RpgGreen, *Pts );
+		FLOAT LineY = Y1 + NumH + 4*S;
 		if( State.DetentionSeconds>0 )
 		{
 			Ui.Text( Ui.FontSmall, C->ClipX*0.5f, LineY, RpgRed, *FString::Printf(TEXT("Detention %i:%02i"), State.DetentionSeconds/60, State.DetentionSeconds%60), RALIGN_Center );
@@ -1078,63 +1104,92 @@
 	{
 		const FLOAT S = Ui.S;
 		Sel = Clamp( Sel, 0, SP_MAX-1 );
-		const FLOAT RowH = Area.H/SP_MAX;
+
+		// Spell picker: one icon per spell.
+		const FLOAT CellW = Area.W/SP_MAX;
+		const FLOAT IconS = Min( CellW*0.55f, 44*S );
+		const FLOAT PickH = IconS + Ui.TextHeight(Ui.FontSmall) + 10*S;
 		for( INT sp=0; sp<SP_MAX; sp++ )
 		{
-			INT Chain[PERK_MAX];
-			const INT Count = SpellChain( sp, Chain );
-			INT Level = 0;
-			while( Level<Count && HasPerk(Chain[Level]) )
-				Level++;
-			const FRpgRect Row( Area.X, Area.Y+sp*RowH, Area.W, RowH-4*S );
-			const UBOOL bAct = RowActivated( Row, sp, &GSpellNames[sp] );
-
-			const FLOAT IconS = Min( RowH-10*S, 40*S );
+			const FRpgRect Cell( Area.X + CellW*sp, Area.Y, CellW-4*S, PickH );
+			const UBOOL bHover = Ui.Hovered( Cell, &GSpellNames[sp] );
+			if( sp==Sel )
+			{
+				Ui.Rect( Cell, FColor(34,44,96,255) );
+				Ui.Border( Cell, Max(1.f,S), RpgGoldBright );
+			}
+			else if( bHover )
+				Ui.Rect( Cell, FColor(24,32,72,255) );
 			UTexture* Icon = LoadTex( GSpellIcons[sp] );
 			if( Icon )
-				Ui.Icon( Icon, FRpgRect(Row.X+4*S, Row.Y+(Row.H-IconS)*0.5f, IconS, IconS) );
-			const FLOAT TX = Row.X + IconS + 12*S;
-			Ui.Text( Ui.FontItem, TX, Row.Y+2*S, sp==Sel ? RpgGoldBright : RpgParchment, GSpellNames[sp] );
-			const FLOAT Pip = 14*S;
-			Ui.Pips( Row.X+Row.W-Count*(Pip+4*S)-4*S, Row.Y+6*S, Level, Count, Pip );
-
-			FString Line;
-			FColor LineColor = RpgMuted;
-			if( Level<Count )
+				Ui.Icon( Icon, FRpgRect(Cell.X+(Cell.W-IconS)*0.5f, Cell.Y+4*S, IconS, IconS), sp==Sel ? 1.f : 0.6f );
+			Ui.Text( Ui.FontSmall, Cell.X+Cell.W*0.5f, Cell.Y+IconS+6*S, sp==Sel ? RpgGoldBright : RpgMuted,
+				*Ui.FitText(Ui.FontSmall,GSpellNames[sp],Cell.W-4*S), RALIGN_Center );
+			if( Ui.Clicked( Cell, &GSpellNames[sp] ) )
 			{
-				const FPerkDef& Next = GPerks[Chain[Level]];
-				Line = FString::Printf( TEXT("Next: %s (%i pt) - %s"), Next.Name, Next.Cost, Next.Desc );
-				LineColor = State.SkillPoints>=Next.Cost ? RpgParchment : RpgMuted;
+				Sel = sp;
+				Ui.Play( RSND_Tab, Harry );
 			}
-			else
-			{
-				Line = TEXT("Mastered!");
-				LineColor = RpgGreen;
-			}
-			Ui.Text( Ui.FontBody, TX, Row.Y+Ui.TextHeight(Ui.FontItem)+2*S, LineColor, *Ui.FitText(Ui.FontBody,*Line,Row.X+Row.W-TX-4*S) );
+		}
 
-			if( bAct )
+		// Upgrade tree of the selected spell.
+		INT Chain[PERK_MAX];
+		const INT Count = SpellChain( Sel, Chain );
+		INT Level = 0;
+		while( Level<Count && HasPerk(Chain[Level]) )
+			Level++;
+		FLOAT Y = Area.Y + PickH + 12*S;
+		const FLOAT Link = 10*S;
+		const FLOAT NodeH = Count ? Min( (Area.Y+Area.H - Y - Link*(Count-1))/Count, 110*S ) : 0.f;
+		for( INT n=0; n<Count; n++ )
+		{
+			const FPerkDef& D = GPerks[Chain[n]];
+			const UBOOL bLearned = n<Level;
+			const UBOOL bNext = n==Level;
+			const FColor Edge = bLearned ? RpgGreen : (bNext ? RpgGoldBright : FColor(70,74,104,255));
+			const FRpgRect Node( Area.X + 18*S, Y, Area.W - 18*S, NodeH );
+			const UBOOL bHover = bNext && Ui.Hovered( Node, &GPerks[Chain[n]] );
+			Ui.Rect( Node, bHover ? FColor(36,46,98,255) : (bNext ? FColor(28,36,80,255) : FColor(18,22,50,255)) );
+			Ui.Border( Node, Max(1.f,S*(bNext?1.5f:1.f)), Edge );
+
+			// Connector dot and line on the left.
+			const FLOAT Dot = 10*S;
+			Ui.Rect( FRpgRect(Area.X+4*S, Node.Y+NodeH*0.5f-Dot*0.5f, Dot, Dot), Edge );
+			if( n<Count-1 )
+				Ui.Rect( FRpgRect(Area.X+4*S+Dot*0.5f-S, Node.Y+NodeH*0.5f+Dot*0.5f, 2*S, NodeH*0.5f+Link+NodeH*0.5f-Dot), n<Level-1 ? RpgGreen : FColor(70,74,104,255) );
+
+			const FString Head = FString::Printf( TEXT("Level %i  -  %s"), n+1, D.Name );
+			Ui.Text( Ui.FontItem, Node.X+10*S, Node.Y+6*S, bLearned ? RpgGreen : (bNext ? RpgGoldBright : RpgMuted), *Ui.FitText(Ui.FontItem,*Head,Node.W-120*S) );
+			const TCHAR* Status = bLearned ? TEXT("Learned") : (bNext ? (State.SkillPoints>=D.Cost ? TEXT("Click to learn") : TEXT("Not enough points")) : TEXT("Locked"));
+			Ui.Text( Ui.FontSmall, Node.X+Node.W-10*S, Node.Y+8*S, bLearned ? RpgGreen : (bNext && State.SkillPoints>=D.Cost ? RpgGoldBright : RpgMuted), Status, RALIGN_Right );
+			Ui.Text( Ui.FontSmall, Node.X+Node.W-10*S, Node.Y+8*S+Ui.TextHeight(Ui.FontSmall), RpgParchment,
+				*FString::Printf(TEXT("%i skill point%s"), D.Cost, D.Cost>1 ? TEXT("s") : TEXT("")), RALIGN_Right );
+			Ui.TextWrapped( Ui.FontBody, FRpgRect(Node.X+10*S, Node.Y+Ui.TextHeight(Ui.FontItem)+10*S, Node.W-20*S, NodeH-Ui.TextHeight(Ui.FontItem)-14*S),
+				bNext || bLearned ? RpgParchment : RpgMuted, D.Desc );
+
+			if( bNext && (Ui.Clicked(Node,&GPerks[Chain[n]]) || bActivate) )
 			{
-				if( Level>=Count )
-					SetNotice( FString::Printf(TEXT("%s is already mastered."), GSpellNames[sp]) );
+				bActivate = 0;
+				if( State.SkillPoints < D.Cost )
+				{
+					SetNotice( FString::Printf(TEXT("%s needs %i skill point%s."), D.Name, D.Cost, D.Cost>1 ? TEXT("s") : TEXT("")) );
+					Ui.Play( RSND_Deny, Harry );
+				}
 				else
 				{
-					const FPerkDef& Next = GPerks[Chain[Level]];
-					if( State.SkillPoints < Next.Cost )
-					{
-						SetNotice( FString::Printf(TEXT("%s needs %i skill point%s."), Next.Name, Next.Cost, Next.Cost>1 ? TEXT("s") : TEXT("")) );
-						Ui.Play( RSND_Deny, Harry );
-					}
-					else
-					{
-						State.SkillPoints -= Next.Cost;
-						State.Perks |= (1<<Chain[Level]);
-						SetNotice( FString::Printf(TEXT("%s level %i: %s!"), GSpellNames[sp], Level+1, Next.Name) );
-						Ui.Play( RSND_Reward, Harry );
-						ApplySkills( Harry );
-					}
+					State.SkillPoints -= D.Cost;
+					State.Perks |= (1<<Chain[n]);
+					SetNotice( FString::Printf(TEXT("%s level %i: %s!"), GSpellNames[Sel], n+1, D.Name) );
+					Ui.Play( RSND_Reward, Harry );
+					ApplySkills( Harry );
 				}
 			}
+			Y += NodeH + Link;
+		}
+		if( Level>=Count && bActivate )
+		{
+			bActivate = 0;
+			SetNotice( FString::Printf(TEXT("%s is mastered."), GSpellNames[Sel]) );
 		}
 	}
 
