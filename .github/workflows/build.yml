@@ -1,0 +1,73 @@
+name: build
+
+# Builds the HP2 RPG mod for macOS arm64.
+# Checks out the upstream source port at a pinned commit, copies overlay/
+# on top of it, builds the app and uploads the DMG as an artifact.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UPSTREAM_REPO: https://github.com/cefege/harry-potter-2-chamber-of-secrets-pc.git
+  UPSTREAM_SHA: 7b1bebb66e76a45aff0fb9fde69ca364a6283f25
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - name: Checkout mod
+        uses: actions/checkout@v4
+        with:
+          path: mod
+
+      - name: Checkout upstream port
+        run: |
+          set -euo pipefail
+          git init upstream
+          cd upstream
+          git remote add origin "${UPSTREAM_REPO}"
+          git fetch --depth 1 origin "${UPSTREAM_SHA}"
+          git checkout --detach FETCH_HEAD
+
+      - name: Apply mod overlay
+        run: |
+          set -euo pipefail
+          cp -R mod/overlay/. upstream/
+          cd upstream
+          git status --short
+
+      - name: Configure
+        working-directory: upstream
+        run: cmake --preset macos-arm64
+
+      - name: Build
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          cmake --build --preset macos-arm64 2>&1 | tee ../build.log
+
+      - name: Package DMG
+        working-directory: upstream
+        run: cmake --build out/macos-arm64 --target hp2_macos_dmg
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarryPotter2-RPG-macos-arm64
+          path: upstream/dist/macos-arm64/*.dmg
+          if-no-files-found: error
