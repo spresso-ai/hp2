@@ -1282,7 +1282,7 @@
 			Ui.Text( Ui.FontBody, Area.X+8*S, Y, V ? RpgParchment : RpgMuted, *StatText(s,V) );
 			Y += LineH;
 		}
-		Ui.Text( Ui.FontBody, Area.X+8*S, Y, RpgParchment, *FString::Printf(TEXT("Beans count x%i when picked up"), BeanMultiplier) );
+		Ui.Text( Ui.FontBody, Area.X+8*S, Y, RpgParchment, TEXT("Striped bean 5, golden 3, speckled 2, others 1") );
 		Y += LineH + 6*S;
 
 		Ui.Text( Ui.FontItem, Area.X, Y, RpgGoldBright, TEXT("Trouble") );

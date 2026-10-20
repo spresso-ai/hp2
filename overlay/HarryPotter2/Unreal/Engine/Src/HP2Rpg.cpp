@@ -619,7 +619,7 @@ public:
 		UBOOL Value = 1;
 		if( GConfig->GetBool( TEXT("HP2Rpg"), TEXT("Enabled"), Value ) )
 			bEnabled = Value;
-		BeanMultiplier = 2;
+		BeanMultiplier = 1;
 		INT ConfigMultiplier = 0;
 		if( GConfig->GetInt( TEXT("HP2Rpg"), TEXT("BeanMultiplier"), ConfigMultiplier ) )
 			BeanMultiplier = Clamp( ConfigMultiplier, 1, 5 );
@@ -1485,7 +1485,17 @@ public:
 			if( !Prop || !ClassChainIs(Prop,TEXT("Jellybean")) )
 				return;
 			const INT Base = Max( 1, GetIntProp(Prop,TEXT("nPickupIncrement"),1) );
-			INT Total = Base*BeanMultiplier;
+			// Special bean colours are worth more.
+			INT Worth = 1;
+			const TCHAR* Kind = NULL;
+			AActor* BeanActor = Prop->IsA(AActor::StaticClass()) ? (AActor*)Prop : NULL;
+			const TCHAR* SkinName = BeanActor && BeanActor->Skin ? BeanActor->Skin->GetName() : TEXT("");
+			if( appStrstr(SkinName,TEXT("Stripe")) )            { Worth = 5; Kind = TEXT("striped"); }
+			else if( appStrstr(SkinName,TEXT("Yellowy")) )      { Worth = 3; Kind = TEXT("golden"); }
+			else if( appStrstr(SkinName,TEXT("Checker")) || appStrstr(SkinName,TEXT("Spot")) ) { Worth = 2; Kind = TEXT("speckled"); }
+			INT Total = Base*Worth*BeanMultiplier;
+			if( Kind )
+				AddFeed( FString::Printf(TEXT("+%i %s bean!"), Base*Worth*BeanMultiplier, Kind), Worth>=5 ? FColor(255,120,120,255) : (Worth>=3 ? FColor(255,220,90,255) : FColor(190,230,255,255)) );
 			const INT Chance = GetStat( STAT_BeanFind );
 			INT Bonus = 0;
 			for( INT i=0; i<Base; i++ )
