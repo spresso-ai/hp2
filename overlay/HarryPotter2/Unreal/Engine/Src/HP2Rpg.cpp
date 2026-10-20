@@ -71,7 +71,7 @@ static void VARARGS RpgLog( const TCHAR* Fmt, ... )
 		return;
 	FString Old;
 	appLoadFileToString( Old, *LogPath );
-	appSaveStringToFile( Old + Buffer + TEXT("\r\n"), *LogPath );
+	appSaveStringToFile( Old + FString(Buffer) + TEXT("\r\n"), *LogPath );
 }
 
 /*-----------------------------------------------------------------------------

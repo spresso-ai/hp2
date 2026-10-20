@@ -4,6 +4,7 @@
 
 #include "EnginePrivate.h"
 #include "UnRender.h"
+#include "UnSkeletalMesh.h"
 #include "HP2RpgUi.h"
 
 const FColor RpgGold( 201, 162, 74, 255 );
