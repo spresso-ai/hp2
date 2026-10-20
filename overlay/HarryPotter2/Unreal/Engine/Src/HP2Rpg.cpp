@@ -1701,6 +1701,14 @@ public:
 			const TCHAR* T = *Type;
 			if( appStricmp(T,TEXT("ZonePain"))==0 || appStricmp(T,TEXT("pit"))==0 || appStricmp(T,TEXT("Crushed"))==0 || appStricmp(T,TEXT("Falling"))==0 )
 				return;
+			// Protego blocks everything; frozen creatures can't hurt you.
+			if( ShieldLeft>0.f || IsFrozen(Caller) || IsFrozen(ParmObj(Function,Locals,1)) )
+			{
+				*Damage = 0;
+				if( ShieldLeft>0.f )
+					PlaySfx( TEXT("HPSounds.Magic_sfx.Dueling_EXP_smack") );
+				return;
+			}
 			const INT Pct = Min( 60, GetStat(STAT_DamageReduce) + CreatureDamageReduction(Caller) );
 			if( Pct>0 )
 				*Damage = Max( 1, appRound(*Damage*(100-Pct)/100.f) );
@@ -2759,6 +2767,7 @@ public:
 		PollSpellHits( Engine, Harry );
 		RunDeferred( Engine );
 		UpdateWardrobe( Engine, Harry );
+		UpdateSpells( Engine, Harry, DeltaSeconds );
 	}
 
 	void OnLevelChanged( UGameEngine* Engine )
@@ -2827,6 +2836,7 @@ public:
 		DestroyActorSafe( Engine, PreviewItem );
 		DestroyActorSafe( Engine, PreviewNpc );
 		HatActorKind = PetActorKind = AuraActorKind = -1;
+		EndAllSpells( Engine );
 		RestoreHeld();
 		APlayerPawn* Harry = GetHarry( Engine );
 		RestoreCostume( Harry );
@@ -2871,6 +2881,7 @@ public:
 		LastHitStudent = NULL;
 		ActorFlags.Empty();
 		Deferred.Empty();
+		ForgetSpells();
 	}
 
 	/*-------------------------------------------------------------------------
@@ -2879,6 +2890,7 @@ public:
 
 	// ApplyConsumable lives in the menus file; declared there.
 	#include "HP2RpgMenus.inl"
+	#include "HP2RpgSpells.inl"
 };
 
 static FHP2Rpg GRpg;
@@ -2950,6 +2962,8 @@ void HP2RpgOnLevelUnloading( UGameEngine* Engine )
 	GRpg.Init();
 	if( GRpg.Menu!=MENU_None && Engine->GLevel )
 		GRpg.CloseMenu( Engine );
+	if( Engine->GLevel && Engine->GLevel==GRpg.LastLevel )
+		GRpg.EndAllSpells( Engine );
 	GRpg.ForgetLevel();
 	GRpg.bLevelTransition = 1;
 	unguard;

@@ -551,6 +551,8 @@
 		{
 			if( bGameplay || HouseHudTimer>0.f )
 				DrawStatusHud( Harry, bGameplay );
+			if( bGameplay || ArrestoLeft>0.f || RevealLeft>0.f )
+				DrawSpellHud( Harry );
 			DrawFeed();
 		}
 		else if( Menu==MENU_Shop )
@@ -1604,6 +1606,11 @@
 					LogNearby( Engine, Harry );
 					AddFeed( TEXT("No vendor nearby"), FColor(180,180,200,255), TOAST_Info, TEXT("Look for [B] Trade near a vendor") );
 				}
+				return 1;
+			}
+			if( Key>=IK_4 && Key<=IK_9 && IsFreeGameplay(Engine,Harry) )
+			{
+				CastSpell2( Engine, Harry, Key-IK_4 );
 				return 1;
 			}
 			if( Key==IK_E && NearNpc && IsInLevel(NearNpc) && IsFreeGameplay(Engine,Harry) )
