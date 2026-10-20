@@ -2285,13 +2285,14 @@ public:
 		const FCoords C = Skel->GetBoneCoords( Body, Bone );
 		const FLOAT Yaw = Body->Rotation.Yaw*(2.f*PI/65536.f);
 		const FVector Right( -(FLOAT)appSin(Yaw), (FLOAT)appCos(Yaw), 0.f );
-		const FVector Loc = C.Origin + FVector(0,0,Spec.Up) + Right*Spec.Side;
+		const FLOAT BodyScale = Body->DrawScale/Max(0.01f,BaseDrawScale);
+		const FVector Loc = C.Origin + FVector(0,0,Spec.Up*BodyScale) + Right*(Spec.Side*BodyScale);
 		if( WorldLevel )
 			WorldLevel->FarMoveActor( Pet, Loc, 0, 1 );
 		else
 			Pet->Location = Loc;
 		Pet->Rotation = FRotator( 0, Body->Rotation.Yaw, 0 );
-		Pet->DrawScale = Spec.Scale;
+		Pet->DrawScale = Spec.Scale*Body->DrawScale/Max(0.01f,BaseDrawScale);
 		return 1;
 	}
 

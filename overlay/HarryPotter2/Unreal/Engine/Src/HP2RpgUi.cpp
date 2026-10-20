@@ -421,61 +421,96 @@ void FRpgUi::Bar( const FRpgRect& R, FLOAT Pct, FColor Fill )
 	3D previews.
 -----------------------------------------------------------------------------*/
 
-void FRpgUi::PlaceForPreview( AActor* Actor, FLOAT FovDeg, FLOAT Yaw, FLOAT Zoom )
+// Previews are drawn the way the game draws pickups flying to the HUD
+// (hprop.RenderHud -> Canvas.DrawActor): the actor is placed in the world just
+// in front of the real camera, exactly behind the target rectangle, and drawn
+// with the unchanged scene frame after clearing depth.
+
+static const FLOAT GPreviewDepth = 120.f;
+
+UBOOL FRpgUi::ScreenToWorld( FLOAT SX, FLOAT SY, FLOAT Depth, FVector& Out )
 {
-	// The preview camera sits at the origin looking down +X with Z up.
-	if( !Actor || !Actor->Mesh )
-		return;
-	const FSphere& Sphere = Actor->Mesh->BoundingSphere;
-	const FLOAT Radius = Sphere.W>2.f ? Sphere.W*Actor->DrawScale : 30.f*Actor->DrawScale;
-	const FLOAT HalfFov = Clamp( FovDeg, 10.f, 120.f )*0.5f*PI/180.f;
-	const FLOAT Dist = Max( 2.f, Radius/(FLOAT)appTan(HalfFov)*1.1f*Zoom );
-	Actor->Location = FVector( Dist, -Sphere.Y*Actor->DrawScale, -Sphere.Z*Actor->DrawScale );
-	Actor->Rotation = FRotator( 0, 32768 + appRound(Yaw), 0 );
+	FSceneNode* F = C ? C->Frame : NULL;
+	if( !F || F->RProj.Z==0.f )
+		return 0;
+	Out = F->Coords.Origin
+		+ F->Coords.ZAxis*Depth
+		+ F->Coords.XAxis*((SX - F->FX2)*Depth*F->RProj.Z)
+		+ F->Coords.YAxis*((SY - F->FY2)*Depth*F->RProj.Z);
+	return 1;
 }
 
-void FRpgUi::DrawActorInRect( AActor* Actor, const FRpgRect& R, FLOAT FovDeg )
+// World-space bounds of the actor's current render box.
+static void ActorBounds( AActor* Actor, FVector& Lo, FVector& Hi )
 {
-	FSceneNode* Frame = C->Frame;
-	if( !Frame || !C->Render || !Actor || !Actor->Mesh || !Viewport || !Viewport->Actor || !Viewport->RenDev )
+	const FCoords Box = Actor->GetRenderBoundingBox( 1 );
+	Lo = FVector( 1e9f, 1e9f, 1e9f );
+	Hi = FVector( -1e9f, -1e9f, -1e9f );
+	for( INT i=0; i<8; i++ )
+	{
+		const FVector P = Box.Origin
+			+ ((i&1) ? Box.XAxis : FVector(0,0,0))
+			+ ((i&2) ? Box.YAxis : FVector(0,0,0))
+			+ ((i&4) ? Box.ZAxis : FVector(0,0,0));
+		Lo.X = Min(Lo.X,P.X); Lo.Y = Min(Lo.Y,P.Y); Lo.Z = Min(Lo.Z,P.Z);
+		Hi.X = Max(Hi.X,P.X); Hi.Y = Max(Hi.Y,P.Y); Hi.Z = Max(Hi.Z,P.Z);
+	}
+}
+
+UBOOL FRpgUi::PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zoom )
+{
+	FSceneNode* F = C ? C->Frame : NULL;
+	if( !Actor || !Actor->Mesh || !F )
+		return 0;
+	// Face the camera.
+	const FVector Fwd = F->Coords.ZAxis;
+	const INT CamYaw = appRound( (FLOAT)appAtan2(Fwd.Y,Fwd.X)*32768.f/PI );
+	Actor->Rotation = FRotator( 0, CamYaw + 32768 + appRound(Yaw), 0 );
+
+	// Measure at scale 1 at the origin.
+	Actor->DrawScale = 1.f;
+	Actor->Location = FVector( 0, 0, 0 );
+	FVector Lo, Hi;
+	ActorBounds( Actor, Lo, Hi );
+	const FVector Size = Hi - Lo;
+	const FLOAT Height = Max( Size.Z, 1.f );
+	const FLOAT Width = Max( Max(Size.X,Size.Y), 1.f );
+	const FLOAT ToWorld = GPreviewDepth*F->RProj.Z;
+	const FLOAT Scale = Min( R.H*0.86f*ToWorld/Height, R.W*0.86f*ToWorld/Width )*Zoom;
+	const FVector Centre = (Lo+Hi)*0.5f*Scale;
+
+	FVector Target;
+	if( !ScreenToWorld( R.X + R.W*0.5f, R.Y + R.H*0.5f, GPreviewDepth, Target ) )
+		return 0;
+	Actor->DrawScale = Scale;
+	Actor->Location = Target - Centre;
+	return 1;
+}
+
+// Shifts an already placed actor so World (a point on it) lands on the
+// screen point (SX,SY).
+void FRpgUi::FocusPoint( AActor* Actor, const FVector& World, FLOAT SX, FLOAT SY )
+{
+	FSceneNode* F = C ? C->Frame : NULL;
+	if( !F || !Actor )
 		return;
-	APlayerPawn* Player = Viewport->Actor;
-	const INT OldX = Frame->X, OldY = Frame->Y, OldXB = Frame->XB, OldYB = Frame->YB;
-	const FCoords OldCoords = Frame->Coords, OldUncoords = Frame->Uncoords;
-	const FLOAT OldFov = Player->FovAngle;
-	const INT OldRendMap = Player->RendMap;
+	const FLOAT Depth = (World - F->Coords.Origin) | F->Coords.ZAxis;
+	FVector Target;
+	if( Depth>1.f && ScreenToWorld( SX, SY, Depth, Target ) )
+		Actor->Location += Target - World;
+}
 
-	Frame->X = Max( 1, appRound(R.W) );
-	Frame->Y = Max( 1, appRound(R.H) );
-	Frame->XB = appRound( C->OrgX + R.X );
-	Frame->YB = appRound( C->OrgY + R.Y );
-	// XOpenGL only re-issues the viewport when FOV or size change, so make
-	// every preview's FOV unique within the frame.
-	Player->FovAngle = FovDeg + (++PreviewNonce % 64)*0.001f;
-	Player->RendMap = REN_DynLight;
-	FVector Loc( 0, 0, 0 );
-	FRotator Rot( 0, 0, 0 );
-	Frame->ComputeRenderCoords( Loc, Rot );
-	// ComputeRenderCoords does not tell the render device; without this the
-	// actor is projected with the world camera's viewport and lands off-screen.
-	Viewport->RenDev->SetSceneNode( Frame );
-	Viewport->RenDev->ClearZ( Frame );
-
+void FRpgUi::DrawActorInRect( AActor* Actor, UBOOL bClearZ )
+{
+	FSceneNode* F = C ? C->Frame : NULL;
+	if( !F || !C->Render || !Actor || !Actor->Mesh || !Viewport || !Viewport->RenDev )
+		return;
+	if( bClearZ )
+		Viewport->RenDev->ClearZ( F );
 	const UBOOL OldHidden = Actor->bHidden;
 	Actor->bHidden = 0;
-	C->Render->DrawActor( Frame, Actor );
+	C->Render->DrawActor( F, Actor );
 	Actor->bHidden = OldHidden;
-
-	Player->FovAngle = OldFov;
-	Player->RendMap = OldRendMap;
-	Frame->X = OldX;
-	Frame->Y = OldY;
-	Frame->XB = OldXB;
-	Frame->YB = OldYB;
-	Frame->Coords = OldCoords;
-	Frame->Uncoords = OldUncoords;
-	Frame->ComputeRenderSize();
-	Viewport->RenDev->SetSceneNode( Frame );
 }
 
 /*-----------------------------------------------------------------------------

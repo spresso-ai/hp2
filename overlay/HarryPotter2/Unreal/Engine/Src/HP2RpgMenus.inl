@@ -396,21 +396,25 @@
 		CopyAnim( Body, Harry );
 		ApplyLook( Outfit, Glasses );
 
-		FLOAT Fov = 30.f;
+		// Full body fits the rect; close-ups zoom in on a bone.
 		USkeletalMesh* Skel = NULL;
-		if( Framing==PREV_Head && HeadBone(Body,Skel)>=0 )
+		INT Bone = -1;
+		FLOAT Zoom = 1.f;
+		if( Framing==PREV_Head )
 		{
-			Fov = 36.f;
-			FocusOnBone( Body, HeadBone(Body,Skel), Skel, 70.f, Yaw, -6.f );
+			Bone = HeadBone( Body, Skel );
+			Zoom = 3.2f;
 		}
-		else if( Framing==PREV_Shoulder && ShoulderBone(Body,Skel)>=0 )
+		else if( Framing==PREV_Shoulder )
 		{
-			Fov = 40.f;
-			FocusOnBone( Body, ShoulderBone(Body,Skel), Skel, 95.f, Yaw, -4.f );
+			Bone = ShoulderBone( Body, Skel );
+			Zoom = 2.2f;
 		}
-		else
-			FRpgUi::PlaceForPreview( Body, Fov, Yaw, 1.f );
-		Ui.DrawActorInRect( Body, R, Fov );
+		if( !Ui.PlaceInRect( Body, R, Yaw, Bone>=0 ? Zoom : 1.f ) )
+			return;
+		if( Bone>=0 && Skel )
+			Ui.FocusPoint( Body, Skel->GetBoneCoords(Body,Bone).Origin, R.X+R.W*0.5f, R.Y+R.H*(Framing==PREV_Head ? 0.62f : 0.5f) );
+		Ui.DrawActorInRect( Body, 1 );
 
 		if( Attach && GCosmetics[Hat].Mesh )
 		{
@@ -419,7 +423,7 @@
 			{
 				SetPreviewMesh( Attach, Mesh );
 				if( PlaceHat(Body,Attach,GCosmetics[Hat],NULL) )
-					Ui.DrawActorInRect( Attach, R, Fov );
+					Ui.DrawActorInRect( Attach, 0 );
 			}
 		}
 		if( Item && GCosmetics[Pet].Mesh )
@@ -428,9 +432,8 @@
 			if( Mesh )
 			{
 				SetPreviewMesh( Item, Mesh );
-				Item->DrawScale = GCosmetics[Pet].Scale;
 				if( PlacePet(Body,Item,GCosmetics[Pet],NULL) )
-					Ui.DrawActorInRect( Item, R, Fov );
+					Ui.DrawActorInRect( Item, 0 );
 			}
 		}
 	}
@@ -442,9 +445,8 @@
 		if( !Item || !Mesh )
 			return;
 		SetPreviewMesh( Item, Mesh );
-		Item->DrawScale = Scale;
-		FRpgUi::PlaceForPreview( Item, 30.f, Yaw, 1.f );
-		Ui.DrawActorInRect( Item, R, 30.f );
+		if( Ui.PlaceInRect( Item, R, Yaw, 1.f ) )
+			Ui.DrawActorInRect( Item, 1 );
 	}
 
 	void DrawNpcPreview( UGameEngine* Engine, const FRpgRect& R, AActor* Npc, FLOAT Yaw )
@@ -456,10 +458,9 @@
 		Body->Skin = Npc->Skin;
 		for( INT i=0; i<8; i++ )
 			Body->MultiSkins[i] = Npc->MultiSkins[i];
-		Body->DrawScale = Npc->DrawScale;
 		CopyAnim( Body, Npc );
-		FRpgUi::PlaceForPreview( Body, 30.f, Yaw, 1.f );
-		Ui.DrawActorInRect( Body, R, 30.f );
+		if( Ui.PlaceInRect( Body, R, Yaw, 1.f ) )
+			Ui.DrawActorInRect( Body, 1 );
 	}
 
 	// What a cosmetic tile shows: Harry wearing it, framed for its slot.
@@ -1045,7 +1046,7 @@
 				}
 			}
 			Ui.Text( Ui.FontItem, Row.X+8*S, Row.Y+2*S, i==Sel ? RpgGoldBright : RpgParchment, GSkillNames[i] );
-			Ui.Text( Ui.FontBody, Row.X+8*S, Row.Y+Ui.TextHeight(Ui.FontItem)+2*S, RpgMuted, GSkillDescs[i] );
+			Ui.Text( Ui.FontBody, Row.X+8*S, Row.Y+Ui.TextHeight(Ui.FontItem)+2*S, RpgMuted, *Ui.FitText(Ui.FontBody,GSkillDescs[i],Row.W-16*S) );
 			const FLOAT Pip = 16*S;
 			Ui.Pips( Row.X+Row.W-SKILL_MAX_PIPS*(Pip+4*S)-4*S, Row.Y+4*S, State.Skill[i], SKILL_MAX_PIPS, Pip );
 		}
@@ -1267,9 +1268,11 @@
 			const FRpgRect Row( ListArea.X, Y + r*LineH, ListArea.W, LineH );
 			RowActivated( Row, c, &GCreatures[c] );
 			const INT Tier = BestiaryTier( c );
-			const FString Text = State.Kills[c]>0 ? FString(GCreatures[c].Name) : FString(TEXT("???"));
-			Ui.Text( Ui.FontBody, Row.X+4*S, Row.Y, c==Sel ? RpgGoldBright : RpgParchment, *Ui.FitText(Ui.FontBody,*Text,Row.W*0.6f) );
-			Ui.Text( Ui.FontBody, Row.X+Row.W-4*S, Row.Y, Tier ? RpgGreen : RpgMuted, *FString::Printf(TEXT("%i  rank %i"), State.Kills[c], Tier), RALIGN_Right );
+			const UBOOL bKnown = State.Kills[c]>0;
+			const FString Text = bKnown ? FString(GCreatures[c].Name) : FString(TEXT("Unknown creature"));
+			Ui.Text( Ui.FontBody, Row.X+4*S, Row.Y, c==Sel ? RpgGoldBright : (bKnown ? RpgParchment : RpgMuted), *Ui.FitText(Ui.FontBody,*Text,Row.W*0.62f) );
+			if( bKnown )
+				Ui.Text( Ui.FontBody, Row.X+Row.W-4*S, Row.Y, Tier ? RpgGreen : RpgParchment, *FString::Printf(TEXT("%i defeated  %s"), State.Kills[c], Tier ? *FString::Printf(TEXT("R%i"),Tier) : TEXT("")), RALIGN_Right );
 		}
 		const INT c = Sel;
 		const FRpgRect Side( Area.X+Area.W*0.62f, Y, Area.W*0.38f, Area.Y+Area.H-Y );
@@ -1308,7 +1311,8 @@
 			const FLOAT IconS = Min( Cell.H*0.45f, 40*S );
 			if( Star )
 				Ui.Icon( Star, FRpgRect(Cell.X+(Cell.W-IconS)*0.5f, Cell.Y+4*S, IconS, IconS), Tier ? 1.f : 0.25f );
-			Ui.Text( Ui.FontBody, Cell.X+Cell.W*0.5f, Cell.Y+IconS+6*S, Tier ? GTrophyTierColors[Tier-1] : RpgMuted, T.Name, RALIGN_Center );
+			UFont* NameFont = Ui.TextWidth(Ui.FontBody,T.Name) <= Cell.W-8*S ? Ui.FontBody : Ui.FontSmall;
+			Ui.Text( NameFont, Cell.X+Cell.W*0.5f, Cell.Y+IconS+6*S, Tier ? GTrophyTierColors[Tier-1] : RpgMuted, *Ui.FitText(NameFont,T.Name,Cell.W-8*S), RALIGN_Center );
 			Ui.Text( Ui.FontSmall, Cell.X+Cell.W*0.5f, Cell.Y+IconS+6*S+Ui.TextHeight(Ui.FontBody), RpgMuted,
 				Tier ? GTrophyTierNames[Tier-1] : TEXT("Not yet"), RALIGN_Center );
 		}

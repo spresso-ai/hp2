@@ -98,8 +98,10 @@ public:
 	void Bar( const FRpgRect& R, FLOAT Pct, FColor Fill );
 
 	// 3D.
-	void DrawActorInRect( AActor* Actor, const FRpgRect& R, FLOAT FovDeg );
-	static void PlaceForPreview( AActor* Actor, FLOAT FovDeg, FLOAT Yaw, FLOAT Zoom=1.f );
+	UBOOL ScreenToWorld( FLOAT SX, FLOAT SY, FLOAT Depth, FVector& Out );
+	UBOOL PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zoom=1.f );
+	void FocusPoint( AActor* Actor, const FVector& World, FLOAT SX, FLOAT SY );
+	void DrawActorInRect( AActor* Actor, UBOOL bClearZ=1 );
 
 	// Sound.
 	void Play( INT Sound, AActor* Listener );
