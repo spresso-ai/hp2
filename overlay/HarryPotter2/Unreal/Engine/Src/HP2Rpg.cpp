@@ -978,6 +978,13 @@ public:
 			BannerAge = 0.f;
 			return;
 		}
+		// Repeats refresh the existing card instead of stacking.
+		for( INT i=0; i<Feed.Num(); i++ )
+			if( Feed(i).Kind==Kind && Feed(i).Text==Text && Kind!=TOAST_House )
+			{
+				Feed(i).Age = Min( Feed(i).Age, 0.2f );
+				return;
+			}
 		if( Feed.Num()>=5 )
 			Feed.Remove( 0 );
 		FRpgFeed* Entry = new(Feed) FRpgFeed;
@@ -1418,7 +1425,7 @@ public:
 	// Which vendor (if any) this actor is, given the current story state.
 	INT VendorFor( AActor* Actor )
 	{
-		if( !Actor || Actor->bHidden || !Actor->bInCurrentGameState || IsHolding(Actor) )
+		if( !Actor || Actor->bHidden || IsHolding(Actor) )
 			return -1;
 		for( INT v=0; v<VEN_StudentGryffindor; v++ )
 			if( GVendors[v].ClassName && ClassChainIs(Actor,GVendors[v].ClassName) )
@@ -1445,6 +1452,29 @@ public:
 		return Actor->GetClass()->GetName();
 	}
 
+	// Logs the characters around Harry (used when B finds no vendor).
+	void LogNearby( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		static UClass* HChar = NULL;
+		if( !HChar )
+			HChar = FindClass( TEXT("HChar") );
+		RpgLog( TEXT("B pressed: HChar class %s"), HChar ? TEXT("found") : TEXT("MISSING") );
+		INT Logged = 0;
+		for( INT i=0; i<Engine->GLevel->Actors.Num() && Logged<12; i++ )
+		{
+			AActor* A = Engine->GLevel->Actors(i);
+			if( !A || A->bDeleteMe || A==Harry || !A->IsA(APawn::StaticClass()) )
+				continue;
+			const FLOAT Dist = (A->Location - Harry->Location).Size();
+			if( Dist>600.f )
+				continue;
+			Logged++;
+			RpgLog( TEXT("  %s class=%s dist=%i hidden=%i gamestate=%i group=%s student=%i holding=%i sells=%i vendor=%i hchar=%i"),
+				A->GetName(), A->GetClass()->GetName(), appRound(Dist), A->bHidden, A->bInCurrentGameState, *A->Group,
+				IsStudent(A), IsHolding(A), GetByteProp(A,TEXT("CharacterSells"),-1), VendorFor(A), HChar ? A->IsA(HChar) : -1 );
+		}
+	}
+
 	void PollNearby( UGameEngine* Engine, APlayerPawn* Harry )
 	{
 		static UClass* HChar = NULL;
@@ -1454,14 +1484,14 @@ public:
 		NearVendor = -1;
 		if( !HChar )
 			return;
-		FLOAT Nearest = 170.f;
+		FLOAT Nearest = 230.f;
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
 			AActor* Actor = Engine->GLevel->Actors(i);
 			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden || !Actor->IsA(HChar) )
 				continue;
 			const INT Vendor = VendorFor( Actor );
-			if( Vendor<0 && !(IsStudent(Actor) && Actor->bInCurrentGameState && !IsHolding(Actor)) )
+			if( Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) )
 				continue;
 			const FLOAT Dist = (Actor->Location - Harry->Location).Size();
 			if( Dist < Nearest )

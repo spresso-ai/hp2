@@ -1467,7 +1467,10 @@
 				if( NearNpc && NearVendor>=0 && IsInLevel(NearNpc) )
 					OpenShop( Engine, NearNpc, NearVendor );
 				else
+				{
+					LogNearby( Engine, Harry );
 					AddFeed( TEXT("No vendor nearby"), FColor(180,180,200,255), TOAST_Info, TEXT("Look for [B] Trade near a vendor") );
+				}
 				return 1;
 			}
 			if( Key==IK_E && NearNpc && IsInLevel(NearNpc) && IsFreeGameplay(Engine,Harry) )
