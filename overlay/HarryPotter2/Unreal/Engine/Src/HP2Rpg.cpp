@@ -426,11 +426,16 @@ static INT XpForNextLevel( INT Level )
 	Misc types.
 -----------------------------------------------------------------------------*/
 
+enum EToast { TOAST_Info, TOAST_Xp, TOAST_Level, TOAST_House, TOAST_Bean, TOAST_Trophy, TOAST_Trouble, TOAST_Reward };
+
 struct FRpgFeed
 {
 	FString Text;
+	FString Sub;
 	FColor Color;
 	FLOAT Age;
+	INT Kind;
+	INT Amount;
 };
 
 enum EDeferredKind { DEF_SpawnBeans, DEF_RedispatchSpell };
@@ -541,6 +546,9 @@ public:
 
 	// Feed.
 	TArray<FRpgFeed> Feed;
+	FString BannerText;
+	FString BannerSub;
+	FLOAT BannerAge;
 
 	// Menu state.
 	INT Menu;
@@ -961,14 +969,43 @@ public:
 		Feed.
 	-------------------------------------------------------------------------*/
 
-	void AddFeed( const FString& Text, FColor Color )
+	void AddFeed( const FString& Text, FColor Color, INT Kind=TOAST_Info, const TCHAR* Sub=NULL )
 	{
-		if( Feed.Num()>=6 )
+		if( Kind==TOAST_Level )
+		{
+			BannerText = Text;
+			BannerSub = Sub ? Sub : TEXT("");
+			BannerAge = 0.f;
+			return;
+		}
+		if( Feed.Num()>=5 )
 			Feed.Remove( 0 );
 		FRpgFeed* Entry = new(Feed) FRpgFeed;
 		Entry->Text = Text;
+		Entry->Sub = Sub ? Sub : TEXT("");
 		Entry->Color = Color;
 		Entry->Age = 0.f;
+		Entry->Kind = Kind;
+		Entry->Amount = 0;
+	}
+
+	// XP gained in quick succession is merged into one card.
+	void AddXpToast( INT Amount, const TCHAR* Reason )
+	{
+		if( Feed.Num() )
+		{
+			FRpgFeed& Last = Feed(Feed.Num()-1);
+			if( Last.Kind==TOAST_Xp && Last.Age<1.5f )
+			{
+				Last.Amount += Amount;
+				Last.Text = FString::Printf( TEXT("+%i XP"), Last.Amount );
+				Last.Sub = Reason;
+				Last.Age = Min( Last.Age, 0.3f );
+				return;
+			}
+		}
+		AddFeed( FString::Printf(TEXT("+%i XP"), Amount), FColor(120,190,255,255), TOAST_Xp, Reason );
+		Feed(Feed.Num()-1).Amount = Amount;
 	}
 
 	/*-------------------------------------------------------------------------
@@ -981,13 +1018,13 @@ public:
 			return;
 		Amount = Amount*(100 + GetStat(STAT_XpGain))/100;
 		State.Xp += Amount;
-		AddFeed( FString::Printf(TEXT("+%i XP  %s"), Amount, Reason), FColor(170,220,255,255) );
+		AddXpToast( Amount, Reason );
 		while( State.Xp >= XpForNextLevel(State.Level) && State.Level<99 )
 		{
 			State.Xp -= XpForNextLevel( State.Level );
 			State.Level++;
 			State.SkillPoints++;
-			AddFeed( FString::Printf(TEXT("Level %i!  +1 skill point (press K)"), State.Level), FColor(255,220,90,255) );
+			AddFeed( FString::Printf(TEXT("Level %i"), State.Level), FColor(255,220,90,255), TOAST_Level, TEXT("+1 skill point  -  press K") );
 			Ui.Play( RSND_Reward, CurrentHarry() );
 			AddHousePoints( CurrentHarry(), HOUSE_Gryffindor, 5 );
 		}
@@ -1023,9 +1060,9 @@ public:
 		const INT Before = State.Trouble;
 		State.Trouble = Clamp( State.Trouble + Amount, 0, 100 );
 		if( Amount>0 )
-			AddFeed( FString::Printf(TEXT("Trouble +%i  %s"), Amount, Reason), FColor(255,150,90,255) );
+			AddFeed( FString::Printf(TEXT("Trouble +%i"), Amount), FColor(255,150,90,255), TOAST_Trouble, Reason );
 		if( Before<70 && State.Trouble>=70 && State.Trouble<100 )
-			AddFeed( TEXT("Careful! A little more and it's detention."), FColor(255,110,80,255) );
+			AddFeed( TEXT("Careful!"), FColor(255,110,80,255), TOAST_Trouble, TEXT("A little more and it's detention.") );
 		if( State.Trouble>=100 )
 			GiveDetention();
 	}
@@ -1039,7 +1076,7 @@ public:
 		AddHousePoints( Harry, HOUSE_Gryffindor, -20 );
 		const INT Fine = Min( 50, GetBeans(Harry) );
 		GiveBeans( Harry, -Fine );
-		AddFeed( FString::Printf(TEXT("Detention! -20 points, -%i beans. Vendors won't trade for 10 minutes."), Fine), FColor(255,90,70,255) );
+		AddFeed( TEXT("Detention!"), FColor(255,90,70,255), TOAST_Trouble, *FString::Printf(TEXT("-20 points, -%i beans, no trading for 10 min"), Fine) );
 		Ui.Play( RSND_Deny, Harry );
 		RpgLog( TEXT("detention #%i"), State.Counters[CNT_Detentions] );
 	}
@@ -1146,10 +1183,11 @@ public:
 			if( PendingHouseTimer[i] < 0.8f )
 				continue;
 			const INT P = PendingHouse[i];
-			if( P>0 )
-				AddFeed( FString::Printf(TEXT("%s gains %i point%s"), GHouseNames[i], P, P==1 ? TEXT("") : TEXT("s")), GHouseColors[i] );
-			else
-				AddFeed( FString::Printf(TEXT("%s loses %i point%s"), GHouseNames[i], -P, P==-1 ? TEXT("") : TEXT("s")), GHouseColors[i] );
+			const FString Text = P>0
+				? FString::Printf( TEXT("+%i %s"), P, GHouseNames[i] )
+				: FString::Printf( TEXT("%s loses %i point%s"), GHouseNames[i], -P, P==-1 ? TEXT("") : TEXT("s") );
+			AddFeed( Text, GHouseColors[i], TOAST_House, TEXT("House points") );
+			Feed(Feed.Num()-1).Amount = i;
 			PendingHouse[i] = 0;
 		}
 	}
@@ -1176,7 +1214,7 @@ public:
 			FString Bonus = R.Stat!=STAT_None ? FString::Printf( GStatFormat[R.Stat], R.StatValue ) : FString();
 			if( R.SkillPoints )
 				Bonus += FString::Printf( TEXT("%s+%i skill point%s"), Bonus.Len() ? TEXT(", ") : TEXT(""), R.SkillPoints, R.SkillPoints>1 ? TEXT("s") : TEXT("") );
-			AddFeed( FString::Printf(TEXT("Collection: %s!  %s"), R.Name, *Bonus), FColor(255,214,120,255) );
+			AddFeed( FString::Printf(TEXT("%s"), R.Name), FColor(255,214,120,255), TOAST_Reward, *(FString(TEXT("Card collection  -  ")) + Bonus) );
 			Ui.Play( RSND_Reward, Harry );
 		}
 	}
@@ -1209,7 +1247,7 @@ public:
 			while( State.TrophyTier[t] < Tier )
 			{
 				const INT Won = State.TrophyTier[t]++;
-				AddFeed( FString::Printf(TEXT("Trophy: %s (%s)!"), T.Name, GTrophyTierNames[Won]), GTrophyTierColors[Won] );
+				AddFeed( FString::Printf(TEXT("%s"), T.Name), GTrophyTierColors[Won], TOAST_Trophy, *FString::Printf(TEXT("%s trophy unlocked"), GTrophyTierNames[Won]) );
 				GiveXp( GTrophyXp[Won], TEXT("trophy") );
 				GiveBeans( Harry, GTrophyBeans[Won] );
 				Ui.Play( RSND_Reward, Harry );
@@ -1257,7 +1295,7 @@ public:
 			{
 				TEXT("+20% XP from them"), TEXT("-15% damage from them"), TEXT("-30% damage, and they drop a bean")
 			};
-			AddFeed( FString::Printf(TEXT("Bestiary: %s rank %i!  %s"), GCreatures[Type].Name, Tier, TierText[Tier-1]), FColor(200,255,170,255) );
+			AddFeed( FString::Printf(TEXT("%s rank %i"), GCreatures[Type].Name, Tier), FColor(160,230,140,255), TOAST_Reward, *(FString(TEXT("Bestiary  -  ")) + TierText[Tier-1]) );
 		}
 		if( Tier>=3 )
 			QueueBeans( Creature->Location, 1 );
@@ -1495,7 +1533,7 @@ public:
 			else if( appStrstr(SkinName,TEXT("Checker")) || appStrstr(SkinName,TEXT("Spot")) ) { Worth = 2; Kind = TEXT("speckled"); }
 			INT Total = Base*Worth*BeanMultiplier;
 			if( Kind )
-				AddFeed( FString::Printf(TEXT("+%i %s bean!"), Base*Worth*BeanMultiplier, Kind), Worth>=5 ? FColor(255,120,120,255) : (Worth>=3 ? FColor(255,220,90,255) : FColor(190,230,255,255)) );
+				AddFeed( FString::Printf(TEXT("+%i beans"), Base*Worth*BeanMultiplier), Worth>=5 ? FColor(255,120,120,255) : (Worth>=3 ? FColor(255,220,90,255) : FColor(190,230,255,255)), TOAST_Bean, *FString::Printf(TEXT("%s bean!"), Kind) );
 			const INT Chance = GetStat( STAT_BeanFind );
 			INT Bonus = 0;
 			for( INT i=0; i<Base; i++ )
@@ -1641,13 +1679,58 @@ public:
 		AActor* Caster = Spell ? Spell->Owner : NULL;
 		if( !Caster || !Caster->IsA(APlayerPawn::StaticClass()) )
 			return;
-		if( Self==LastHitStudent && RpgClock-LastHitTime < 1.5f )
+		LaunchStudent( (APlayerPawn*)Caster, (AActor*)Self );
+	}
+
+	// Students are not reliably touched by spell projectiles, so watch Harry's
+	// Flipendo spells ourselves and launch any student they reach.
+	void LaunchStudent( APlayerPawn* Harry, AActor* Student )
+	{
+		if( Student==LastHitStudent && RpgClock-LastHitTime < 1.5f )
 			return;
-		LastHitStudent = (AActor*)Self;
+		LastHitStudent = Student;
 		LastHitTime = RpgClock;
+		const FLOAT Boost = (HasPerk(PERK_PowerPush) ? 1.5f : 1.f)*SpellPower();
+		FVector Dir = Student->Location - Harry->Location;
+		Dir.Z = 0.f;
+		Dir = Dir.SafeNormal();
+		SetBoolProp( Student, TEXT("bFlipPushable"), 1 );
+		Student->setPhysics( PHYS_Falling );
+		Student->Velocity = Dir*(420.f*Boost) + FVector( 0.f, 0.f, 620.f*Boost );
 		State.Counters[CNT_Students]++;
-		AddHousePoints( (APlayerPawn*)Caster, HOUSE_Gryffindor, -5 );
-		AddTrouble( 12, TEXT("hexing a student") );
+		AddHousePoints( Harry, HOUSE_Gryffindor, -5 );
+		AddTrouble( 12, TEXT("Hexing a student") );
+		RpgLog( TEXT("launched student %s"), Student->GetName() );
+	}
+
+	void PollSpellHits( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		static UClass* Flipendo = NULL;
+		if( !Flipendo )
+			Flipendo = FindClass( TEXT("spellFlipendo") );
+		if( !Flipendo )
+			return;
+		ULevel* Level = Engine->GLevel;
+		for( INT i=0; i<Level->Actors.Num(); i++ )
+		{
+			AActor* Spell = Level->Actors(i);
+			if( !Spell || Spell->bDeleteMe || Spell->Owner!=Harry || !Spell->IsA(Flipendo) )
+				continue;
+			for( INT j=0; j<Level->Actors.Num(); j++ )
+			{
+				AActor* Other = Level->Actors(j);
+				if( !Other || Other->bDeleteMe || Other->bHidden || !IsStudent(Other) || IsHolding(Other) )
+					continue;
+				const FVector D = Other->Location - Spell->Location;
+				const FLOAT Reach = Other->CollisionRadius + 28.f;
+				if( D.X*D.X + D.Y*D.Y > Reach*Reach || Abs(D.Z) > Other->CollisionHeight + 30.f )
+					continue;
+				if( TestAndSet(Spell,AF_Pushed) )
+					break;
+				LaunchStudent( Harry, Other );
+				break;
+			}
+		}
 	}
 
 	void ScaleOnce( AActor* A, INT Flag, const TCHAR* Prop, FLOAT Factor )
@@ -2412,6 +2495,7 @@ public:
 			if( Feed(i).Age > 4.5f )
 				Feed.Remove( i );
 		}
+		BannerAge += DeltaSeconds;
 		HouseHudTimer = Max( 0.f, HouseHudTimer-DeltaSeconds );
 		NoticeTime = Max( 0.f, NoticeTime-DeltaSeconds );
 		if( Menu!=MENU_None )
@@ -2420,7 +2504,7 @@ public:
 		LuckyFeedTimer += DeltaSeconds;
 		if( LuckyFeedBeans && LuckyFeedTimer>0.6f )
 		{
-			AddFeed( FString::Printf(TEXT("+%i lucky bean%s"), LuckyFeedBeans, LuckyFeedBeans==1 ? TEXT("") : TEXT("s")), FColor(140,255,140,255) );
+			AddFeed( FString::Printf(TEXT("+%i bean%s"), LuckyFeedBeans, LuckyFeedBeans==1 ? TEXT("") : TEXT("s")), FColor(140,230,140,255), TOAST_Bean, TEXT("Lucky find") );
 			LuckyFeedBeans = 0;
 		}
 
@@ -2456,6 +2540,7 @@ public:
 			ApplySkills( Harry );
 		}
 		FlushHouseFeed( DeltaSeconds );
+		PollSpellHits( Engine, Harry );
 		RunDeferred( Engine );
 		UpdateWardrobe( Engine, Harry );
 	}

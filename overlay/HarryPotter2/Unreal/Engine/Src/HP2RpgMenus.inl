@@ -228,7 +228,7 @@
 		State.SkillPoints += Refund;
 		if( Harry )
 			SetBoolProp( Harry, TEXT("bCastFastSpells"), 0 );
-		AddFeed( FString::Printf(TEXT("You forget everything... %i skill points to spend again."), Refund), FColor(200,170,255,255) );
+		AddFeed( TEXT("Forgetfulness Potion"), FColor(200,170,255,255), TOAST_Reward, *FString::Printf(TEXT("%i skill points to spend again"), Refund) );
 	}
 
 	UBOOL ApplyConsumable( APlayerPawn* Harry, INT Id, INT Count )
@@ -580,14 +580,14 @@
 			const FLOAT X = X0 + Gap*i;
 			if( Crests[i] )
 				Ui.Icon( Crests[i], FRpgRect(X-Crest*0.5f, Y0, Crest, Crest), (PendingHouse[i] || i==HOUSE_Gryffindor) ? 1.f : 0.7f );
-			Ui.Text( Ui.FontSmall, X, Y0+Crest+1*S, GHouseColors[i], *FString::Printf(TEXT("%i"), bBaselineValid ? LastHouse[i] : 0), RALIGN_Center );
+			Ui.Text( Ui.FontModernBold, X, Y0+Crest+1*S, GHouseColors[i], *FString::Printf(TEXT("%i"), bBaselineValid ? LastHouse[i] : 0), RALIGN_Center );
 		}
 		const FLOAT BarW = 120*S, BarH = 4*S;
 		const FLOAT BarX = C->ClipX*0.5f - BarW*0.5f, BarY = Y0 + Crest + 16*S;
 		Ui.Bar( FRpgRect(BarX,BarY,BarW,BarH), (FLOAT)State.Xp/XpForNextLevel(State.Level), FColor(120,190,255,255) );
-		Ui.Text( Ui.FontSmall, BarX-4*S, BarY-5*S, RpgGoldBright, *FString::Printf(TEXT("Lv %i"), State.Level), RALIGN_Right );
+		Ui.Text( Ui.FontModernBold, BarX-6*S, BarY-Ui.TextHeight(Ui.FontModernBold)*0.5f, RpgGoldBright, *FString::Printf(TEXT("Lv %i"), State.Level), RALIGN_Right );
 		if( State.SkillPoints>0 )
-			Ui.Text( Ui.FontSmall, BarX+BarW+4*S, BarY-5*S, RpgGoldBright, *FString::Printf(TEXT("+%i [K]"), State.SkillPoints) );
+			Ui.Text( Ui.FontModern, BarX+BarW+6*S, BarY-Ui.TextHeight(Ui.FontModern)*0.5f, RpgGreen, *FString::Printf(TEXT("%i point%s [K]"), State.SkillPoints, State.SkillPoints>1 ? TEXT("s") : TEXT("")) );
 		FLOAT LineY = BarY + 8*S;
 		if( State.DetentionSeconds>0 )
 		{
@@ -602,24 +602,86 @@
 			FString Prompt = NpcName( NearNpc ) + TEXT("    [E] Talk");
 			if( NearVendor>=0 )
 				Prompt += TEXT("    [B] Trade");
-			Ui.Text( Ui.FontBody, C->ClipX*0.5f, C->ClipY*0.78f, RpgParchment, *Prompt, RALIGN_Center );
+			const FLOAT PW = Ui.TextWidth( Ui.FontModernBold, *Prompt ) + 24*S, PH = Ui.TextHeight( Ui.FontModernBold ) + 10*S;
+			const FRpgRect PR( (C->ClipX-PW)*0.5f, C->ClipY*0.78f, PW, PH );
+			Ui.Rect( PR, FColor(14,18,38,255) );
+			Ui.Rect( FRpgRect(PR.X, PR.Y+PR.H-2*S, PR.W, 2*S), RpgGold );
+			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, PR.Y+5*S, FColor(240,240,248,255), *Prompt, RALIGN_Center, 0 );
 		}
 	}
 
+	UTexture* ToastIcon( const FRpgFeed& Entry )
+	{
+		static UTexture* Star = NULL;
+		static UTexture* Key = NULL;
+		if( !Star )
+		{
+			Star = LoadTex( TEXT("HP2_Menu.Icons.HP2StarCounter") );
+			Key = LoadTex( TEXT("HP2_Menu.Icons.HP2SilverCardKey") );
+		}
+		switch( Entry.Kind )
+		{
+			case TOAST_Bean:    return BeanIcon;
+			case TOAST_House:   return Entry.Amount>=0 && Entry.Amount<HOUSE_MAX ? Crests[Entry.Amount] : NULL;
+			case TOAST_Trouble: return Key;
+			default:            return Star;
+		}
+	}
+
+	// Notification cards on the right, sliding in and out.
 	void DrawFeed()
 	{
 		UCanvas* C = Ui.C;
-		UFont* Font = Ui.FontBody;
-		const FLOAT LineH = Ui.TextHeight( Font ) + 2*Ui.S;
-		FLOAT Y = C->ClipY*0.30f;
-		for( INT i=0; i<Feed.Num(); i++ )
+		const FLOAT S = Ui.S;
+		UFont* Title = Ui.FontModernBold;
+		UFont* Sub = Ui.FontModern;
+		const FLOAT TitleH = Ui.TextHeight( Title ), SubH = Ui.TextHeight( Sub );
+		const FLOAT W = Min( 250*S, C->ClipX*0.32f );
+		FLOAT Y = C->ClipY*0.16f;
+		for( INT i=Feed.Num()-1; i>=0; i-- )
 		{
 			const FRpgFeed& Entry = Feed(i);
-			const FLOAT Fade = Entry.Age<3.5f ? 1.f : Max( 0.f, 1.f-(Entry.Age-3.5f) );
-			const FLOAT Rise = Entry.Age*6*Ui.S;
-			FColor Color( (BYTE)(Entry.Color.R*Fade), (BYTE)(Entry.Color.G*Fade), (BYTE)(Entry.Color.B*Fade), 255 );
-			Ui.Text( Font, C->ClipX*0.5f, Y-Rise, Color, *Entry.Text, RALIGN_Center );
-			Y += LineH;
+			const UBOOL bSub = Entry.Sub.Len()>0;
+			const FLOAT H = 10*S + TitleH + (bSub ? SubH : 0.f);
+			// Slide in over 0.2s, out after 3.6s.
+			FLOAT Slide = 0.f;
+			if( Entry.Age<0.2f )
+				Slide = 1.f - Entry.Age/0.2f;
+			else if( Entry.Age>3.6f )
+				Slide = Min( 1.f, (Entry.Age-3.6f)/0.4f );
+			const FLOAT X = C->ClipX - W - 14*S + Slide*(W+20*S);
+			const FRpgRect Card( X, Y, W, H );
+			Ui.Rect( Card, FColor(14,18,38,255) );
+			Ui.Rect( FRpgRect(Card.X, Card.Y, 3*S, Card.H), Entry.Color );
+			Ui.Rect( FRpgRect(Card.X, Card.Y+Card.H-1, Card.W, Max(1.f,S*0.5f)), FColor(48,56,96,255) );
+			FLOAT TX = Card.X + 10*S;
+			UTexture* Icon = ToastIcon( Entry );
+			if( Icon )
+			{
+				const FLOAT IS = H - 10*S;
+				Ui.Icon( Icon, FRpgRect(TX, Card.Y+5*S, IS, IS) );
+				TX += IS + 8*S;
+			}
+			Ui.Text( Title, TX, Card.Y+5*S, FColor(240,240,248,255), *Ui.FitText(Title,*Entry.Text,Card.X+Card.W-TX-6*S), RALIGN_Left, 0 );
+			if( bSub )
+				Ui.Text( Sub, TX, Card.Y+5*S+TitleH, FColor(150,158,190,255), *Ui.FitText(Sub,*Entry.Sub,Card.X+Card.W-TX-6*S), RALIGN_Left, 0 );
+			Y += H + 6*S;
+		}
+
+		// Level-up banner.
+		if( BannerText.Len() && BannerAge<3.5f )
+		{
+			const FLOAT Grow = Min( 1.f, BannerAge/0.25f );
+			const FLOAT BW = C->ClipX*0.42f*Grow, BH = 64*S;
+			const FRpgRect B( (C->ClipX-BW)*0.5f, C->ClipY*0.18f, BW, BH );
+			Ui.Rect( B, FColor(12,16,36,255) );
+			Ui.Rect( FRpgRect(B.X, B.Y, B.W, 2*S), RpgGoldBright );
+			Ui.Rect( FRpgRect(B.X, B.Y+B.H-2*S, B.W, 2*S), RpgGoldBright );
+			if( Grow>=1.f )
+			{
+				Ui.Text( Ui.FontModernBig, C->ClipX*0.5f, B.Y+6*S, RpgGoldBright, *BannerText, RALIGN_Center );
+				Ui.Text( Ui.FontModern, C->ClipX*0.5f, B.Y+B.H-SubH-8*S, FColor(220,224,240,255), *BannerSub, RALIGN_Center, 0 );
+			}
 		}
 	}
 
@@ -1346,7 +1408,7 @@
 				if( NearNpc && NearVendor>=0 && IsInLevel(NearNpc) )
 					OpenShop( Engine, NearNpc, NearVendor );
 				else
-					AddFeed( TEXT("Find a vendor to trade with: look for [B] Trade."), FColor(220,220,220,255) );
+					AddFeed( TEXT("No vendor nearby"), FColor(180,180,200,255), TOAST_Info, TEXT("Look for [B] Trade near a vendor") );
 				return 1;
 			}
 			if( Key==IK_E && NearNpc && IsInLevel(NearNpc) && IsFreeGameplay(Engine,Harry) )

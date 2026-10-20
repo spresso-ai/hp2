@@ -60,6 +60,9 @@ public:
 	UFont* FontItem;
 	UFont* FontBody;
 	UFont* FontSmall;
+	UFont* FontModern;      // Avenir Next via native text, Ink font fallback
+	UFont* FontModernBold;
+	UFont* FontModernBig;
 	USound* Sounds[RSND_MAX];
 
 	FRpgUi();
@@ -103,6 +106,7 @@ public:
 
 	// Asset loading (rooted so caches survive level changes).
 	static UObject* LoadRooted( UClass* Class, const TCHAR* Path );
+	static UFont* MakeNativeFont( UFont* Fallback, const TCHAR* FaceName, INT Height );
 	static UTexture* LoadTexture( const TCHAR* Path ) { return (UTexture*)LoadRooted( UTexture::StaticClass(), Path ); }
 };
 

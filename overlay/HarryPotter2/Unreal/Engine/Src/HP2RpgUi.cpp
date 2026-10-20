@@ -67,6 +67,21 @@ UObject* FRpgUi::LoadRooted( UClass* Class, const TCHAR* Path )
 	return Obj;
 }
 
+// A font that native text renders with a macOS typeface; it copies a game
+// font's glyph pages so bitmap-text mode still has something to draw.
+UFont* FRpgUi::MakeNativeFont( UFont* Fallback, const TCHAR* FaceName, INT Height )
+{
+	if( !Fallback )
+		return NULL;
+	UFont* Font = ConstructObject<UFont>( UFont::StaticClass(), UObject::GetTransientPackage(), NAME_None, RF_Transient );
+	Font->CharactersPerPage = Fallback->CharactersPerPage;
+	Font->Pages = Fallback->Pages;
+	Font->FontName = FaceName;
+	Font->FontHeight = Height;
+	Font->AddToRoot();
+	return Font;
+}
+
 void FRpgUi::Resolve()
 {
 	if( bResolved )
@@ -83,6 +98,9 @@ void FRpgUi::Resolve()
 	FontItem = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.BigInkFont") );
 	FontBody = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.MedInkFont") );
 	FontSmall = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.SmallInkFont") );
+	FontModern = MakeNativeFont( FontBody, TEXT("AvenirNext-Medium"), 15 );
+	FontModernBold = MakeNativeFont( FontBody, TEXT("AvenirNext-DemiBold"), 16 );
+	FontModernBig = MakeNativeFont( FontItem, TEXT("AvenirNext-Bold"), 30 );
 	for( INT i=0; i<RSND_MAX; i++ )
 		for( INT p=0; p<3 && GSoundPaths[i][p] && !Sounds[i]; p++ )
 			Sounds[i] = (USound*)LoadRooted( USound::StaticClass(), GSoundPaths[i][p] );
@@ -99,6 +117,9 @@ void FRpgUi::Begin( UGameEngine* InEngine, UViewport* InViewport, UCanvas* InCan
 	if( !FontItem )  FontItem = C->MedFont;
 	if( !FontBody )  FontBody = C->MedFont;
 	if( !FontSmall ) FontSmall = C->SmallFont;
+	if( !FontModern ) FontModern = FontBody;
+	if( !FontModernBold ) FontModernBold = FontBody;
+	if( !FontModernBig ) FontModernBig = FontTitle;
 	bMouseActive = bMenuOpen && Viewport && Viewport->bShowWindowsMouse;
 	MouseX = Viewport ? Viewport->WindowsMouseX : -1.f;
 	MouseY = Viewport ? Viewport->WindowsMouseY : -1.f;
