@@ -171,9 +171,11 @@ static void DrawTileSet( UCanvas* C, UTexture* const* Tiles, const FRpgRect& R )
 		const FLOAT SrcX = Col*256.f, SrcY = Row*256.f;
 		const FLOAT SrcW = Min( 256.f, 640.f-SrcX ), SrcH = Min( 256.f, 480.f-SrcY );
 		const FLOAT ScaleU = Tex->USize/256.f, ScaleV = Tex->VSize/256.f;
+		// Overlap the tiles by a pixel and sample one texel inside each edge,
+		// so filtering never shows the green colour key as seams.
 		C->DrawTile( Tex,
-			R.X + SrcX/640.f*R.W, R.Y + SrcY/480.f*R.H, SrcW/640.f*R.W, SrcH/480.f*R.H,
-			0, 0, SrcW*ScaleU, SrcH*ScaleV, NULL, 1.f, FPlane(1,1,1,1), FPlane(0,0,0,0), 0 );
+			R.X + SrcX/640.f*R.W, R.Y + SrcY/480.f*R.H, SrcW/640.f*R.W + 1.f, SrcH/480.f*R.H + 1.f,
+			ScaleU, ScaleV, (SrcW-2.f)*ScaleU, (SrcH-2.f)*ScaleV, NULL, 1.f, FPlane(1,1,1,1), FPlane(0,0,0,0), 0 );
 	}
 }
 
@@ -287,10 +289,42 @@ FRpgRect FRpgUi::Screen( FRpgRect& Left, FRpgRect& Right )
 	Sky( Full );
 	// Keep the layout 4:3 and centred on wide screens.
 	FLOAT W = Min( Full.W, Full.H*4.f/3.f );
-	const FRpgRect Area( (Full.W-W)*0.5f + 16*S, 12*S, W - 32*S, Full.H - 24*S );
+	const FLOAT FooterH = TextHeight( FontSmall ) + 10*S;
+	const FRpgRect Area( (Full.W-W)*0.5f + 16*S, 12*S, W - 32*S, Full.H - 24*S - FooterH );
 	Left = FRpgRect( Area.X, Area.Y, Area.W*0.44f, Area.H );
 	Right = FRpgRect( Area.X + Area.W*0.47f, Area.Y, Area.W*0.53f, Area.H );
 	return Area;
+}
+
+void FRpgUi::Footer( const TCHAR* Hint )
+{
+	Text( FontSmall, C->ClipX*0.5f, C->ClipY - TextHeight(FontSmall) - 6*S, RpgMuted, Hint, RALIGN_Center );
+}
+
+FString FRpgUi::FitText( UFont* Font, const TCHAR* Str, FLOAT MaxW )
+{
+	FString Out( Str );
+	if( MaxW<=0.f || TextWidth(Font,*Out) <= MaxW )
+		return Out;
+	while( Out.Len()>1 && TextWidth(Font,*(Out+TEXT("..."))) > MaxW )
+		Out = Out.Left( Out.Len()-1 );
+	return Out + TEXT("...");
+}
+
+UFont* FRpgUi::FontToFit( const TCHAR* const* Labels, INT Count, FLOAT MaxW, FLOAT Pad )
+{
+	UFont* Fonts[4] = { FontItem, FontBody, FontSmall, C->SmallFont };
+	for( INT f=0; f<4; f++ )
+	{
+		if( !Fonts[f] )
+			continue;
+		FLOAT Total = 0.f;
+		for( INT i=0; i<Count; i++ )
+			Total += TextWidth( Fonts[f], Labels[i] ) + Pad;
+		if( Total <= MaxW )
+			return Fonts[f];
+	}
+	return FontSmall;
 }
 
 UBOOL FRpgUi::Hovered( const FRpgRect& R, const void* Id )
@@ -319,20 +353,20 @@ UBOOL FRpgUi::Button( const FRpgRect& R, const TCHAR* Label, UBOOL bEnabled, con
 	const UBOOL bHover = bEnabled && Hovered( R, Id );
 	Rect( R, bHover ? FColor(70,56,20,255) : FColor(34,30,22,255) );
 	Border( R, Max(1.f,S), bEnabled ? (bHover ? RpgGoldBright : RpgGold) : FColor(90,84,70,255) );
-	if( bHover && GlowGold )
-		Glow( GlowGold, R.Inset(-4*S), 0.35f );
 	Text( FontBody, R.X+R.W*0.5f, R.Y+(R.H-TextHeight(FontBody))*0.5f, bEnabled ? RpgGoldBright : RpgMuted, Label, RALIGN_Center );
 	return bEnabled && Clicked( R, Id );
 }
 
-UBOOL FRpgUi::Tab( const FRpgRect& R, const TCHAR* Label, UBOOL bActive, const void* Id )
+UBOOL FRpgUi::Tab( const FRpgRect& R, const TCHAR* Label, UBOOL bActive, const void* Id, UFont* Font )
 {
 	// Text tabs with a gold underline on the active one, like the in-game menus.
+	if( !Font )
+		Font = FontItem;
 	const UBOOL bHover = Hovered( R, Id );
-	Text( FontItem, R.X+R.W*0.5f, R.Y+(R.H-TextHeight(FontItem))*0.5f, bActive ? RpgGoldBright : (bHover ? RpgParchment : RpgMuted), Label, RALIGN_Center );
+	Text( Font, R.X+R.W*0.5f, R.Y+(R.H-TextHeight(Font))*0.5f, bActive ? RpgGoldBright : (bHover ? RpgParchment : RpgMuted), Label, RALIGN_Center );
 	if( bActive )
 	{
-		const FLOAT LW = Min( R.W*0.9f, TextWidth(FontItem,Label)+6*S );
+		const FLOAT LW = Min( R.W*0.9f, TextWidth(Font,Label)+6*S );
 		Rect( FRpgRect(R.X+(R.W-LW)*0.5f, R.Y+R.H-3*S, LW, 2*S), RpgGoldBright );
 	}
 	return Clicked( R, Id );
@@ -342,8 +376,6 @@ void FRpgUi::Tile( const FRpgRect& R, UBOOL bSelected, UBOOL bHover, FColor Acce
 {
 	Rect( R, bSelected ? RpgTileFillSelected : (bHover ? RpgTileFillHover : RpgTileFill) );
 	Border( R, Max(1.f,S*(bSelected?2.f:1.f)), bSelected ? RpgParchment : Accent );
-	if( bSelected && GlowGold )
-		Glow( GlowGold, R.Inset(-6*S), 0.45f );
 }
 
 void FRpgUi::Pips( FLOAT X, FLOAT Y, INT Filled, INT Total, FLOAT Size )
@@ -373,7 +405,7 @@ void FRpgUi::PlaceForPreview( AActor* Actor, FLOAT FovDeg, FLOAT Yaw, FLOAT Zoom
 	if( !Actor || !Actor->Mesh )
 		return;
 	const FSphere& Sphere = Actor->Mesh->BoundingSphere;
-	const FLOAT Radius = Max( 4.f, Sphere.W*Actor->DrawScale );
+	const FLOAT Radius = Sphere.W>2.f ? Sphere.W*Actor->DrawScale : 30.f*Actor->DrawScale;
 	const FLOAT HalfFov = Clamp( FovDeg, 10.f, 120.f )*0.5f*PI/180.f;
 	const FLOAT Dist = Max( 2.f, Radius/(FLOAT)appTan(HalfFov)*1.1f*Zoom );
 	Actor->Location = FVector( Dist, -Sphere.Y*Actor->DrawScale, -Sphere.Z*Actor->DrawScale );
@@ -402,6 +434,9 @@ void FRpgUi::DrawActorInRect( AActor* Actor, const FRpgRect& R, FLOAT FovDeg )
 	FVector Loc( 0, 0, 0 );
 	FRotator Rot( 0, 0, 0 );
 	Frame->ComputeRenderCoords( Loc, Rot );
+	// ComputeRenderCoords does not tell the render device; without this the
+	// actor is projected with the world camera's viewport and lands off-screen.
+	Viewport->RenDev->SetSceneNode( Frame );
 	Viewport->RenDev->ClearZ( Frame );
 
 	const UBOOL OldHidden = Actor->bHidden;
@@ -418,6 +453,7 @@ void FRpgUi::DrawActorInRect( AActor* Actor, const FRpgRect& R, FLOAT FovDeg )
 	Frame->Coords = OldCoords;
 	Frame->Uncoords = OldUncoords;
 	Frame->ComputeRenderSize();
+	Viewport->RenDev->SetSceneNode( Frame );
 }
 
 /*-----------------------------------------------------------------------------

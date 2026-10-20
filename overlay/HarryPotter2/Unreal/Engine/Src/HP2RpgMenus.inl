@@ -482,6 +482,16 @@
 					return;
 				}
 				break;
+			case RSLOT_Aura:
+			{
+				// Particle auras can't be previewed in a tile; show a star and the name.
+				UTexture* Star = LoadTex( TEXT("HP2_Menu.Icons.HP2StarCounter") );
+				const FLOAT Sz = Min( R.W, R.H )*0.45f;
+				if( Star && C.Mesh )
+					Ui.Icon( Star, FRpgRect(R.X+(R.W-Sz)*0.5f, R.Y+4*Ui.S, Sz, Sz) );
+				Ui.Text( Ui.FontBody, R.X+R.W*0.5f, R.Y+Sz+8*Ui.S, RpgParchment, *Ui.FitText(Ui.FontBody,C.Name,R.W-6*Ui.S), RALIGN_Center );
+				return;
+			}
 			default: break;
 		}
 		DrawHarryPreview( Engine, R, Outfit, Glasses, Hat, Pet, Framing, Yaw );
@@ -620,13 +630,22 @@
 	// A row of tabs across R; returns the clicked index or -1.
 	INT DrawTabs( const FRpgRect& R, const TCHAR* const* Labels, const INT* Ids, INT Count, INT Active )
 	{
+		// Pick the largest font that fits, then size each tab to its label.
+		const FLOAT Pad = 14*Ui.S;
+		UFont* Font = Ui.FontToFit( Labels, Count, R.W, Pad );
+		FLOAT Total = 0.f;
+		for( INT i=0; i<Count; i++ )
+			Total += Ui.TextWidth( Font, Labels[i] ) + Pad;
+		const FLOAT Extra = Count ? Max( 0.f, (R.W-Total)/Count ) : 0.f;
 		INT Clicked = -1;
-		const FLOAT W = R.W/Max(1,Count);
+		FLOAT X = R.X;
 		for( INT i=0; i<Count; i++ )
 		{
 			const INT Id = Ids ? Ids[i] : i;
-			if( Ui.Tab( FRpgRect(R.X+W*i, R.Y, W, R.H), Labels[i], Id==Active, &Labels[i] ) )
+			const FLOAT W = Ui.TextWidth( Font, Labels[i] ) + Pad + Extra;
+			if( Ui.Tab( FRpgRect(X, R.Y, W, R.H), Labels[i], Id==Active, &Labels[i], Font ) )
 				Clicked = Id;
+			X += W;
 		}
 		Ui.Rect( FRpgRect(R.X, R.Y+R.H-1*Ui.S, R.W, Max(1.f,Ui.S*0.5f)), FColor(120,104,60,255) );
 		return Clicked;
@@ -862,7 +881,7 @@
 		}
 		if( Ui.Button( FRpgRect(Right.X+Right.W-110*S, Right.Y+Right.H-28*S, 110*S, 24*S), TEXT("Close"), 1, &Offers ) )
 			CloseMenu( Engine );
-		Ui.Text( Ui.FontSmall, Right.X, Right.Y+Right.H-18*S, RpgMuted, TEXT("Q/E: tab   Arrows: choose   Enter: buy   Esc: close") );
+		Ui.Footer( TEXT("Q/E: tab    Arrows: choose    Enter: buy    Esc/B: close") );
 	}
 
 	/*-------------------------------------------------------------------------
@@ -876,7 +895,7 @@
 		Ui.Screen( Left, Right );
 
 		// Left: Harry as he looks now, and what he wears.
-		const FRpgRect Stage( Left.X, Left.Y, Left.W, Left.H*0.68f );
+		const FRpgRect Stage( Left.X, Left.Y+Ui.TextHeight(Ui.FontItem)+12*S, Left.W, Left.H*0.62f );
 		DrawHarryPreview( Engine, Stage, State.Equip[RSLOT_Outfit], State.Equip[RSLOT_Glasses], State.Equip[RSLOT_Hat], State.Equip[RSLOT_Pet], PREV_Body, PreviewYaw*0.15f );
 		FLOAT Y = Stage.Y + Stage.H + 6*S;
 		const FLOAT LineH = Ui.TextHeight( Ui.FontBody );
@@ -887,10 +906,14 @@
 			Y += LineH;
 		}
 
+		// Level, XP and points above the 3D stage.
+		Ui.Text( Ui.FontItem, Left.X+8*S, Left.Y, RpgGoldBright, *FString::Printf(TEXT("Level %i"), State.Level) );
+		Ui.Text( Ui.FontBody, Left.X+Left.W-8*S, Left.Y+2*S, State.SkillPoints ? RpgGreen : RpgParchment, *FString::Printf(TEXT("Skill points: %i"), State.SkillPoints), RALIGN_Right );
+		Ui.Bar( FRpgRect(Left.X+8*S, Left.Y+Ui.TextHeight(Ui.FontItem)+2*S, Left.W-16*S, 5*S), (FLOAT)State.Xp/XpForNextLevel(State.Level), FColor(120,190,255,255) );
+
 		// Right: title and tabs.
 		FLOAT RY = Right.Y;
 		Ui.Text( Ui.FontTitle, Right.X, RY, RpgGoldBright, GBookTabNames[BookTab] );
-		Ui.Text( Ui.FontBody, Right.X+Right.W, RY+6*S, RpgParchment, *FString::Printf(TEXT("Level %i   Skill points: %i"), State.Level, State.SkillPoints), RALIGN_Right );
 		RY += Ui.TextHeight( Ui.FontTitle ) + 6*S;
 		const INT ClickedTab = DrawTabs( FRpgRect(Right.X, RY, Right.W, Ui.TextHeight(Ui.FontItem)+8*S), GBookTabNames, NULL, BOOK_MAX, BookTab );
 		if( ClickedTab>=0 && ClickedTab!=BookTab )
@@ -914,10 +937,10 @@
 		bActivate = 0;
 
 		if( NoticeTime>0.f && Notice.Len() )
-			Ui.Text( Ui.FontBody, Right.X, Right.Y+Right.H-44*S, RpgGoldBright, *Notice );
+			Ui.Text( Ui.FontBody, Right.X, Right.Y+Right.H-24*S, RpgGoldBright, *Ui.FitText(Ui.FontBody,*Notice,Right.W-120*S) );
 		if( Ui.Button( FRpgRect(Right.X+Right.W-110*S, Right.Y+Right.H-28*S, 110*S, 24*S), TEXT("Close"), 1, &Menu ) )
 			CloseMenu( Engine );
-		Ui.Text( Ui.FontSmall, Right.X, Right.Y+Right.H-18*S, RpgMuted, TEXT("Q/E: tab   Tab: section   Arrows: choose   Enter: select   K/Esc: close") );
+		Ui.Footer( TEXT("Q/E: tab    Tab: section    Arrows: choose    Enter: select    K/Esc: close") );
 	}
 
 	UBOOL RowActivated( const FRpgRect& Row, INT Index, const void* Id )
@@ -966,60 +989,89 @@
 		}
 	}
 
+	// Perks of one spell in upgrade order (each requires the previous).
+	INT SpellChain( INT Spell, INT* Out )
+	{
+		INT N = 0;
+		INT Prev = -1;
+		for( INT Step=0; Step<PERK_MAX; Step++ )
+		{
+			INT Found = -1;
+			for( INT p=0; p<PERK_MAX; p++ )
+				if( GPerks[p].Spell==Spell && GPerks[p].Requires==Prev )
+				{
+					Found = p;
+					break;
+				}
+			if( Found<0 )
+				break;
+			Out[N++] = Found;
+			Prev = Found;
+		}
+		return N;
+	}
+
 	void DrawSpellsTab( APlayerPawn* Harry, const FRpgRect& Area )
 	{
 		const FLOAT S = Ui.S;
-		const INT Clicked = DrawTabs( FRpgRect(Area.X, Area.Y, Area.W, Ui.TextHeight(Ui.FontBody)+6*S), GSpellNames, NULL, SP_MAX, SpellTab );
-		if( Clicked>=0 && Clicked!=SpellTab )
+		Sel = Clamp( Sel, 0, SP_MAX-1 );
+		const FLOAT RowH = Area.H/SP_MAX;
+		for( INT sp=0; sp<SP_MAX; sp++ )
 		{
-			SpellTab = Clicked;
-			Sel = 0;
-		}
-		FLOAT Y = Area.Y + Ui.TextHeight(Ui.FontBody) + 14*S;
-		UTexture* Icon = LoadTex( GSpellIcons[SpellTab] );
-		if( Icon )
-			Ui.Icon( Icon, FRpgRect(Area.X+Area.W-56*S, Y, 52*S, 52*S) );
-		INT Perks[PERK_MAX];
-		INT Count = 0;
-		for( INT p=0; p<PERK_MAX; p++ )
-			if( GPerks[p].Spell==SpellTab )
-				Perks[Count++] = p;
-		Sel = Count ? Clamp( Sel, 0, Count-1 ) : 0;
-		const FLOAT RowH = Ui.TextHeight(Ui.FontItem) + Ui.TextHeight(Ui.FontBody)*2 + 12*S;
-		for( INT i=0; i<Count; i++ )
-		{
-			const INT P = Perks[i];
-			const FPerkDef& D = GPerks[P];
-			const FRpgRect Row( Area.X, Y, Area.W-64*S, RowH-4*S );
-			const UBOOL bHas = HasPerk( P );
-			const UBOOL bLocked = D.Requires>=0 && !HasPerk(D.Requires);
-			if( RowActivated(Row,i,&GPerks[P]) )
+			INT Chain[PERK_MAX];
+			const INT Count = SpellChain( sp, Chain );
+			INT Level = 0;
+			while( Level<Count && HasPerk(Chain[Level]) )
+				Level++;
+			const FRpgRect Row( Area.X, Area.Y+sp*RowH, Area.W, RowH-4*S );
+			const UBOOL bAct = RowActivated( Row, sp, &GSpellNames[sp] );
+
+			const FLOAT IconS = Min( RowH-10*S, 40*S );
+			UTexture* Icon = LoadTex( GSpellIcons[sp] );
+			if( Icon )
+				Ui.Icon( Icon, FRpgRect(Row.X+4*S, Row.Y+(Row.H-IconS)*0.5f, IconS, IconS) );
+			const FLOAT TX = Row.X + IconS + 12*S;
+			Ui.Text( Ui.FontItem, TX, Row.Y+2*S, sp==Sel ? RpgGoldBright : RpgParchment, GSpellNames[sp] );
+			const FLOAT Pip = 14*S;
+			Ui.Pips( Row.X+Row.W-Count*(Pip+4*S)-4*S, Row.Y+6*S, Level, Count, Pip );
+
+			FString Line;
+			FColor LineColor = RpgMuted;
+			if( Level<Count )
 			{
-				if( bHas )
-					SetNotice( TEXT("You already know that.") );
-				else if( bLocked )
-					SetNotice( FString::Printf(TEXT("Learn %s first."), GPerks[D.Requires].Name) );
-				else if( State.SkillPoints < D.Cost )
-				{
-					SetNotice( FString::Printf(TEXT("You need %i skill points."), D.Cost) );
-					Ui.Play( RSND_Deny, Harry );
-				}
+				const FPerkDef& Next = GPerks[Chain[Level]];
+				Line = FString::Printf( TEXT("Next: %s (%i pt) - %s"), Next.Name, Next.Cost, Next.Desc );
+				LineColor = State.SkillPoints>=Next.Cost ? RpgParchment : RpgMuted;
+			}
+			else
+			{
+				Line = TEXT("Mastered!");
+				LineColor = RpgGreen;
+			}
+			Ui.Text( Ui.FontBody, TX, Row.Y+Ui.TextHeight(Ui.FontItem)+2*S, LineColor, *Ui.FitText(Ui.FontBody,*Line,Row.X+Row.W-TX-4*S) );
+
+			if( bAct )
+			{
+				if( Level>=Count )
+					SetNotice( FString::Printf(TEXT("%s is already mastered."), GSpellNames[sp]) );
 				else
 				{
-					State.SkillPoints -= D.Cost;
-					State.Perks |= (1<<P);
-					SetNotice( FString::Printf(TEXT("Learned %s!"), D.Name) );
-					Ui.Play( RSND_Reward, Harry );
-					ApplySkills( Harry );
+					const FPerkDef& Next = GPerks[Chain[Level]];
+					if( State.SkillPoints < Next.Cost )
+					{
+						SetNotice( FString::Printf(TEXT("%s needs %i skill point%s."), Next.Name, Next.Cost, Next.Cost>1 ? TEXT("s") : TEXT("")) );
+						Ui.Play( RSND_Deny, Harry );
+					}
+					else
+					{
+						State.SkillPoints -= Next.Cost;
+						State.Perks |= (1<<Chain[Level]);
+						SetNotice( FString::Printf(TEXT("%s level %i: %s!"), GSpellNames[sp], Level+1, Next.Name) );
+						Ui.Play( RSND_Reward, Harry );
+						ApplySkills( Harry );
+					}
 				}
 			}
-			const FColor NameColor = bHas ? RpgGreen : (bLocked ? RpgMuted : RpgGoldBright);
-			Ui.Text( Ui.FontItem, Row.X+8*S, Row.Y+2*S, NameColor, D.Name );
-			Ui.Text( Ui.FontBody, Row.X+Row.W-6*S, Row.Y+4*S, bHas ? RpgGreen : RpgParchment,
-				bHas ? TEXT("Learned") : *FString::Printf(TEXT("%i point%s"), D.Cost, D.Cost>1 ? TEXT("s") : TEXT("")), RALIGN_Right );
-			Ui.TextWrapped( Ui.FontBody, FRpgRect(Row.X+8*S, Row.Y+Ui.TextHeight(Ui.FontItem)+2*S, Row.W-16*S, Ui.TextHeight(Ui.FontBody)*2), RpgMuted,
-				bLocked ? *FString::Printf(TEXT("%s (needs %s)"), D.Desc, GPerks[D.Requires].Name) : D.Desc );
-			Y += RowH;
 		}
 	}
 
@@ -1132,8 +1184,10 @@
 				FString Reward = StatText( R.Stat, R.StatValue );
 				if( R.SkillPoints )
 					Reward += FString::Printf( TEXT("%s+%i skill point%s"), Reward.Len() ? TEXT(", ") : TEXT(""), R.SkillPoints, R.SkillPoints>1 ? TEXT("s") : TEXT("") );
-				Ui.Text( Ui.FontBody, Area.X, Y, bDone ? RpgGreen : RpgParchment, *FString::Printf(TEXT("%s %s (%i %s)"), bDone ? TEXT("[x]") : TEXT("[ ]"), R.Name, R.Count, Kinds[R.Kind]) );
-				Ui.Text( Ui.FontBody, Area.X+Area.W, Y, bDone ? RpgGreen : RpgMuted, *Reward, RALIGN_Right );
+				const FLOAT RewardW = Ui.TextWidth( Ui.FontSmall, *Reward );
+				const FString Name = Ui.FitText( Ui.FontBody, *FString::Printf(TEXT("%s %s (%i)"), bDone ? TEXT("[x]") : TEXT("[ ]"), R.Name, R.Count), Area.W-RewardW-12*S );
+				Ui.Text( Ui.FontBody, Area.X, Y, bDone ? RpgGreen : RpgParchment, *Name );
+				Ui.Text( Ui.FontSmall, Area.X+Area.W, Y+(LineH-Ui.TextHeight(Ui.FontSmall))*0.5f, bDone ? RpgGreen : RpgMuted, *Reward, RALIGN_Right );
 				Y += LineH;
 			}
 			return;
@@ -1152,7 +1206,7 @@
 			RowActivated( Row, c, &GCreatures[c] );
 			const INT Tier = BestiaryTier( c );
 			const FString Text = State.Kills[c]>0 ? FString(GCreatures[c].Name) : FString(TEXT("???"));
-			Ui.Text( Ui.FontBody, Row.X+4*S, Row.Y, c==Sel ? RpgGoldBright : RpgParchment, *Text );
+			Ui.Text( Ui.FontBody, Row.X+4*S, Row.Y, c==Sel ? RpgGoldBright : RpgParchment, *Ui.FitText(Ui.FontBody,*Text,Row.W*0.6f) );
 			Ui.Text( Ui.FontBody, Row.X+Row.W-4*S, Row.Y, Tier ? RpgGreen : RpgMuted, *FString::Printf(TEXT("%i  rank %i"), State.Kills[c], Tier), RALIGN_Right );
 		}
 		const INT c = Sel;
@@ -1362,7 +1416,6 @@
 		if( Key==IK_Tab && Menu==MENU_Book )
 		{
 			if( BookTab==BOOK_Wardrobe ) WardrobeSlot = (WardrobeSlot+1) % RSLOT_MAX;
-			if( BookTab==BOOK_Spells ) SpellTab = (SpellTab+1) % SP_MAX;
 			if( BookTab==BOOK_Collection ) CollectionTab = (CollectionTab+1) % 2;
 			Sel = Scroll = 0;
 			Ui.Play( RSND_Tab, Harry );

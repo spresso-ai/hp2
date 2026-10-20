@@ -86,7 +86,10 @@ public:
 	UBOOL Hovered( const FRpgRect& R, const void* Id );
 	UBOOL Clicked( const FRpgRect& R, const void* Id );
 	UBOOL Button( const FRpgRect& R, const TCHAR* Label, UBOOL bEnabled, const void* Id );
-	UBOOL Tab( const FRpgRect& R, const TCHAR* Label, UBOOL bActive, const void* Id );
+	UBOOL Tab( const FRpgRect& R, const TCHAR* Label, UBOOL bActive, const void* Id, UFont* Font=NULL );
+	void Footer( const TCHAR* Hint );
+	FString FitText( UFont* Font, const TCHAR* Str, FLOAT MaxW );
+	UFont* FontToFit( const TCHAR* const* Labels, INT Count, FLOAT MaxW, FLOAT Pad );
 	void Tile( const FRpgRect& R, UBOOL bSelected, UBOOL bHover, FColor Accent );
 	void Pips( FLOAT X, FLOAT Y, INT Filled, INT Total, FLOAT Size );
 	void Bar( const FRpgRect& R, FLOAT Pct, FColor Fill );

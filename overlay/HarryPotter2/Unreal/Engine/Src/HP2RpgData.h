@@ -311,7 +311,7 @@ static const FPerkDef GPerks[PERK_MAX] =
 	{ SP_Diffindo, TEXT("Harvest"), TEXT("Cutting plants and bowtruckles drops beans."), 2, PERK_SharpCut },
 	{ SP_Skurge, TEXT("Deep Clean"), TEXT("Ectoplasm stays shrunk twice as long."), 1, -1 },
 	{ SP_Skurge, TEXT("Ghostbuster"), TEXT("Skurge hurts Peeves twice as much."), 2, PERK_DeepClean },
-	{ SP_Wand, TEXT("Quick Wand"), TEXT("Cast spells faster."), 2, -1 },
+	{ SP_Wand, TEXT("Quick Wand"), TEXT("Cast spells faster."), 2, PERK_FarSight },
 	{ SP_Wand, TEXT("Far Sight"), TEXT("Your spell cursor locks on from further away."), 1, -1 },
 	{ SP_Wand, TEXT("Duellist"), TEXT("Your duel spells hit harder, and opponents' hit softer."), 2, PERK_QuickWand },
 };
