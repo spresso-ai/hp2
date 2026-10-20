@@ -94,13 +94,14 @@ void FRpgUi::Resolve()
 	}
 	GlowGold = LoadTexture( TEXT("HGame.Icons.CardGlowGold") );
 	GlowSilver = LoadTexture( TEXT("HGame.Icons.CardGlowSilver") );
-	FontTitle = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.HugeInkFont") );
-	FontItem = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.BigInkFont") );
-	FontBody = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.MedInkFont") );
-	FontSmall = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.SmallInkFont") );
-	FontModern = MakeNativeFont( FontBody, TEXT("AvenirNext-Medium"), 15 );
-	FontModernBold = MakeNativeFont( FontBody, TEXT("AvenirNext-DemiBold"), 16 );
-	FontModernBig = MakeNativeFont( FontItem, TEXT("AvenirNext-Bold"), 30 );
+	// One step smaller than the game's own menus: our pages hold more text.
+	FontTitle = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.BigInkFont") );
+	FontItem = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.MedInkFont") );
+	FontBody = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.SmallInkFont") );
+	FontSmall = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.TinyInkFont") );
+	FontModern = MakeNativeFont( FontBody, TEXT("AvenirNext-Medium"), 13 );
+	FontModernBold = MakeNativeFont( FontBody, TEXT("AvenirNext-DemiBold"), 14 );
+	FontModernBig = MakeNativeFont( FontItem, TEXT("AvenirNext-Bold"), 26 );
 	for( INT i=0; i<RSND_MAX; i++ )
 		for( INT p=0; p<3 && GSoundPaths[i][p] && !Sounds[i]; p++ )
 			Sounds[i] = (USound*)LoadRooted( USound::StaticClass(), GSoundPaths[i][p] );
