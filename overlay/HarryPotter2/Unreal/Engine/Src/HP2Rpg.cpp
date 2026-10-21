@@ -622,7 +622,7 @@ public:
 	// Quidditch robes as a costume: hide the broom texture and face forward.
 	TArray<BYTE> BroomBackup[8];
 	DWORD BroomOldFlags;
-	TMap<INT,DWORD> BroomMatFlags;
+	DWORD BroomMatFlags[32];       // plain array: TMap can't be built before the engine allocator
 	UBOOL bQuidFix;
 	FRotator QuidOldRot;
 	UBOOL bGlassesHidden;
@@ -2605,13 +2605,15 @@ public:
 			for( INT i=0; i<Lod->Materials.Num(); i++ )
 				if( Lod->Materials(i).TextureIndex==4 )
 				{
+					if( i>=(INT)ARRAY_COUNT(BroomMatFlags) )
+						continue;
 					if( bOn )
 					{
-						BroomMatFlags.Set( i, Lod->Materials(i).PolyFlags );
+						BroomMatFlags[i] = Lod->Materials(i).PolyFlags;
 						Lod->Materials(i).PolyFlags |= PF_Masked;
 					}
-					else if( BroomMatFlags.Find(i) )
-						Lod->Materials(i).PolyFlags = *BroomMatFlags.Find(i);
+					else
+						Lod->Materials(i).PolyFlags = BroomMatFlags[i];
 				}
 		}
 		// Index 0 of a masked texture is see-through: blank the broom.
