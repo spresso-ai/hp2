@@ -236,6 +236,7 @@
 
 	UBOOL CastAccio( UGameEngine* Engine, APlayerPawn* Harry )
 	{
+		AccioLessonItems( Engine, Harry );
 		INT Count = 0;
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
@@ -338,6 +339,7 @@
 			SpawnFx( Engine, Fx[Kind], A->Location, 8.f );
 		}
 		RevealPages( Engine, Harry );
+		RevealLessonItems( Engine, Harry );
 		RevealLeft = 8.f;
 		PlaySfx( TEXT("HPSounds.Magic_sfx.Lumos_pass_through") );
 		AddFeed( TEXT("Revelio"), Spell2(SP2_Revelio).Color, TOAST_Info, *FString::Printf(TEXT("%i hidden thing%s revealed"), Reveals.Num(), Reveals.Num()==1 ? TEXT("") : TEXT("s")) );
@@ -372,6 +374,8 @@
 		E->bControlled = 1;
 		E->bThrown = 0;
 		E->HoldDist = Clamp( (T->Location - Harry->Location).Size2D(), 160.f, 520.f );
+		if( LessonKind==LES_Charms && LessonLifted.FindItemIndex(T)==INDEX_NONE )
+			LessonLifted.AddItem( T );
 		SpawnFx( Engine, TEXT("Levitate_hold"), T->Location, 2.f );
 		T->Role = ROLE_DumbProxy;
 		T->setPhysics( PHYS_None );
@@ -852,6 +856,8 @@
 	// but nothing the story or the level needs to stay put.
 	UBOOL IsLevitatable( AActor* A )
 	{
+		if( A->Mesh && IsDecor(A) )
+			return 1; // your own furniture
 		if( !A->Mesh || A->Tag==FName(TEXT("HP2RpgActor")) || A->bNoDelete || IsHolding(A) || IsStaff(A) )
 			return 0;
 		if( A->IsA(AMover::StaticClass()) || A->IsA(ATriggers::StaticClass()) || A->IsA(AInventory::StaticClass()) )
@@ -1183,14 +1189,14 @@
 			return;
 		{
 			const FColor Line( 46,56,96,255 ), GoldHi( 255,222,130,255 ), Text2( 182,186,206,255 );
-			const FLOAT Slot = Ui.P(46.f), Gap = Ui.P(6.f), Div = Ui.P(12.f);
+			const FLOAT Slot = Ui.P(36.f), Gap = Ui.P(5.f), Div = Ui.P(10.f);
 			UBOOL bCooling = 0;
 			for( INT i=0; i<SP2_MAX; i++ )
 				if( SpellCooldown[i]>0.f )
 					bCooling = 1;
 			// Quiet by default: the bar shows while you pick, aim or wait for
 			// a spell, for a moment after casting, or on Tab.
-			if( !(bAiming || SelFlash>0.f || bCooling || RpgClock-LastCastClock<4.f || HintTimer<90.f || bShowAllHud || ShieldLeft>0.f || ArrestoLeft>0.f) )
+			if( !(bAiming || SelFlash>0.f || bCooling || RpgClock-LastCastClock<4.f || bShowAllHud || ShieldLeft>0.f || ArrestoLeft>0.f) )
 				return;
 			// Only spells you know are shown; the bar grows as you learn.
 			INT Shown[SP2_MAX], NumShown = 0;
@@ -1199,7 +1205,6 @@
 					Shown[NumShown++] = i;
 			const FLOAT W = Slot + (NumShown ? Div + NumShown*Slot + (NumShown-1)*Gap : 0.f);
 			const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - Ui.P(24.f);
-			Ui.Glass( FRpgRect(X0-Ui.P(10.f), Y0-Ui.P(10.f), W+Ui.P(20.f), Slot+Ui.P(20.f)) );
 			for( INT k=-1; k<NumShown; k++ )
 			{
 				const UBOOL bWand = k<0;
@@ -1209,14 +1214,14 @@
 				FRpgRect R( X, Y0 - (bSel ? Ui.P(6.f) : 0.f), Slot, Slot );
 				if( bSel && Ui.GlowGold )
 					Ui.Glow( Ui.GlowGold, FRpgRect(R.X-Slot*0.25f, R.Y-Slot*0.25f, Slot*1.5f, Slot*1.5f), 0.35f );
-				Ui.Chamfer( R, Ui.P(3.f), bSel ? FColor(32,42,82,255) : FColor(12,16,34,255) );
+				Ui.Chamfer( R, Ui.P(3.f), bSel ? FColor(44,56,104,255) : FColor(28,36,70,255) );
 				Ui.Border( R, bSel ? Max(1.f,Ui.P(2.f)) : Max(1.f,Ui.P(1.f)), bSel ? GoldHi : Line );
 				if( bSel )
 					Ui.Brackets( FRpgRect(R.X-Ui.P(4.f), R.Y-Ui.P(4.f), R.W+Ui.P(8.f), R.H+Ui.P(8.f)), Ui.P(8.f), Max(1.f,Ui.P(2.f)), GoldHi );
 				UTexture* Icon = LoadTex( bWand ? TEXT("SpellShapes.Shapes.SPSflipendo") : Spell2(i).Icon );
 				const FLOAT Cool = bWand ? 0.f : SpellCooldown[i];
 				if( Icon )
-					Ui.Icon( Icon, FRpgRect(R.X+(Slot-Ui.P(32.f))*0.5f, R.Y+(Slot-Ui.P(32.f))*0.5f, Ui.P(32.f), Ui.P(32.f)), Cool>0.f ? 0.45f : 1.f );
+					Ui.Icon( Icon, FRpgRect(R.X+(Slot-Ui.P(26.f))*0.5f, R.Y+(Slot-Ui.P(26.f))*0.5f, Ui.P(26.f), Ui.P(26.f)), Cool>0.f ? 0.45f : 1.f );
 				// Colour strip along the bottom edge.
 				Ui.Rect( FRpgRect(R.X+Ui.P(3.f), R.Y+R.H-Max(1.f,Ui.P(3.f)), R.W-Ui.P(6.f), Max(1.f,Ui.P(3.f))), bWand ? FColor(201,162,74,255) : Spell2(i).Color );
 				if( Cool>0.f )
@@ -1231,7 +1236,7 @@
 				{
 					const FString Key = FString::Printf( TEXT("%i"), (i+4)%10 );
 					UFont* F = Ui.FontCaption;
-					const FLOAT KS = Ui.P(18.f);
+					const FLOAT KS = Ui.P(14.f);
 					const FRpgRect KR( R.X+R.W-KS+Ui.P(4.f), R.Y+R.H-KS+Ui.P(4.f), KS, KS );
 					Ui.Chamfer( KR, Ui.P(2.f), Line );
 					Ui.Chamfer( KR.Inset(Max(1.f,Ui.P(1.f))), Ui.P(2.f), FColor(20,27,54,255) );
@@ -1239,13 +1244,6 @@
 				}
 				if( bSel && SelFlash>0.f )
 					Ui.Text( Ui.FontModernBold, R.X+R.W*0.5f, R.Y-Ui.TextHeight(Ui.FontModernBold)-Ui.P(10.f), GoldHi, bWand ? TEXT("Wand") : Spell2(i).Name, RALIGN_Center );
-			}
-			// Controls hint: first minute and a half, or when picking a spell.
-			if( !bAiming && (HintTimer<90.f || SelFlash>0.f) && NumShown && !NearNpc && ShieldLeft<=0.f && ArrestoLeft<=0.f )
-			{
-				const TCHAR* Keys[3] = { TEXT("Wheel"), TEXT("RMB"), TEXT("LMB") };
-				const TCHAR* Verbs[3] = { TEXT("Pick"), TEXT("Aim"), TEXT("Cast") };
-				Ui.Prompt( C->ClipX*0.5f, Y0-Ui.P(96.f), Keys, Verbs, 3 );
 			}
 			if( ShieldLeft>0.f || ArrestoLeft>0.f )
 			{

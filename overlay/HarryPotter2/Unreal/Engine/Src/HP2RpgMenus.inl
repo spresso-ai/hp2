@@ -618,7 +618,10 @@
 		else if( Menu==MENU_None )
 		{
 			if( bGameplay )
+			{
 				DrawQuestHud( Harry );
+				DrawLessonHud( Harry );
+			}
 			if( bGameplay || HouseHudTimer>0.f )
 				DrawStatusHud( Harry, bGameplay );
 			if( bGameplay )
@@ -1191,6 +1194,7 @@
 			case BOOK_Wardrobe:   DrawWardrobeTab( Engine, Harry, Body ); break;
 			case BOOK_Collection: DrawCollectionTab( Engine, Harry, Body ); break;
 			case BOOK_Journal:    DrawJournalTab( Harry, Body ); break;
+			case BOOK_Room:       DrawRoomTab( Engine, Harry, Body ); break;
 			case BOOK_Trophies:   DrawTrophiesTab( Harry, Body ); break;
 			case BOOK_HouseCup:   DrawHouseCupTab( Harry, Body ); break;
 			case BOOK_Letters:    DrawLettersTab( Harry, Body ); break;
@@ -1785,8 +1789,8 @@
 		if( !Npc || RpgClock-LastTalkTime < 1.f )
 			return;
 		LastTalkTime = RpgClock;
-		// Quest givers speak about their quest instead of a random line.
-		if( !QuestTalk( Harry, Npc ) )
+		// Teachers start today's class; quest givers speak about their quest.
+		if( !LessonTalk( Ui.Engine, Harry, Npc ) && !QuestTalk( Harry, Npc ) )
 		{
 			FRpgArg JustTalk = FRpgArg::I( 1 );
 			CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
@@ -1826,6 +1830,10 @@
 			if( PhotoInput( Engine, Harry, Key, Action, Delta ) )
 				return 1;
 			if( AimInput( Engine, Harry, Key, Action ) )
+				return 1;
+			if( LessonInput( Engine, Harry, Key, Action ) )
+				return 1;
+			if( Key==IK_E && Action==IST_Press && !NearNpc && IsFreeGameplay(Engine,Harry) && BrewInput( Engine, Harry ) )
 				return 1;
 			if( Key==IK_P && Action==IST_Press && IsFreeGameplay(Engine,Harry) )
 			{

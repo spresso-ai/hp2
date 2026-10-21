@@ -431,6 +431,10 @@ struct FRpgState
 	INT QuestState[MAX_QUESTS];    // EQuestState
 	INT QuestBase[MAX_QUESTS];     // counter baseline or items collected
 	INT DuelRank;                  // highest Duelling Club rank beaten
+	INT LessonDay;                 // school day of the last lesson
+	INT LessonGrades[8];           // best grade per lesson (1 T .. 5 O)
+	INT BrewDay;                   // last day the Brewing Cauldron brewed
+	INT DecorOwned[32];            // furniture in storage
 
 	void Reset()
 	{
@@ -494,8 +498,8 @@ enum EActorFlag
 };
 
 enum EMenu { MENU_None, MENU_Shop, MENU_Book };
-enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Journal, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
-static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Journal"), TEXT("Trophies"), TEXT("House"), TEXT("Post"), TEXT("Status") };
+enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Journal, BOOK_Room, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
+static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Journal"), TEXT("Room"), TEXT("Trophies"), TEXT("House"), TEXT("Post"), TEXT("Status") };
 
 enum EHouse { HOUSE_Gryffindor, HOUSE_Slytherin, HOUSE_Ravenclaw, HOUSE_Hufflepuff, HOUSE_MAX };
 static const TCHAR* GHouseNames[HOUSE_MAX] = { TEXT("Gryffindor"), TEXT("Slytherin"), TEXT("Ravenclaw"), TEXT("Hufflepuff") };
@@ -675,6 +679,7 @@ public:
 		if( GConfig->GetBool( TEXT("HP2Rpg"), TEXT("Enabled"), Value ) )
 			bEnabled = Value;
 		BeanMultiplier = 1;
+		LessonKind = -1;
 		INT ConfigMultiplier = 0;
 		if( GConfig->GetInt( TEXT("HP2Rpg"), TEXT("BeanMultiplier"), ConfigMultiplier ) )
 			BeanMultiplier = Clamp( ConfigMultiplier, 1, 5 );
@@ -851,7 +856,10 @@ public:
 		Text += FString(TEXT("Delivered=")) + IntList(State.Delivered,2) + TEXT("\r\n");
 		Text += FString::Printf(TEXT("DayPlay=%i DayTaskDone=%i Difficulty=%i\r\n"), State.DayPlaySeconds, State.DayTaskDone, State.Difficulty);
 		Text += FString(TEXT("Pages=")) + IntList(State.Pages,MAX_PAGES/32) + TEXT("\r\n");
-		Text += FString::Printf(TEXT("DuelRank=%i\r\n"), State.DuelRank);
+		Text += FString::Printf(TEXT("DuelRank=%i LessonDay=%i BrewDay=%i\r\n"), State.DuelRank, State.LessonDay, State.BrewDay);
+		Text += FString(TEXT("Grades=")) + IntList(State.LessonGrades,8) + TEXT("\r\n");
+		Text += FString(TEXT("DecorOwned=")) + IntList(State.DecorOwned,32) + TEXT("\r\n");
+		Text += FString(TEXT("Decor=")) + SaveDecor() + TEXT("\r\n");
 		Text += FString(TEXT("QuestState=")) + IntList(State.QuestState,MAX_QUESTS) + TEXT("\r\n");
 		Text += FString(TEXT("QuestBase=")) + IntList(State.QuestBase,MAX_QUESTS) + TEXT("\r\n");
 		// By name too, so new table entries never shift what a save owns.
@@ -888,6 +896,8 @@ public:
 	void LoadSlot( INT Slot )
 	{
 		State.Reset();
+		Placed.Empty();
+		bDecorSpawned = 0;
 		FString Text;
 		const FString Path = SidecarPath( Slot );
 		if( appLoadFileToString( Text, *Path ) )
@@ -945,6 +955,11 @@ public:
 				Parse( S, TEXT("Difficulty="), State.Difficulty );
 				ParseIntList( S, TEXT("Pages="), State.Pages, MAX_PAGES/32 );
 				Parse( S, TEXT("DuelRank="), State.DuelRank );
+				Parse( S, TEXT("LessonDay="), State.LessonDay );
+				Parse( S, TEXT("BrewDay="), State.BrewDay );
+				ParseIntList( S, TEXT("Grades="), State.LessonGrades, 8 );
+				ParseIntList( S, TEXT("DecorOwned="), State.DecorOwned, 32 );
+				LoadDecor( S );
 				ParseIntList( S, TEXT("QuestState="), State.QuestState, MAX_QUESTS );
 				ParseIntList( S, TEXT("QuestBase="), State.QuestBase, MAX_QUESTS );
 				if( Version>=3 )
@@ -3017,8 +3032,9 @@ public:
 		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
 		const FVector Fwd( (FLOAT)appCos(HarryYaw), (FLOAT)appSin(HarryYaw), 0.f );
 		const FVector Right( -Fwd.Y, Fwd.X, 0.f );
-		// Behind Harry on the left (the pet keeps the right).
-		const FVector Want = Harry->Location - Fwd*(bBig ? 110.f : 70.f) - Right*(bBig ? 85.f : 55.f);
+		// Beside Harry on his left, a step back (behind him is where the
+		// camera is). The pet keeps the right.
+		const FVector Want = Harry->Location - Fwd*(bBig ? 30.f : 15.f) - Right*(bBig ? 120.f : 80.f);
 		const FVector Old = F->Location;
 		const FVector Delta = Want - Old;
 		const FLOAT Dist = Delta.Size();
@@ -3364,6 +3380,8 @@ public:
 		UpdateStudents( Engine, Harry, IsFreeGameplay(Engine,Harry), DeltaSeconds );
 		UpdateTroublemakers( Engine, Harry, IsFreeGameplay(Engine,Harry) );
 		UpdateQuests( Engine, Harry, DeltaSeconds );
+		UpdateLesson( Engine, Harry, DeltaSeconds );
+		UpdateDecor( Engine, Harry, DeltaSeconds );
 		UpdatePhoto( Harry );
 	}
 
@@ -3407,6 +3425,7 @@ public:
 			&& (PrevMap.Len()==0 || appStrstr(*PrevMap,TEXT("Startup")) || appStrstr(*PrevMap,TEXT("startup"))) )
 		{
 			State.Reset();
+			Placed.Empty();
 			Sanitize();
 			SpellsKnownNotified = -1;
 			RpgLog( TEXT("new game, RPG progress reset") );
@@ -3448,6 +3467,9 @@ public:
 		EndAllSpells( Engine );
 		EndWorld();
 		EndPickups( Engine );
+		EndDecor( Engine );
+		ClearLessonItems( Engine );
+		LessonKind = -1;
 		SetPhoto( Engine, GetHarry(Engine), 0 );
 		for( INT o=0; o<Owls.Num(); o++ )
 			DestroyActorSafe( Engine, Owls(o).Actor );
@@ -3488,6 +3510,13 @@ public:
 		LastHarry = NULL;
 		HarryAnim = NULL;
 		ForgetQuests();
+		ForgetDecor();
+		LessonItems.Empty();
+		LessonItemShown.Empty();
+		LessonCounted.Empty();
+		LessonLifted.Empty();
+		TodaysTeacher = NULL;
+		LessonKind = -1;
 		bPhoto = 0;
 		HatActor = PetActor = AuraActor = NULL;
 		PetLinked = NULL;
@@ -3515,6 +3544,7 @@ public:
 	#include "HP2RpgSpells.inl"
 	#include "HP2RpgWorld.inl"
 	#include "HP2RpgQuests.inl"
+	#include "HP2RpgSchool.inl"
 };
 
 static FHP2Rpg GRpg;

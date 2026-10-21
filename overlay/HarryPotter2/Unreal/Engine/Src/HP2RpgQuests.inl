@@ -349,11 +349,14 @@
 		{
 			GiverScanTimer = 2.f;
 			Givers.Empty();
+			TodaysTeacher = NULL;
 			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 			{
 				AActor* A = Engine->GLevel->Actors(i);
 				if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || !A->IsA(APawn::StaticClass()) )
 					continue;
+				if( !TodaysTeacher && ClassChainIsAny(A, Lesson(TodaysLesson()).Teacher) )
+					TodaysTeacher = A;
 				for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 					if( IsGiverOf(A,q) )
 					{
