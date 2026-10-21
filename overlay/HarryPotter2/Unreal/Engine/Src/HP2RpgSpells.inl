@@ -1245,7 +1245,7 @@
 			{
 				const TCHAR* Keys[3] = { TEXT("Wheel"), TEXT("RMB"), TEXT("LMB") };
 				const TCHAR* Verbs[3] = { TEXT("Pick"), TEXT("Aim"), TEXT("Cast") };
-				Ui.Prompt( C->ClipX*0.5f, Y0-Ui.P(70.f), Keys, Verbs, 3 );
+				Ui.Prompt( C->ClipX*0.5f, Y0-Ui.P(96.f), Keys, Verbs, 3 );
 			}
 			if( ShieldLeft>0.f || ArrestoLeft>0.f )
 			{

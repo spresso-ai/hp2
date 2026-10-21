@@ -430,6 +430,7 @@ struct FRpgState
 	INT Pages[MAX_PAGES/32];       // Field Guide pages found
 	INT QuestState[MAX_QUESTS];    // EQuestState
 	INT QuestBase[MAX_QUESTS];     // counter baseline or items collected
+	INT DuelRank;                  // highest Duelling Club rank beaten
 
 	void Reset()
 	{
@@ -517,7 +518,7 @@ struct FOffer
 };
 
 // Preview framing for 3D tiles.
-enum EPreviewMode { PREV_Body, PREV_Head, PREV_Shoulder, PREV_Item };
+enum EPreviewMode { PREV_Body, PREV_Head, PREV_Shoulder, PREV_Item, PREV_Hat };
 
 /*-----------------------------------------------------------------------------
 	The RPG layer.
@@ -593,6 +594,7 @@ public:
 	INT Menu;
 	INT BookTab;
 	INT Sel;
+	INT TryOn;          // cosmetic shown on Harry in the stage (-1: none)
 	INT Scroll;
 	INT ShopTab;
 	INT WardrobeSlot;
@@ -849,6 +851,7 @@ public:
 		Text += FString(TEXT("Delivered=")) + IntList(State.Delivered,2) + TEXT("\r\n");
 		Text += FString::Printf(TEXT("DayPlay=%i DayTaskDone=%i Difficulty=%i\r\n"), State.DayPlaySeconds, State.DayTaskDone, State.Difficulty);
 		Text += FString(TEXT("Pages=")) + IntList(State.Pages,MAX_PAGES/32) + TEXT("\r\n");
+		Text += FString::Printf(TEXT("DuelRank=%i\r\n"), State.DuelRank);
 		Text += FString(TEXT("QuestState=")) + IntList(State.QuestState,MAX_QUESTS) + TEXT("\r\n");
 		Text += FString(TEXT("QuestBase=")) + IntList(State.QuestBase,MAX_QUESTS) + TEXT("\r\n");
 		// By name too, so new table entries never shift what a save owns.
@@ -941,6 +944,7 @@ public:
 				Parse( S, TEXT("DayTaskDone="), State.DayTaskDone );
 				Parse( S, TEXT("Difficulty="), State.Difficulty );
 				ParseIntList( S, TEXT("Pages="), State.Pages, MAX_PAGES/32 );
+				Parse( S, TEXT("DuelRank="), State.DuelRank );
 				ParseIntList( S, TEXT("QuestState="), State.QuestState, MAX_QUESTS );
 				ParseIntList( S, TEXT("QuestBase="), State.QuestBase, MAX_QUESTS );
 				if( Version>=3 )
@@ -2002,6 +2006,7 @@ public:
 			{
 				State.Counters[CNT_Duels]++;
 				GiveXp( 75, TEXT("duel won") );
+				DuelWon();
 			}
 			return;
 		}

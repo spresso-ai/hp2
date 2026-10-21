@@ -25,6 +25,7 @@
 		Sel = 0;
 		Scroll = 0;
 		ConfirmIndex = -1;
+		TryOn = -1;
 		Notice = TEXT("");
 		bActivate = 0;
 		ALevelInfo* Info = Engine->GLevel->GetLevelInfo();
@@ -427,10 +428,10 @@
 		USkeletalMesh* Skel = NULL;
 		INT Bone = -1;
 		FLOAT Zoom = 1.f;
-		if( Framing==PREV_Head )
+		if( Framing==PREV_Head || Framing==PREV_Hat )
 		{
 			Bone = HeadBone( Body, Skel );
-			Zoom = 3.2f;
+			Zoom = Framing==PREV_Hat ? 2.3f : 3.2f;
 		}
 		else if( Framing==PREV_Shoulder )
 		{
@@ -440,7 +441,7 @@
 		if( !Ui.PlaceInRect( Body, R, Yaw, Bone>=0 ? Zoom : 1.f ) )
 			return;
 		if( Bone>=0 && Skel )
-			Ui.FocusPoint( Body, Skel->GetBoneCoords(Body,Bone).Origin, R.X+R.W*0.5f, R.Y+R.H*(Framing==PREV_Head ? 0.62f : 0.5f) );
+			Ui.FocusPoint( Body, Skel->GetBoneCoords(Body,Bone).Origin, R.X+R.W*0.5f, R.Y+R.H*(Framing==PREV_Hat ? 0.68f : Framing==PREV_Head ? 0.6f : 0.5f) );
 		Ui.DrawActorInRect( Body, 1 );
 
 		if( Attach && GCosmetics[Hat].Mesh )
@@ -502,9 +503,16 @@
 		switch( C.Slot )
 		{
 			case RSLOT_Outfit:  Outfit = Id; break;
-			case RSLOT_Hat:     Hat = Id; Framing = PREV_Head; break;
+			case RSLOT_Hat:     Hat = Id; Framing = PREV_Hat; break;
 			case RSLOT_Glasses: Glasses = Id; Framing = PREV_Head; break;
-			case RSLOT_Pet:     Pet = Id; Framing = PREV_Shoulder; break;
+			case RSLOT_Pet:
+				// Pets walk beside Harry now: show the animal itself.
+				if( C.Mesh )
+				{
+					DrawMeshPreview( Engine, R, C.Mesh, C.Scale, Yaw );
+					return;
+				}
+				break;
 			case RSLOT_Held:
 				if( C.Mesh )
 				{
@@ -913,7 +921,18 @@
 		Ui.Rect( Stage, FColor(14,18,46,255) );
 		if( ShopVendor && !IsInLevel(ShopVendor) )
 			ShopVendor = NULL;
-		if( ShopVendor )
+		// Try-on: a selected outfit, hat or pair of glasses is shown on Harry.
+		if( TryOn>=0 && TryOn<GNumCosmetics && (GCosmetics[TryOn].Slot==RSLOT_Outfit || GCosmetics[TryOn].Slot==RSLOT_Hat || GCosmetics[TryOn].Slot==RSLOT_Glasses) )
+		{
+			const FCosmetic& T = GCosmetics[TryOn];
+			DrawHarryPreview( Engine, Stage,
+				T.Slot==RSLOT_Outfit ? TryOn : State.Equip[RSLOT_Outfit],
+				T.Slot==RSLOT_Glasses ? TryOn : State.Equip[RSLOT_Glasses],
+				T.Slot==RSLOT_Hat ? TryOn : State.Equip[RSLOT_Hat],
+				DefaultCosmetic(RSLOT_Pet), PREV_Body, PreviewYaw*0.15f );
+			Ui.Text( Ui.FontModern, Stage.X+Stage.W*0.5f, Stage.Y+Stage.H-Ui.TextHeight(Ui.FontModern)-6*S, FColor(182,186,206,255), TEXT("Trying it on"), RALIGN_Center );
+		}
+		else if( ShopVendor )
 			DrawNpcPreview( Engine, Stage, ShopVendor, PreviewYaw*0.15f );
 		FLOAT Y = Stage.Y + Stage.H + 6*S;
 		const FString VendorName = ShopVendorDef>=VEN_StudentGryffindor && ShopVendor ? NpcName(ShopVendor) : FString(V.Name);
@@ -985,6 +1004,8 @@
 			const UBOOL bHover = Ui.Hovered( Cell, &Offers(Items[Index]) );
 			const FColor Accent = O.Kind==OFFER_Cosmetic ? GRarityColors[GCosmetics[O.Id].Rarity] : FColor(70,78,120,255);
 			Ui.Tile( Cell, Index==Sel, bHover, Accent );
+			if( Index==Sel )
+				TryOn = O.Kind==OFFER_Cosmetic ? O.Id : -1;
 			const FRpgRect Pic( Cell.X+3*S, Cell.Y+3*S, Cell.W-6*S, Cell.H-Ui.TextHeight(Ui.FontModern)-Ui.P(14.f)-3*S );
 			const FLOAT Yaw = (Index==Sel || bHover) ? PreviewYaw : 0.f;
 			if( O.Kind==OFFER_Cosmetic )
@@ -1096,7 +1117,14 @@
 
 		// Left: Harry as he looks now, and what he wears.
 		const FRpgRect Stage( Left.X, Left.Y+Ui.TextHeight(Ui.FontItem)+12*S, Left.W, Left.H*0.62f );
-		DrawHarryPreview( Engine, Stage, State.Equip[RSLOT_Outfit], State.Equip[RSLOT_Glasses], State.Equip[RSLOT_Hat], State.Equip[RSLOT_Pet], PREV_Body, PreviewYaw*0.15f );
+		{
+			INT Look[RSLOT_MAX];
+			for( INT s2=0; s2<RSLOT_MAX; s2++ )
+				Look[s2] = State.Equip[s2];
+			if( BookTab==BOOK_Wardrobe && TryOn>=0 && TryOn<GNumCosmetics )
+				Look[GCosmetics[TryOn].Slot] = TryOn;
+			DrawHarryPreview( Engine, Stage, Look[RSLOT_Outfit], Look[RSLOT_Glasses], Look[RSLOT_Hat], DefaultCosmetic(RSLOT_Pet), PREV_Body, PreviewYaw*0.15f );
+		}
 		FLOAT Y = Stage.Y + Stage.H + 6*S;
 		const FLOAT LineH = Ui.TextHeight( Ui.FontBody );
 		for( INT s=0; s<RSLOT_MAX && Y < Left.Y+Left.H-LineH; s++ )
@@ -1338,6 +1366,8 @@
 			const UBOOL bHover = Ui.Hovered( Cell, &GCosmetics[Id] );
 			const UBOOL bOwned = IsOwned( Id );
 			Ui.Tile( Cell, Index==Sel, bHover, GRarityColors[Cos.Rarity] );
+			if( Index==Sel )
+				TryOn = Id;
 			const FRpgRect Pic( Cell.X+3*S, Cell.Y+3*S, Cell.W-6*S, Cell.H-Ui.TextHeight(Ui.FontModern)-Ui.P(14.f)-3*S );
 			DrawCosmeticPreview( Engine, Pic, Id, (Index==Sel || bHover) ? PreviewYaw : 0.f );
 			const FString Label = State.Equip[WardrobeSlot]==Id ? FString(TEXT("Wearing")) : (bOwned ? FString(TEXT("Owned")) : FString::Printf(TEXT("%i beans"), Cos.Price));
@@ -1745,6 +1775,7 @@
 	{
 		ShopVendor = Vendor;
 		ShopVendorDef = Def;
+		TryOn = -1;
 		ShopTab = -1;
 		BuildOffers( Def );
 		Speech = GVendors[Def].Greeting;
@@ -1870,7 +1901,7 @@
 		{
 			if( BookTab==BOOK_Wardrobe ) WardrobeSlot = (WardrobeSlot+1) % RSLOT_MAX;
 			if( BookTab==BOOK_Collection ) CollectionTab = (CollectionTab+1) % 2;
-			if( BookTab==BOOK_Journal ) JournalSection = (JournalSection+1) % 2;
+			if( BookTab==BOOK_Journal ) JournalSection = (JournalSection+1) % 3;
 			Sel = Scroll = 0;
 			Ui.Play( RSND_Tab, Harry );
 			return 1;

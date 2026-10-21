@@ -96,16 +96,21 @@ void FRpgUi::Resolve()
 	}
 	GlowGold = LoadTexture( TEXT("HGame.Icons.CardGlowGold") );
 	GlowSilver = LoadTexture( TEXT("HGame.Icons.CardGlowSilver") );
-	// One step smaller than the game's own menus: our pages hold more text.
-	FontTitle = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.BigInkFont") );
-	FontItem = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.MedInkFont") );
-	FontBody = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.SmallInkFont") );
-	FontSmall = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.TinyInkFont") );
-	FontModern = MakeNativeFont( FontBody, TEXT("AvenirNext-Medium"), 13 );
-	FontModernBold = MakeNativeFont( FontBody, TEXT("AvenirNext-DemiBold"), 14 );
-	FontModernBig = MakeNativeFont( FontItem, TEXT("AvenirNext-Bold"), 26 );
-	FontCaption = MakeNativeFont( FontBody, TEXT("AvenirNext-Medium"), 11 );
-	FontNum = FontModernBold;
+	// One clean typeface (Avenir Next) at a small, calm scale. The game's ink
+	// fonts only supply fallback glyph pages.
+	UFont* InkBig = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.BigInkFont") );
+	UFont* InkMed = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.MedInkFont") );
+	UFont* InkSmall = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.SmallInkFont") );
+	UFont* InkTiny = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.TinyInkFont") );
+	FontTitle = MakeNativeFont( InkBig, TEXT("AvenirNext-DemiBold"), 15 );
+	FontItem = MakeNativeFont( InkMed, TEXT("AvenirNext-DemiBold"), 10 );
+	FontBody = MakeNativeFont( InkSmall, TEXT("AvenirNext-Medium"), 9 );
+	FontSmall = MakeNativeFont( InkTiny, TEXT("AvenirNext-Medium"), 8 );
+	FontModern = MakeNativeFont( InkSmall, TEXT("AvenirNext-Medium"), 9 );
+	FontModernBold = MakeNativeFont( InkSmall, TEXT("AvenirNext-DemiBold"), 9 );
+	FontModernBig = MakeNativeFont( InkMed, TEXT("AvenirNext-Bold"), 15 );
+	FontCaption = MakeNativeFont( InkTiny, TEXT("AvenirNext-Medium"), 8 );
+	FontNum = MakeNativeFont( InkSmall, TEXT("AvenirNext-DemiBold"), 10 );
 	for( INT i=0; i<RSND_MAX; i++ )
 		for( INT p=0; p<3 && GSoundPaths[i][p] && !Sounds[i]; p++ )
 			Sounds[i] = (USound*)LoadRooted( USound::StaticClass(), GSoundPaths[i][p] );
@@ -124,10 +129,10 @@ void FRpgUi::Begin( UGameEngine* InEngine, UViewport* InViewport, UCanvas* InCan
 	if( !FontSmall ) FontSmall = C->SmallFont;
 	if( !FontModern ) FontModern = FontBody;
 	if( !FontModernBold ) FontModernBold = FontBody;
-	// Design sizes assume 24 px body text; native text follows the display.
+	// Design sizes assume 20 px body text; native text follows the display.
 	{
 		const FLOAT BodyH = TextHeight( FontModern );
-		Unit = BodyH>0.f ? BodyH/24.f : S/2.25f;
+		Unit = BodyH>0.f ? BodyH/20.f : S/2.25f;
 	}
 	if( !FontModernBig ) FontModernBig = FontTitle;
 	bMouseActive = bMenuOpen && Viewport && Viewport->bShowWindowsMouse;
@@ -174,12 +179,10 @@ void FRpgUi::Scrim( const FRpgRect& R, FLOAT Keep )
 		FPlane(Keep,Keep,Keep*1.08f,1.f), FPlane(0,0,0,0), PF_Modulated|PF_NoSmooth );
 }
 
+// Flat dark panel (the renderer's blend modes can't darken cleanly).
 void FRpgUi::Glass( const FRpgRect& R, UBOOL bAccent )
 {
-	Scrim( R, 0.30f );
-	if( White )
-		C->DrawTile( White, R.X, R.Y, R.W, R.H, 0, 0, 1, 1, NULL, 1.f,
-			FPlane(0.03f,0.04f,0.09f,1.f), FPlane(0,0,0,0), PF_Translucent|PF_NoSmooth );
+	Rect( R, FColor(12,16,34,255) );
 	const FLOAT T = Max( 1.f, P(1.f) );
 	Border( R, T, FColor(46,56,96,255) );
 	if( bAccent )
@@ -395,12 +398,12 @@ FRpgRect FRpgUi::Screen( FRpgRect& Left, FRpgRect& Right )
 	// the left (45%) and the menu column on the right.
 	const FRpgRect Full( 0, 0, C->ClipX, C->ClipY );
 	Sky( Full );
-	// Keep the layout 4:3 and centred on wide screens.
-	FLOAT W = Min( Full.W, Full.H*4.f/3.f );
+	// Use the width of a 16:10 screen, centred on wider ones.
+	FLOAT W = Min( Full.W, Full.H*1.6f );
 	const FLOAT FooterH = TextHeight( FontSmall ) + 10*S;
 	const FRpgRect Area( (Full.W-W)*0.5f + 16*S, 12*S, W - 32*S, Full.H - 24*S - FooterH );
-	Left = FRpgRect( Area.X, Area.Y, Area.W*0.44f, Area.H );
-	Right = FRpgRect( Area.X + Area.W*0.47f, Area.Y, Area.W*0.53f, Area.H );
+	Left = FRpgRect( Area.X, Area.Y, Area.W*0.38f, Area.H );
+	Right = FRpgRect( Area.X + Area.W*0.41f, Area.Y, Area.W*0.59f, Area.H );
 	return Area;
 }
 

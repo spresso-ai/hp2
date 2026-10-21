@@ -442,8 +442,8 @@
 	void DrawJournalTab( APlayerPawn* Harry, const FRpgRect& Area )
 	{
 		const FLOAT S = Ui.S;
-		static const TCHAR* Sections[2] = { TEXT("Quests"), TEXT("Field Guide") };
-		const INT Clicked = DrawTabs( FRpgRect(Area.X, Area.Y, Area.W*0.6f, Ui.TextHeight(Ui.FontItem)+6*S), Sections, NULL, 2, JournalSection );
+		static const TCHAR* Sections[3] = { TEXT("Quests"), TEXT("Field Guide"), TEXT("Duelling") };
+		const INT Clicked = DrawTabs( FRpgRect(Area.X, Area.Y, Area.W*0.8f, Ui.TextHeight(Ui.FontItem)+6*S), Sections, NULL, 3, JournalSection );
 		if( Clicked>=0 && Clicked!=JournalSection )
 		{
 			JournalSection = Clicked;
@@ -453,6 +453,11 @@
 		const FLOAT RowH = Ui.TextHeight(Ui.FontBody) + Ui.TextHeight(Ui.FontSmall) + 8*S;
 		const FLOAT ListW = Body.W*0.42f;
 		const FRpgRect Detail( Body.X+ListW+12*S, Body.Y, Body.W-ListW-12*S, Body.H );
+		if( JournalSection==2 )
+		{
+			DrawDuelLadder( Body );
+			return;
+		}
 		if( JournalSection==0 )
 		{
 			// Active and ready first, then done; available quests as hints.
@@ -686,4 +691,55 @@
 	INT DifficultyDamagePct()
 	{
 		return GDifficultyDamage[ Clamp(State.Difficulty, 0, DIFF_MAX-1) ];
+	}
+
+
+	/*-------------------------------------------------------------------------
+		Duelling Club ladder: the retail duel ranks (Duel01-Duel10) with
+		titles and a first-win reward for every rank.
+	-------------------------------------------------------------------------*/
+
+	static const TCHAR* DuelTitle( INT Rank )
+	{
+		static const TCHAR* Titles[11] = { TEXT("Unranked"), TEXT("Novice"), TEXT("Apprentice"), TEXT("Contender"), TEXT("Spellslinger"), TEXT("Duellist"),
+			TEXT("Adept"), TEXT("Master Duellist"), TEXT("Champion"), TEXT("Grand Champion"), TEXT("Legend of the Club") };
+		return Titles[ Clamp(Rank,0,10) ];
+	}
+
+	void DuelWon()
+	{
+		const TCHAR* Map = LastLevel ? *LastLevel->URL.Map : TEXT("");
+		const TCHAR* P = appStrstr( Map, TEXT("Duel") );
+		if( !P )
+			P = appStrstr( Map, TEXT("duel") );
+		const INT Rank = P ? appAtoi( P+4 ) : 0;
+		if( Rank<1 || Rank>10 || Rank<=State.DuelRank )
+			return;
+		State.DuelRank = Rank;
+		APlayerPawn* Harry = CurrentHarry();
+		const INT Beans = 25*Rank, Xp = 40*Rank;
+		GiveBeans( Harry, Beans );
+		GiveXp( Xp, TEXT("new duelling rank") );
+		AddHousePoints( Harry, HOUSE_Gryffindor, 5 + Rank );
+		AddFeed( FString::Printf(TEXT("Rank %i: %s"), Rank, DuelTitle(Rank)), FColor(255,214,100,255), TOAST_Level, *FString::Printf(TEXT("Duelling Club  +%i beans, +%i points"), Beans, 5+Rank) );
+		RpgLog( TEXT("duel rank %i beaten"), Rank );
+	}
+
+	void DrawDuelLadder( const FRpgRect& Body )
+	{
+		const FLOAT S = Ui.S;
+		const FLOAT RowH = (Body.H - Ui.TextHeight(Ui.FontBody)*2) / 10.f;
+		Ui.Text( Ui.FontBody, Body.X, Body.Y, RpgParchment, *FString::Printf(TEXT("Your title: %s"), DuelTitle(State.DuelRank)) );
+		for( INT r=1; r<=10; r++ )
+		{
+			const FLOAT Y = Body.Y + Ui.TextHeight(Ui.FontBody)*1.4f + (r-1)*RowH;
+			const UBOOL bBeaten = r<=State.DuelRank, bNext = r==State.DuelRank+1;
+			const FRpgRect Row( Body.X, Y, Body.W, RowH-2*S );
+			Ui.Tile( Row, bNext, 0, bBeaten ? FColor(120,220,140,255) : (bNext ? FColor(255,222,130,255) : FColor(46,56,96,255)) );
+			Ui.Text( Ui.FontModernBold, Row.X+10*S, Row.Y+(Row.H-Ui.TextHeight(Ui.FontModernBold))*0.5f, bBeaten ? FColor(120,220,140,255) : (bNext ? FColor(255,222,130,255) : FColor(182,186,206,255)),
+				*FString::Printf(TEXT("Rank %i  %s"), r, DuelTitle(r)), RALIGN_Left, 0 );
+			Ui.Text( Ui.FontModern, Row.X+Row.W-10*S, Row.Y+(Row.H-Ui.TextHeight(Ui.FontModern))*0.5f, bBeaten ? FColor(120,220,140,255) : FColor(182,186,206,255),
+				bBeaten ? TEXT("Beaten") : *FString::Printf(TEXT("First win: %i beans, %i XP"), 25*r, 40*r), RALIGN_Right, 0 );
+		}
+		Ui.Text( Ui.FontSmall, Body.X, Body.Y+Body.H-Ui.TextHeight(Ui.FontSmall), RpgMuted, TEXT("Challenge the next rank at the Duelling Club kiosk in the Entrance Hall.") );
 	}
