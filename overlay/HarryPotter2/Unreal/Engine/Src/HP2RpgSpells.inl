@@ -56,6 +56,7 @@
 
 	// Mouse aiming.
 	INT SelSpell;            // spell picked with the wheel / number keys
+	UBOOL bSelOurs;          // 0: the wand (the game's own spells) is picked
 	FLOAT SelFlash;          // seconds the picked spell's name stays shown
 	UBOOL bAiming;           // right mouse held for our spell
 	AActor* AimTarget;
@@ -445,7 +446,12 @@
 				continue;
 			// Landed: hand control back, and let props react like a Flipendo hit.
 			T->Role = E.OldRole;
-			if( E.OldPhysics!=PHYS_Walking && E.OldPhysics!=PHYS_None && E.OldPhysics!=PHYS_Falling )
+			if( E.bProp )
+			{
+				T->Velocity = FVector( 0, 0, 0 );
+				T->setPhysics( E.OldPhysics );
+			}
+			else if( E.OldPhysics!=PHYS_Walking && E.OldPhysics!=PHYS_None && E.OldPhysics!=PHYS_Falling )
 				T->setPhysics( E.OldPhysics );
 			const INT Vuln = GetByteProp( T, TEXT("eVulnerableToSpell"), 0 );
 			if( E.bProp && Vuln==13 )
@@ -875,6 +881,7 @@
 	void SelectSpell( INT i )
 	{
 		SelSpell = Clamp( i, 0, SP2_MAX-1 );
+		bSelOurs = 1;
 		SelFlash = 1.6f;
 		AimTarget = NULL;
 		if( !SpellUnlocked(SelSpell) )
@@ -883,18 +890,31 @@
 			Ui.Play( RSND_Tab, CurrentHarry() );
 	}
 
-	// Next/previous unlocked spell.
+	void SelectWand()
+	{
+		bSelOurs = 0;
+		SelFlash = 1.6f;
+		AimTarget = NULL;
+		Ui.Play( RSND_Tab, CurrentHarry() );
+	}
+
+	// Next/previous slot: the wand, then every unlocked spell.
 	void CycleSpell( INT Dir )
 	{
-		for( INT Step=1; Step<=SP2_MAX; Step++ )
-		{
-			const INT i = (SelSpell + Dir*Step + SP2_MAX*4) % SP2_MAX;
+		TArray<INT> Slots;
+		Slots.AddItem( -1 );
+		for( INT i=0; i<SP2_MAX; i++ )
 			if( SpellUnlocked(i) )
-			{
-				SelectSpell( i );
-				return;
-			}
-		}
+				Slots.AddItem( i );
+		INT Cur = 0;
+		for( INT k=0; k<Slots.Num(); k++ )
+			if( bSelOurs && Slots(k)==SelSpell )
+				Cur = k;
+		const INT Next = Slots( (Cur + Dir + Slots.Num()*4) % Slots.Num() );
+		if( Next<0 )
+			SelectWand();
+		else
+			SelectSpell( Next );
 	}
 
 	void StopAiming( UGameEngine* Engine )
@@ -911,10 +931,10 @@
 	{
 		if( Key==IK_RightMouse )
 		{
-			if( Action==IST_Press && !bAiming && SpellUnlocked(SelSpell) && CanCastNow(Engine,Harry) && !GetBoolProp(Harry,TEXT("bInDuelingMode")) )
+			if( Action==IST_Press && !bAiming && (!bSelOurs || SpellUnlocked(SelSpell)) && CanCastNow(Engine,Harry) && !GetBoolProp(Harry,TEXT("bInDuelingMode")) )
 			{
 				bAiming = 1;
-				AimTarget = PickAimTarget( Engine, Harry, SelSpell );
+				AimTarget = bSelOurs ? PickAimTarget( Engine, Harry, SelSpell ) : NULL;
 				return 1;
 			}
 			if( Action==IST_Release && bAiming )
@@ -924,7 +944,8 @@
 			}
 			return 0;
 		}
-		if( Key==IK_LeftMouse && bAiming )
+		// With the wand picked, the game casts its own spells as always.
+		if( Key==IK_LeftMouse && bAiming && bSelOurs )
 		{
 			if( Action==IST_Press )
 			{
@@ -962,7 +983,7 @@
 			return;
 		}
 		if( !ControlledLift() )
-			AimTarget = PickAimTarget( Engine, Harry, SelSpell );
+			AimTarget = bSelOurs ? PickAimTarget( Engine, Harry, SelSpell ) : NULL;
 	}
 
 	FString AimLabel( AActor* A )
@@ -981,6 +1002,11 @@
 	{
 		UCanvas* C = Ui.C;
 		const FLOAT S = Ui.S;
+		if( !bSelOurs )
+		{
+			Ui.Text( Ui.FontModern, C->ClipX*0.5f, C->ClipY*0.70f, FColor(220,224,240,255), TEXT("Wand: look at a target and left click (Flipendo, Alohomora, Lumos ...)"), RALIGN_Center );
+			return;
+		}
 		const FSpell2Def& D = Spell2( SelSpell );
 		UTexture* Icon = LoadTex( D.Icon );
 		const FLOAT Pulse = 0.75f + 0.25f*(FLOAT)appSin( RpgClock*7.f );
@@ -1094,14 +1120,23 @@
 		if( IsTalking() )
 			return;
 		const FLOAT Slot = 40*S, Gap = 6*S;
-		const FLOAT W = SP2_MAX*Slot + (SP2_MAX-1)*Gap;
+		const FLOAT W = (SP2_MAX+1)*Slot + SP2_MAX*Gap;
 		const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - 18*S;
+		{
+			// The wand: the game's own spells.
+			const FRpgRect R( X0, Y0, Slot, Slot );
+			Ui.Rect( R, !bSelOurs ? FColor(34,40,78,255) : FColor(12,16,36,255) );
+			Ui.Border( R, !bSelOurs ? Max(2.f,S*2.5f) : Max(1.f,S), !bSelOurs ? RpgGoldBright : FColor(170,150,110,255) );
+			UTexture* Icon = LoadTex( TEXT("SpellShapes.Shapes.SPSflipendo") );
+			if( Icon )
+				Ui.Icon( Icon, R.Inset(5*S), 1.f );
+		}
 		for( INT i=0; i<SP2_MAX; i++ )
 		{
 			const FSpell2Def& D = Spell2( i );
-			const FRpgRect R( X0 + i*(Slot+Gap), Y0, Slot, Slot );
+			const FRpgRect R( X0 + (i+1)*(Slot+Gap), Y0, Slot, Slot );
 			const UBOOL bOn = SpellUnlocked( i );
-			const UBOOL bSel = i==SelSpell && bOn;
+			const UBOOL bSel = bSelOurs && i==SelSpell && bOn;
 			Ui.Rect( R, bSel ? FColor(34,40,78,255) : FColor(12,16,36,255) );
 			Ui.Border( R, bSel ? Max(2.f,S*2.5f) : Max(1.f,S), bSel ? RpgGoldBright : (bOn ? (SpellCooldown[i]>0.f ? FColor(80,84,110,255) : D.Color) : FColor(50,52,70,255)) );
 			UTexture* Icon = LoadTex( D.Icon );
@@ -1118,11 +1153,13 @@
 				Ui.Text( Ui.FontModern, R.X+R.W*0.5f, R.Y+R.H-Ui.TextHeight(Ui.FontModern)-1*S, RpgMuted, *FString::Printf(TEXT("Lv%i"), D.UnlockLevel), RALIGN_Center );
 		}
 		// Picked spell: name after a change, a short hint otherwise.
-		if( SpellUnlocked(SelSpell) && !bAiming && ShieldLeft<=0.f && ArrestoLeft<=0.f )
+		if( (!bSelOurs || SpellUnlocked(SelSpell)) && !bAiming && ShieldLeft<=0.f && ArrestoLeft<=0.f )
 		{
 			const FLOAT HY = Y0-Ui.TextHeight(Ui.FontModernBold)-4*S;
 			if( SelFlash>0.f )
-				Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, HY, Spell2(SelSpell).Color, Spell2(SelSpell).Name, RALIGN_Center );
+				Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, HY, bSelOurs ? Spell2(SelSpell).Color : RpgGoldBright, bSelOurs ? Spell2(SelSpell).Name : TEXT("Wand"), RALIGN_Center );
+			else if( !bSelOurs )
+				Ui.Text( Ui.FontModern, C->ClipX*0.5f, Y0-Ui.TextHeight(Ui.FontModern)-4*S, FColor(170,176,200,255), TEXT("Wand: left click as usual    Scroll: pick a new spell"), RALIGN_Center );
 			else
 				Ui.Text( Ui.FontModern, C->ClipX*0.5f, Y0-Ui.TextHeight(Ui.FontModern)-4*S, FColor(170,176,200,255), TEXT("Scroll: pick spell    Hold right mouse: aim    Left click: cast"), RALIGN_Center );
 		}

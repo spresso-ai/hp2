@@ -1668,7 +1668,10 @@
 				const INT i = Key==IK_0 ? 6 : Key-IK_4;
 				if( i<SP2_MAX && CanCastNow(Engine,Harry) )
 				{
-					SelectSpell( i );
+					if( bSelOurs && SelSpell==i )
+						SelectWand();
+					else
+						SelectSpell( i );
 					return 1;
 				}
 				return 0;

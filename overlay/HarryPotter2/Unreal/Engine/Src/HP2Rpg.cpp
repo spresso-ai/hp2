@@ -605,6 +605,7 @@ public:
 	// Quidditch robes as a costume: hide the broom texture and face forward.
 	TArray<BYTE> BroomBackup[8];
 	DWORD BroomOldFlags;
+	TMap<INT,DWORD> BroomMatFlags;
 	UBOOL bQuidFix;
 	FRotator QuidOldRot;
 	UBOOL bGlassesHidden;
@@ -2455,7 +2456,8 @@ public:
 			QuidOldRot = Quid->RotOrigin;
 			RpgLog( TEXT("quidditch robes: rot %i/%i/%i -> harry %i/%i/%i"), Quid->RotOrigin.Pitch, Quid->RotOrigin.Yaw, Quid->RotOrigin.Roll,
 				HarryMesh->RotOrigin.Pitch, HarryMesh->RotOrigin.Yaw, HarryMesh->RotOrigin.Roll );
-			Quid->RotOrigin = HarryMesh->RotOrigin;
+			// The robes mesh faces the other way round from Harry's own.
+			Quid->RotOrigin.Yaw = HarryMesh->RotOrigin.Yaw + 32768;
 			BroomOldFlags = Broom->PolyFlags;
 			Broom->PolyFlags |= PF_Masked;
 		}
@@ -2463,6 +2465,22 @@ public:
 		{
 			Quid->RotOrigin = QuidOldRot;
 			Broom->PolyFlags = BroomOldFlags;
+		}
+		// Skeletal meshes take their flags from the material, not the texture.
+		if( Quid->IsA(ULodMesh::StaticClass()) )
+		{
+			ULodMesh* Lod = (ULodMesh*)Quid;
+			for( INT i=0; i<Lod->Materials.Num(); i++ )
+				if( Lod->Materials(i).TextureIndex==4 )
+				{
+					if( bOn )
+					{
+						BroomMatFlags.Set( i, Lod->Materials(i).PolyFlags );
+						Lod->Materials(i).PolyFlags |= PF_Masked;
+					}
+					else if( BroomMatFlags.Find(i) )
+						Lod->Materials(i).PolyFlags = *BroomMatFlags.Find(i);
+				}
 		}
 		// Index 0 of a masked texture is see-through: blank the broom.
 		const INT NumMips = Min( Broom->Mips.Num(), (INT)ARRAY_COUNT(BroomBackup) );
