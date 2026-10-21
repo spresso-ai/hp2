@@ -102,7 +102,8 @@ public:
 
 	// Modern overlay kit (dark glass, gold hairlines). Sizes are given in
 	// 1080p pixels through P().
-	FLOAT P( FLOAT Px1080 ) const { return Px1080*S/2.25f; }
+	FLOAT P( FLOAT Px1080 ) const { return Px1080*Unit; }
+	FLOAT Unit;              // pixels per design pixel, from the body text height
 	void Scrim( const FRpgRect& R, FLOAT Keep );              // darken what is behind
 	void Glass( const FRpgRect& R, UBOOL bAccent=0 );          // scrim + tint + hairline
 	void Chamfer( const FRpgRect& R, FLOAT Cut, FColor Color ); // "rounded" filled rect

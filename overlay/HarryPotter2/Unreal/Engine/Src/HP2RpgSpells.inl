@@ -62,6 +62,8 @@
 	AActor* AimTarget;
 	FVector CamPos, CamDir;  // last drawn camera
 	UBOOL bCamValid;
+	FLOAT LastCastClock;
+	UBOOL bShowAllHud;       // Tab held: show the whole HUD
 
 	UBOOL SpellUnlocked( INT i )
 	{
@@ -106,6 +108,20 @@
 		UObject* Channel = GetObjProp( Harry, TEXT("HarryAnimChannel") );
 		if( Channel )
 			Channel->GotoState( FName(TEXT("stateCast")) );
+	}
+
+	// Only the states where a creature has hold of Harry (not stunned ones).
+	UBOOL IsHoldingHarry( AActor* A )
+	{
+		static const TCHAR* States[] = { TEXT("stateBiteHarry"), TEXT("stateBeingCarried"), TEXT("AttachToHarry"), TEXT("stateWasHoldingByHarry") };
+		const FName S = GetStateName( A );
+		for( INT i=0; i<ARRAY_COUNT(States); i++ )
+		{
+			const FName N( States[i], FNAME_Find );
+			if( N!=NAME_None && S==N )
+				return 1;
+		}
+		return 0;
 	}
 
 	UBOOL IsGrabbingHarry( AActor* A )
@@ -210,6 +226,7 @@
 			return;
 		}
 		SpellCooldown[i] = D.Cooldown;
+		LastCastClock = RpgClock;
 		PlayCastAnim( Harry );
 		RpgLog( TEXT("cast %s"), D.Name );
 	}
@@ -850,7 +867,7 @@
 	UBOOL AimAccepts( INT Spell, AActor* A )
 	{
 		const INT Type = CreatureTypeCached( A );
-		const UBOOL bCreature = Type>=0 && Type!=CR_Boss && !IsGrabbingHarry(A);
+		const UBOOL bCreature = Type>=0 && Type!=CR_Boss && (Spell==SP2_Leviosa ? !IsHoldingHarry(A) : !IsGrabbingHarry(A));
 		const UBOOL bStudent = (IsStudent(A) || IsTroublemaker(A)) && !IsHolding(A);
 		switch( Spell )
 		{
@@ -986,8 +1003,11 @@
 				CycleSpell( Dir );
 			return 1;
 		}
-		if( (Key==IK_MouseWheelUp || Key==IK_MouseWheelDown) && Action==IST_Release )
+		if( Key==IK_Tab && (Action==IST_Press || Action==IST_Release) )
+		{
+			bShowAllHud = Action==IST_Press;
 			return 0;
+		}
 		return 0;
 	}
 
@@ -1159,14 +1179,22 @@
 			return;
 		{
 			const FColor Line( 46,56,96,255 ), GoldHi( 255,222,130,255 ), Text2( 182,186,206,255 );
-			const FLOAT Slot = Ui.P(56.f), Gap = Ui.P(8.f), Div = Ui.P(16.f);
+			const FLOAT Slot = Ui.P(46.f), Gap = Ui.P(6.f), Div = Ui.P(12.f);
+			UBOOL bCooling = 0;
+			for( INT i=0; i<SP2_MAX; i++ )
+				if( SpellCooldown[i]>0.f )
+					bCooling = 1;
+			// Quiet by default: the bar shows while you pick, aim or wait for
+			// a spell, for a moment after casting, or on Tab.
+			if( !(bAiming || SelFlash>0.f || bCooling || RpgClock-LastCastClock<4.f || HintTimer<90.f || bShowAllHud || ShieldLeft>0.f || ArrestoLeft>0.f) )
+				return;
 			// Only spells you know are shown; the bar grows as you learn.
 			INT Shown[SP2_MAX], NumShown = 0;
 			for( INT i=0; i<SP2_MAX; i++ )
 				if( SpellUnlocked(i) )
 					Shown[NumShown++] = i;
 			const FLOAT W = Slot + (NumShown ? Div + NumShown*Slot + (NumShown-1)*Gap : 0.f);
-			const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - Ui.P(32.f);
+			const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - Ui.P(24.f);
 			Ui.Glass( FRpgRect(X0-Ui.P(10.f), Y0-Ui.P(10.f), W+Ui.P(20.f), Slot+Ui.P(20.f)) );
 			for( INT k=-1; k<NumShown; k++ )
 			{
@@ -1184,7 +1212,7 @@
 				UTexture* Icon = LoadTex( bWand ? TEXT("SpellShapes.Shapes.SPSflipendo") : Spell2(i).Icon );
 				const FLOAT Cool = bWand ? 0.f : SpellCooldown[i];
 				if( Icon )
-					Ui.Icon( Icon, FRpgRect(R.X+(Slot-Ui.P(40.f))*0.5f, R.Y+(Slot-Ui.P(40.f))*0.5f, Ui.P(40.f), Ui.P(40.f)), Cool>0.f ? 0.45f : 1.f );
+					Ui.Icon( Icon, FRpgRect(R.X+(Slot-Ui.P(32.f))*0.5f, R.Y+(Slot-Ui.P(32.f))*0.5f, Ui.P(32.f), Ui.P(32.f)), Cool>0.f ? 0.45f : 1.f );
 				// Colour strip along the bottom edge.
 				Ui.Rect( FRpgRect(R.X+Ui.P(3.f), R.Y+R.H-Max(1.f,Ui.P(3.f)), R.W-Ui.P(6.f), Max(1.f,Ui.P(3.f))), bWand ? FColor(201,162,74,255) : Spell2(i).Color );
 				if( Cool>0.f )

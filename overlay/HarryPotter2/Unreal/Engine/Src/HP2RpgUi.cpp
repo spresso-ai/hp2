@@ -105,7 +105,7 @@ void FRpgUi::Resolve()
 	FontModernBold = MakeNativeFont( FontBody, TEXT("AvenirNext-DemiBold"), 14 );
 	FontModernBig = MakeNativeFont( FontItem, TEXT("AvenirNext-Bold"), 26 );
 	FontCaption = MakeNativeFont( FontBody, TEXT("AvenirNext-Medium"), 11 );
-	FontNum = MakeNativeFont( FontBody, TEXT("AvenirNext-Bold"), 17 );
+	FontNum = FontModernBold;
 	for( INT i=0; i<RSND_MAX; i++ )
 		for( INT p=0; p<3 && GSoundPaths[i][p] && !Sounds[i]; p++ )
 			Sounds[i] = (USound*)LoadRooted( USound::StaticClass(), GSoundPaths[i][p] );
@@ -124,6 +124,11 @@ void FRpgUi::Begin( UGameEngine* InEngine, UViewport* InViewport, UCanvas* InCan
 	if( !FontSmall ) FontSmall = C->SmallFont;
 	if( !FontModern ) FontModern = FontBody;
 	if( !FontModernBold ) FontModernBold = FontBody;
+	// Design sizes assume 24 px body text; native text follows the display.
+	{
+		const FLOAT BodyH = TextHeight( FontModern );
+		Unit = BodyH>0.f ? BodyH/24.f : S/2.25f;
+	}
 	if( !FontModernBig ) FontModernBig = FontTitle;
 	bMouseActive = bMenuOpen && Viewport && Viewport->bShowWindowsMouse;
 	MouseX = Viewport ? Viewport->WindowsMouseX : -1.f;

@@ -610,9 +610,15 @@
 		const FColor GoldHi( 255,222,130,255 ), Gold( 201,162,74,255 ), XpCol( 120,190,255,255 );
 		static const FColor BarTint[HOUSE_MAX] = { FColor(160,40,32,255), FColor(40,110,64,255), FColor(40,70,150,255), FColor(170,130,30,255) };
 
-		// House strip, top centre: neutral numbers, house colour on crest and bar.
+		// House strip, top centre: only while points change, in menus, or on Tab.
+		if( HouseHudTimer>0.f || bShowAllHud )
 		{
-			const FLOAT W = Ui.P(440.f), H = Ui.P(44.f), Seg = W/HOUSE_MAX;
+			FLOAT MaxNum = 0.f;
+			for( INT i=0; i<HOUSE_MAX; i++ )
+				MaxNum = Max( MaxNum, Ui.TextWidth(Ui.FontNum, *FString::Printf(TEXT("%i"), bBaselineValid ? LastHouse[i] : 0)) );
+			const FLOAT H = Ui.TextHeight( Ui.FontNum ) + Ui.P(14.f);
+			const FLOAT Seg = H*0.9f + Ui.P(8.f) + MaxNum + Ui.P(22.f);
+			const FLOAT W = Seg*HOUSE_MAX;
 			const FRpgRect Strip( (C->ClipX-W)*0.5f, Ui.P(20.f), W, H );
 			Ui.Glass( Strip );
 			INT Lead = 1;
@@ -622,7 +628,7 @@
 			{
 				const FLOAT X = Strip.X + Seg*i;
 				const UBOOL bOurs = i==HOUSE_Gryffindor;
-				const FLOAT Crest = Ui.P(26.f);
+				const FLOAT Crest = H*0.72f;
 				const FString Value = FString::Printf( TEXT("%i"), bBaselineValid ? LastHouse[i] : 0 );
 				const FLOAT TW = Crest + Ui.P(8.f) + Ui.TextWidth( Ui.FontNum, *Value );
 				const FLOAT CX = X + (Seg-TW)*0.5f;
@@ -644,15 +650,17 @@
 			}
 		}
 
-		// Player plate, bottom left: level badge, XP bar, skill point marker.
+		// Player plate, bottom left: only after XP, with skill points to
+		// spend, a status effect, or on Tab.
+		if( XpShowTimer>0.f || XpFloatAge<1.6f || State.SkillPoints>0 || State.DetentionSeconds>0 || State.FelixSeconds>0 || bShowAllHud )
 		{
-			const FLOAT B = Ui.P(56.f);
+			const FLOAT B = Ui.TextHeight( Ui.FontNum ) + Ui.P(18.f);
 			const FRpgRect Badge( Ui.P(48.f), C->ClipY-Ui.P(48.f)-B, B, B );
 			Ui.Glass( Badge );
 			Ui.Border( Badge, Max(1.f,Ui.P(2.f)), Gold );
 			const FString Lv = FString::Printf( TEXT("%i"), State.Level );
-			Ui.Text( Ui.FontModernBig, Badge.X+B*0.5f, Badge.Y+(B-Ui.TextHeight(Ui.FontModernBig))*0.5f, GoldHi, *Lv, RALIGN_Center, 0 );
-			const FRpgRect Bar( Badge.X+B+Ui.P(12.f), Badge.Y+B*0.5f-Ui.P(3.f), Ui.P(240.f), Max(2.f,Ui.P(6.f)) );
+			Ui.Text( Ui.FontNum, Badge.X+B*0.5f, Badge.Y+(B-Ui.TextHeight(Ui.FontNum))*0.5f, GoldHi, *Lv, RALIGN_Center, 0 );
+			const FRpgRect Bar( Badge.X+B+Ui.P(12.f), Badge.Y+B*0.5f-Ui.P(3.f), Ui.P(200.f), Max(2.f,Ui.P(5.f)) );
 			Ui.Scrim( Bar, 0.35f );
 			Ui.Rect( FRpgRect(Bar.X, Bar.Y, Bar.W*Clamp((FLOAT)State.Xp/XpForNextLevel(State.Level),0.f,1.f), Bar.H), XpCol );
 			Ui.Border( Bar, Max(1.f,Ui.P(1.f)), Line );
