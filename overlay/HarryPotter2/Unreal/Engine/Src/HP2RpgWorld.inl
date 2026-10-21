@@ -157,7 +157,7 @@
 			if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || !IsStaff(A) )
 				continue;
 			const FLOAT D = (A->Location - P).SizeSquared();
-			if( D<BestD && Engine->GLevel->Model->FastLineCheck( A->Location + FVector(0,0,A->BaseEyeHeight), P ) )
+			if( D<BestD && Engine->GLevel->Model->FastLineCheck( A->Location + FVector(0,0,A->CollisionHeight*0.8f), P ) )
 			{
 				BestD = D;
 				Best = A;
