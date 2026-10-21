@@ -926,6 +926,11 @@
 			Scroll -= Ui.WheelDelta;
 			const INT MaxScroll = Max( 0, (Count+Cols-1)/Cols - Rows );
 			Scroll = Clamp( Scroll, 0, MaxScroll );
+			// Keep selection inside the newly visible page; otherwise
+			// ClampSelection immediately snaps wheel scrolling back.
+			if( Count>0 )
+				Sel = Clamp( Sel, Scroll*Cols, Min(Count-1,(Scroll+Rows)*Cols-1) );
+			ConfirmIndex = -1;
 			Ui.WheelDelta = 0;
 		}
 	}
@@ -1630,13 +1635,16 @@
 			Ui.TextWrapped( Ui.FontBody, Area, RpgMuted, TEXT("No letters yet. An owl arrives with every new school day.") );
 			return;
 		}
-		Sel = Clamp( Sel, 0, Count-1 );
 		const FLOAT ListW = Area.W*0.38f;
 		const FLOAT RowH = Ui.TextHeight(Ui.FontBody) + Ui.TextHeight(Ui.FontSmall) + 8*S;
-		for( INT i=0; i<Count; i++ )
+		const INT Visible = Max( 1, appFloor(Area.H/RowH) );
+		ApplyWheel( Count, 1, Visible );
+		ClampSelection( Count, 1, Visible );
+		for( INT v=0; v<Visible && Scroll+v<Count; v++ )
 		{
+			const INT i = Scroll+v;
 			const FLetterDef& L = GLetters[State.Inbox[i]-1];
-			const FRpgRect Row( Area.X, Area.Y + i*RowH, ListW, RowH-2*S );
+			const FRpgRect Row( Area.X, Area.Y + v*RowH, ListW, RowH-2*S );
 			if( Row.Y+Row.H > Area.Y+Area.H )
 				break;
 			if( RowActivated( Row, i, &State.Inbox[i] ) )
@@ -2016,3 +2024,4 @@
 		Ar.Logf( TEXT("Usage: RPG STATUS | XP n | BEANS n | POINTS n | UNLOCKALL | HAT up fwd side scale") );
 		return 1;
 	}
+

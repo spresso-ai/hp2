@@ -477,10 +477,13 @@
 				Ui.TextWrapped( Ui.FontBody, Body, RpgMuted, TEXT("No quests yet. Look for a gold ! above someone's head and talk to them (E).") );
 				return;
 			}
-			Sel = Clamp( Sel, 0, N-1 );
-			for( INT i=0; i<N; i++ )
+			const INT Visible = Max( 1, appFloor(Body.H/RowH) );
+			ApplyWheel( N, 1, Visible );
+			ClampSelection( N, 1, Visible );
+			for( INT v=0; v<Visible && Scroll+v<N; v++ )
 			{
-				const FRpgRect Row( Body.X, Body.Y + i*RowH, ListW, RowH-2*S );
+				const INT i = Scroll+v;
+				const FRpgRect Row( Body.X, Body.Y + v*RowH, ListW, RowH-2*S );
 				if( Row.Y+Row.H > Body.Y+Body.H )
 					break;
 				RowActivated( Row, i, &Order[i] );
@@ -515,8 +518,8 @@
 		const INT N = Min( GNumFieldPages, MAX_PAGES );
 		Sel = Clamp( Sel, 0, N-1 );
 		const INT Visible = Max( 1, appFloor(Body.H/RowH) );
-		if( Sel<Scroll ) Scroll = Sel;
-		if( Sel>=Scroll+Visible ) Scroll = Sel-Visible+1;
+		ApplyWheel( N, 1, Visible );
+		ClampSelection( N, 1, Visible );
 		INT Found = 0;
 		for( INT g=0; g<N; g++ )
 			Found += PageFound( g );
@@ -746,3 +749,4 @@
 		}
 		Ui.Text( Ui.FontSmall, Body.X, Body.Y+Body.H-Ui.TextHeight(Ui.FontSmall), RpgMuted, TEXT("Challenge the next rank at the Duelling Club kiosk in the Entrance Hall.") );
 	}
+

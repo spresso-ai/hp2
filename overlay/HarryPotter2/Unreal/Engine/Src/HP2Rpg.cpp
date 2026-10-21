@@ -900,7 +900,15 @@ public:
 		bDecorSpawned = 0;
 		FString Text;
 		const FString Path = SidecarPath( Slot );
-		if( appLoadFileToString( Text, *Path ) )
+		UBOOL bLoaded = appLoadFileToString( Text, *Path );
+		if( !bLoaded )
+		{
+			const FString BakPath = Path + TEXT(".bak");
+			bLoaded = appLoadFileToString( Text, *BakPath );
+			if( bLoaded )
+				RpgLog( TEXT("restoring RPG progress for slot %i from %s"), Slot, *BakPath );
+		}
+		if( bLoaded )
 		{
 			const TCHAR* S = *Text;
 			INT Version = 1;
@@ -965,14 +973,6 @@ public:
 				if( Version>=3 )
 					LoadNames( S );
 			}
-		}
-		else
-		{
-			// A save made before the mod (or a lost sidecar): try the backup.
-			FString Bak;
-			const FString BakPath = Path + TEXT(".bak");
-			if( appLoadFileToString( Bak, *BakPath ) )
-				RpgLog( TEXT("sidecar missing for slot %i; a backup exists at %s.bak"), Slot, *Path );
 		}
 		// Letters already in the inbox count as delivered.
 		for( INT i=0; i<MAX_INBOX; i++ )
@@ -3647,3 +3647,4 @@ void HP2RpgOnLoadedSlot( UGameEngine* Engine, INT Slot )
 	}
 	unguard;
 }
+
