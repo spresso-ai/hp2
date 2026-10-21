@@ -118,6 +118,12 @@
 			AddOffer( OFFER_Consumable, c, Tab );
 		}
 
+		// Friends are always on offer where they're sold.
+		if( V.Tabs & TABBIT(TAB_Friends) )
+			for( INT i=0; i<GNumCosmetics; i++ )
+				if( GCosmetics[i].Slot==RSLOT_Friend && GCosmetics[i].Price>0 )
+					AddOffer( OFFER_Cosmetic, i, TAB_Friends );
+
 		// Cosmetics rotate daily: a seeded pick from this vendor's pool.
 		INT Pool[MAX_COSMETICS];
 		DWORD Keys[MAX_COSMETICS];
@@ -125,7 +131,7 @@
 		for( INT i=0; i<GNumCosmetics; i++ )
 		{
 			const FCosmetic& C = GCosmetics[i];
-			if( C.Price<=0 || !(V.Tabs & TABBIT(GCosmeticTab[C.Slot])) || !NameMatchesFilter(C.Name,V.CosmeticFilter) )
+			if( C.Price<=0 || C.Slot==RSLOT_Friend || !(V.Tabs & TABBIT(GCosmeticTab[C.Slot])) || !NameMatchesFilter(C.Name,V.CosmeticFilter) )
 				continue;
 			Pool[N] = i;
 			Keys[N] = HashMix( (DWORD)(State.Day*7919 + Vendor*104729), (DWORD)i );
@@ -423,6 +429,8 @@
 		SetCostume( Body, Outfit, 0 );
 		CopyAnim( Body, Harry );
 		ApplyLook( Outfit, Glasses );
+		if( Body->Mesh==HarryMesh )
+			Body->MultiSkins[3] = GCosmetics[Glasses].Skin0 ? LoadTex( GCosmetics[Glasses].Skin0 ) : NULL;
 
 		// Full body fits the rect; close-ups zoom in on a bone.
 		USkeletalMesh* Skel = NULL;
@@ -466,7 +474,7 @@
 		}
 	}
 
-	void DrawMeshPreview( UGameEngine* Engine, const FRpgRect& R, const TCHAR* MeshPath, FLOAT Scale, FLOAT Yaw )
+	void DrawMeshPreview( UGameEngine* Engine, const FRpgRect& R, const TCHAR* MeshPath, FLOAT Scale, FLOAT Yaw, const TCHAR* AnimPath=NULL )
 	{
 		AActor* Item = EnsurePreview( Engine, PreviewItem );
 		UMesh* Mesh = LoadMesh( MeshPath );
@@ -474,6 +482,28 @@
 			return;
 		FRpgClipScope Clip( Ui, R );
 		SetPreviewMesh( Item, Mesh );
+		// Characters and animals stand in their idle pose, not the bind pose.
+		{
+			FString Path = AnimPath ? FString(AnimPath) : FString(MeshPath);
+			if( !AnimPath )
+			{
+				const INT Cut = Path.InStr( TEXT("Mesh"), 1 );
+				Path = Cut>0 ? Path.Left(Cut) + TEXT("Anims") : FString();
+			}
+			UAnimation* Anim = Path.Len() ? (UAnimation*)FRpgUi::LoadRooted( UAnimation::StaticClass(), *Path ) : NULL;
+			if( Anim && Anim->AnimSeqs.Num() )
+			{
+				Item->SkelAnim = Anim;
+				FName Pose = FindSeq( Anim, TEXT("Idle") );
+				if( Pose==NAME_None ) Pose = FindSeq( Anim, TEXT("Breathe") );
+				if( Pose==NAME_None ) Pose = FindSeq( Anim, TEXT("breath") );
+				if( Pose==NAME_None ) Pose = FindSeq( Anim, TEXT("Fly") );
+				if( Pose==NAME_None ) Pose = Anim->AnimSeqs(0).Name;
+				Item->AnimSequence = Pose;
+				Item->AnimFrame = 0.f;
+				Item->AnimRate = 0.f;
+			}
+		}
 		if( Ui.PlaceInRect( Item, R, Yaw, 1.f ) )
 			Ui.DrawActorInRect( Item, 1 );
 	}
@@ -506,10 +536,11 @@
 			case RSLOT_Hat:     Hat = Id; Framing = PREV_Hat; break;
 			case RSLOT_Glasses: Glasses = Id; Framing = PREV_Head; break;
 			case RSLOT_Pet:
-				// Pets walk beside Harry now: show the animal itself.
+			case RSLOT_Friend:
+				// Pets and friends walk beside Harry: show them on their own.
 				if( C.Mesh )
 				{
-					DrawMeshPreview( Engine, R, C.Mesh, C.Scale, Yaw );
+					DrawMeshPreview( Engine, R, C.Mesh, C.Scale, Yaw, C.Slot==RSLOT_Friend ? C.Skin0 : NULL );
 					return;
 				}
 				break;

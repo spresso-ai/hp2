@@ -2981,6 +2981,92 @@ public:
 		return 1;
 	}
 
+
+	/*-------------------------------------------------------------------------
+		Wardrobe: a friend (Ron, Hermione, Hagrid ...) walking along.
+	-------------------------------------------------------------------------*/
+
+	FLOAT FriendFloor;
+	FLOAT FriendIdle;
+	AActor* FriendLinked;
+	AActor* FriendActor;
+	INT FriendActorKind;
+
+	static FName FindSeq( UAnimation* Anim, const TCHAR* Name )
+	{
+		const FName N( Name, FNAME_Find );
+		return (N!=NAME_None && Anim && Anim->GetAnimSeq(N)) ? N : NAME_None;
+	}
+
+	UBOOL UpdateFriend( UGameEngine* Engine, APlayerPawn* Harry, AActor* F, const FCosmetic& Spec, FLOAT DeltaSeconds )
+	{
+		const UBOOL bBig = appStrstr( Spec.Mesh, TEXT("Hagrid") )!=NULL;
+		if( FriendLinked!=F )
+		{
+			UAnimation* Anim = Spec.Skin0 ? (UAnimation*)FRpgUi::LoadRooted( UAnimation::StaticClass(), Spec.Skin0 ) : NULL;
+			if( Anim )
+				F->SkelAnim = Anim;
+			F->DrawScale = Spec.Scale;
+			F->Location = FVector( 0, 0, 0 );
+			const FCoords Box = F->GetRenderBoundingBox( 1 );
+			FriendFloor = -Min( Box.Origin.Z, Box.Origin.Z + Box.ZAxis.Z );
+			FriendLinked = F;
+			Engine->GLevel->FarMoveActor( F, Harry->Location, 0, 1 );
+			RpgLog( TEXT("friend %s: anims %s, floor %.1f"), Spec.Name, Anim ? Anim->GetName() : TEXT("none"), FriendFloor );
+		}
+		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
+		const FVector Fwd( (FLOAT)appCos(HarryYaw), (FLOAT)appSin(HarryYaw), 0.f );
+		const FVector Right( -Fwd.Y, Fwd.X, 0.f );
+		// Behind Harry on the left (the pet keeps the right).
+		const FVector Want = Harry->Location - Fwd*(bBig ? 110.f : 70.f) - Right*(bBig ? 85.f : 55.f);
+		const FVector Old = F->Location;
+		const FVector Delta = Want - Old;
+		const FLOAT Dist = Delta.Size();
+		if( Dist>800.f || (Dist>250.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
+		{
+			Engine->GLevel->FarMoveActor( F, Want, 0, 1 );
+			return 1;
+		}
+		FVector New = Old + Delta*Min( 1.f, DeltaSeconds*3.f );
+		FCheckResult Hit;
+		const FVector Top = New + FVector( 0, 0, 80.f );
+		if( !Engine->GLevel->SingleLineCheck( Hit, F, Top - FVector(0,0,300.f), Top, TRACE_VisBlocking, FVector(0,0,0) ) )
+			New.Z = Hit.Location.Z + FriendFloor;
+		else
+			New.Z = Harry->Location.Z - Harry->CollisionHeight + FriendFloor;
+		Engine->GLevel->FarMoveActor( F, New, 0, 1 );
+
+		FVector Move = New - Old;
+		Move.Z = 0.f;
+		const FLOAT Speed = Move.Size()/Max( DeltaSeconds, 0.001f );
+		FVector Face = Speed>12.f ? Move : (Harry->Location - New);
+		Face.Z = 0.f;
+		if( Face.SizeSquared()>1.f )
+		{
+			const INT Diff = ((Face.Rotation().Yaw - F->Rotation.Yaw + 32768) & 65535) - 32768;
+			F->Rotation = FRotator( 0, F->Rotation.Yaw + appRound(Diff*Min(1.f,DeltaSeconds*6.f)), 0 );
+		}
+		const FName Walk = FindSeq( F->SkelAnim, TEXT("Walk") ), Run = FindSeq( F->SkelAnim, TEXT("run") ), Idle = FindSeq( F->SkelAnim, TEXT("Idle") );
+		FName Want2 = NAME_None;
+		FLOAT Rate = 1.f;
+		if( Speed>12.f )
+		{
+			FriendIdle = 0.f;
+			if( Speed>220.f && Run!=NAME_None )
+				Want2 = Run, Rate = Clamp( Speed/320.f, 0.7f, 1.5f );
+			else
+				Want2 = Walk, Rate = Clamp( Speed/(bBig ? 90.f : 140.f), 0.6f, 2.2f );
+		}
+		else
+		{
+			FriendIdle += DeltaSeconds;
+			Want2 = (FriendIdle>0.3f && Idle!=NAME_None) ? Idle : Walk;
+		}
+		if( Want2!=NAME_None && (F->AnimSequence!=Want2 || !F->bAnimLoop) )
+			F->PlayAnim( Want2, true, Rate, 0.2f );
+		return 1;
+	}
+
 	void UpdateAttachment( UGameEngine* Engine, APlayerPawn* Harry, INT Slot, AActor*& Actor, INT& Kind, UBOOL bVisible )
 	{
 		const INT Id = State.Equip[Slot];
@@ -3027,12 +3113,16 @@ public:
 			Kind = Id;
 			if( Slot==RSLOT_Pet )
 				PetLinked = NULL;
+			if( Slot==RSLOT_Friend )
+				FriendLinked = NULL;
 		}
 		UBOOL bPlaced = 1;
 		if( Slot==RSLOT_Hat )
 			bPlaced = PlaceHat( Harry, Actor, Spec, Engine->GLevel );
 		else if( Slot==RSLOT_Pet )
 			bPlaced = UpdateCompanion( Engine, Harry, Actor, Spec, FrameDelta );
+		else if( Slot==RSLOT_Friend )
+			bPlaced = UpdateFriend( Engine, Harry, Actor, Spec, FrameDelta );
 		else
 			Engine->GLevel->FarMoveActor( Actor, Harry->Location + FVector(0,0,Spec.Up), 0, 1 );
 		Actor->bHidden = Harry->bHidden || !bPlaced;
@@ -3105,6 +3195,15 @@ public:
 		const UBOOL bOurBody = Harry->Mesh==HarryMesh || (CostumeApplied && Harry->Mesh==CostumeApplied);
 		UpdateAttachment( Engine, Harry, RSLOT_Hat, HatActor, HatActorKind, bOurBody );
 		UpdateAttachment( Engine, Harry, RSLOT_Pet, PetActor, PetActorKind, 1 );
+		UpdateAttachment( Engine, Harry, RSLOT_Friend, FriendActor, FriendActorKind, 1 );
+		// Glasses from another character's texture (e.g. half-moon spectacles).
+		if( Harry->Mesh==HarryMesh )
+		{
+			const FCosmetic& G = GCosmetics[State.Equip[RSLOT_Glasses]];
+			UTexture* Want = G.Skin0 ? LoadTex( G.Skin0 ) : NULL;
+			if( Harry->MultiSkins[3]!=Want )
+				Harry->MultiSkins[3] = Want;
+		}
 		UpdateAttachment( Engine, Harry, RSLOT_Aura, AuraActor, AuraActorKind, 1 );
 		UpdateHeld( Harry );
 	}
@@ -3276,6 +3375,7 @@ public:
 		bBaselineValid = 0;
 		HatActor = PetActor = AuraActor = NULL;
 		PetLinked = NULL;
+		FriendActor = FriendLinked = NULL;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
 		HeldWeapon = NULL;
@@ -3338,6 +3438,8 @@ public:
 		DestroyActorSafe( Engine, HatActor );
 		DestroyActorSafe( Engine, PetActor );
 		DestroyActorSafe( Engine, AuraActor );
+		DestroyActorSafe( Engine, FriendActor );
+		FriendActorKind = -1;
 		DestroyActorSafe( Engine, PreviewBody );
 		DestroyActorSafe( Engine, PreviewAttach );
 		DestroyActorSafe( Engine, PreviewItem );
@@ -3389,6 +3491,7 @@ public:
 		bPhoto = 0;
 		HatActor = PetActor = AuraActor = NULL;
 		PetLinked = NULL;
+		FriendActor = FriendLinked = NULL;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
 		HeldWeapon = NULL;

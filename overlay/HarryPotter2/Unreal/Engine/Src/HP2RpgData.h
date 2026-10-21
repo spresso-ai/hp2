@@ -47,8 +47,8 @@ static const FColor GRarityColors[RAR_MAX] =
 	Cosmetics.
 -----------------------------------------------------------------------------*/
 
-enum ERpgSlot { RSLOT_Outfit, RSLOT_Hat, RSLOT_Glasses, RSLOT_Held, RSLOT_Pet, RSLOT_Aura, RSLOT_MAX };
-static const TCHAR* GSlotNames[RSLOT_MAX] = { TEXT("Outfit"), TEXT("Hat"), TEXT("Glasses"), TEXT("Held"), TEXT("Pet"), TEXT("Aura") };
+enum ERpgSlot { RSLOT_Outfit, RSLOT_Hat, RSLOT_Glasses, RSLOT_Held, RSLOT_Pet, RSLOT_Aura, RSLOT_Friend, RSLOT_MAX };
+static const TCHAR* GSlotNames[RSLOT_MAX] = { TEXT("Outfit"), TEXT("Hat"), TEXT("Glasses"), TEXT("Held"), TEXT("Pet"), TEXT("Aura"), TEXT("Friend") };
 
 enum EOutfitKind { OK_Default, OK_Palette, OK_Mesh };
 
@@ -150,6 +150,25 @@ static const FCosmetic GCosmetics[] =
 	{ RSLOT_Aura, TEXT("Personal Snowfall"), TEXT("It's always Christmas somewhere."), 400, RAR_Epic, STAT_DamageReduce, 6, 0, 0, TEXT("Snow"), 1.f, 70.f, 0,0, NULL, NULL },
 	{ RSLOT_Aura, TEXT("Dizzy Stars"), TEXT("Like after a Bludger to the head."), 250, RAR_Rare, STAT_Jump, 5, 0, 0, TEXT("DizzyStars"), 1.f, 48.f, 0,0, NULL, NULL },
 	{ RSLOT_Aura, TEXT("Ghost Trail"), TEXT("Nearly Headless Nick's favourite."), 700, RAR_Legendary, STAT_Speed, 10, 0, 0, TEXT("GhostTrail"), 1.f, 20.f, 0,0, NULL, NULL },
+
+	// --- Appended (v4.4). Friends: Skin0 holds the animation set. ----------
+	{ RSLOT_Friend, TEXT("Go Alone"), TEXT("Just you and your wand."), 0, RAR_Common, STAT_None, 0, 0, 0, NULL, 1.f, 0,0,0, NULL, NULL },
+	{ RSLOT_Friend, TEXT("Dobby"), TEXT("Dobby has come to help Harry Potter, sir!"), 0, RAR_Rare, STAT_Speed, 3, 0, 0, TEXT("HPModels.skdobbyMesh"), 1.f, 0,0,0, TEXT("HPModels.skHarryAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Ginny Weasley"), TEXT("Ron's little sister, braver than she looks."), 400, RAR_Rare, STAT_SpellPower, 5, 0, 0, TEXT("HPModels.skGinnyMesh"), 1.f, 0,0,0, TEXT("HPModels.skGenFemaleAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Ron Weasley"), TEXT("Best mate. Brings snacks, finds beans."), 500, RAR_Epic, STAT_BeanFind, 8, 0, 0, TEXT("HPModels.skronMesh"), 1.f, 0,0,0, TEXT("HPModels.skGenMaleAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Hermione Granger"), TEXT("Knows every answer - and every spell."), 600, RAR_Epic, STAT_XpGain, 8, 0, 0, TEXT("HPModels.skhermioneMesh"), 1.f, 0,0,0, TEXT("HPModels.skGenFemaleAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Fred Weasley"), TEXT("Gets you discounts. Don't ask how."), 650, RAR_Epic, STAT_Discount, 6, 0, 0, TEXT("HPModels.skFredWeasleyMesh"), 1.f, 0,0,0, TEXT("HPModels.skGeorgeWeasleyAnims"), NULL },
+	{ RSLOT_Friend, TEXT("George Weasley"), TEXT("Or is it Fred? Also gets discounts."), 650, RAR_Epic, STAT_Discount, 6, 0, 0, TEXT("HPModels.skGeorgeWeasleyMesh"), 1.f, 0,0,0, TEXT("HPModels.skGeorgeWeasleyAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Hagrid"), TEXT("Nobody messes with you when Hagrid's around."), 1500, RAR_Legendary, STAT_DamageReduce, 15, 0, 0, TEXT("HPModels.skHagridMesh"), 1.f, 0,0,0, TEXT("HPModels.skHagridAnims"), NULL },
+	// --- Appended (v4.4): more glasses and held items. ----------------------
+	{ RSLOT_Glasses, TEXT("Half-Moon Spectacles"), TEXT("Dumbledore's own style. Very wise-looking."), 450, RAR_Epic, STAT_XpGain, 8, 0, 0, NULL, 1.f, 0,0,0, TEXT("HPModels.Skins.skProfDumbledoreTex3"), NULL },
+	{ RSLOT_Held, TEXT("Golden Snitch"), TEXT("Caught it on your first try."), 600, RAR_Epic, STAT_Speed, 8, 0, 0, TEXT("HPModels.skSnitchMesh"), 0.6f, 0,0,0, NULL, NULL },
+	{ RSLOT_Held, TEXT("Chocolate Frog"), TEXT("Grab it before it hops away."), 90, RAR_Common, STAT_Jump, 3, 0, 0, TEXT("HProps.skChocolateFrogMesh"), 0.22f, 0,0,0, NULL, NULL },
+	{ RSLOT_Held, TEXT("Crystal Ball"), TEXT("Professor Trelawney would see your future in it."), 350, RAR_Rare, STAT_BeanFind, 6, 0, 0, TEXT("HProps.skCrystalBallMesh"), 0.4f, 0,0,0, NULL, NULL },
+	{ RSLOT_Held, TEXT("Potion Bottle"), TEXT("Something green and bubbling."), 120, RAR_Common, STAT_DamageReduce, 3, 0, 0, TEXT("HProps.skBottlePotionGreen1Mesh"), 0.8f, 0,0,0, NULL, NULL },
+	{ RSLOT_Held, TEXT("Jar of Beans"), TEXT("Every flavour, for later."), 200, RAR_Rare, STAT_BeanFind, 5, 0, 0, TEXT("HProps.skJarBeansMesh"), 0.7f, 0,0,0, NULL, NULL },
+	{ RSLOT_Held, TEXT("Flitwick's Charm Book"), TEXT("Heavier than Professor Flitwick."), 260, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("HProps.skBooksBigFlitwickBookMesh"), 0.5f, 0,0,0, NULL, NULL },
+	{ RSLOT_Held, TEXT("Candle"), TEXT("For reading under the covers."), 50, RAR_Common, STAT_XpGain, 2, 0, 0, TEXT("HProps.skCandlesTableSingleCandleMesh"), 0.7f, 0,0,0, NULL, NULL },
 };
 static const INT GNumCosmetics = (INT)ARRAY_COUNT(GCosmetics);
 enum { MAX_COSMETICS = 128 };
@@ -199,11 +218,11 @@ static const FConsumable GConsumables[CON_MAX] =
 	Vendors.
 -----------------------------------------------------------------------------*/
 
-enum EShopTab { TAB_Potions, TAB_Cards, TAB_Ingredients, TAB_Clothes, TAB_Hats, TAB_Glasses, TAB_Gear, TAB_Pets, TAB_Auras, TAB_Magic, TAB_Sell, TAB_MAX };
+enum EShopTab { TAB_Potions, TAB_Cards, TAB_Ingredients, TAB_Clothes, TAB_Hats, TAB_Glasses, TAB_Gear, TAB_Pets, TAB_Auras, TAB_Magic, TAB_Sell, TAB_Friends, TAB_MAX };
 static const TCHAR* GShopTabNames[TAB_MAX] =
 {
 	TEXT("Potions"), TEXT("Cards"), TEXT("Ingredients"), TEXT("Clothes"), TEXT("Hats"), TEXT("Glasses"),
-	TEXT("Gear"), TEXT("Pets"), TEXT("Auras"), TEXT("Magic"), TEXT("Sell")
+	TEXT("Gear"), TEXT("Pets"), TEXT("Auras"), TEXT("Magic"), TEXT("Sell"), TEXT("Friends")
 };
 
 enum EVendor
@@ -230,7 +249,7 @@ struct FVendorDef
 static const FVendorDef GVendors[VEN_MAX] =
 {
 	{ TEXT("Fred & George"), TEXT("Psst! Best prices in Hogwarts. Probably."), TEXT("FredWeasley"),
-		TABBIT(TAB_Cards)|TABBIT(TAB_Clothes)|TABBIT(TAB_Hats)|TABBIT(TAB_Gear)|TABBIT(TAB_Pets)|TABBIT(TAB_Magic)|TABBIT(TAB_Sell),
+		TABBIT(TAB_Cards)|TABBIT(TAB_Clothes)|TABBIT(TAB_Hats)|TABBIT(TAB_Gear)|TABBIT(TAB_Pets)|TABBIT(TAB_Magic)|TABBIT(TAB_Sell)|TABBIT(TAB_Friends),
 		CONBIT(CON_BronzeCard)|CONBIT(CON_SilverCard)|CONBIT(CON_ChocFrog)|CONBIT(CON_Felix)|CONBIT(CON_Nimbus)|CONBIT(CON_QArmor), NULL, 6, 0 },
 	{ TEXT("Madam Pomfrey"), TEXT("Sit down, Potter. What hurts this time?"), TEXT("MadamePomfrey"),
 		TABBIT(TAB_Potions)|TABBIT(TAB_Ingredients)|TABBIT(TAB_Magic)|TABBIT(TAB_Sell),
@@ -264,7 +283,7 @@ static const FVendorDef GVendors[VEN_MAX] =
 		CONBIT(CON_BronzeCard)|CONBIT(CON_ChocFrog)|CONBIT(CON_FMucus)|CONBIT(CON_WBark)|CONBIT(CON_Potion), TEXT("Hufflepuff|Pot|Bucket|Chicken"), 4, 0 },
 };
 
-static const INT GCosmeticTab[RSLOT_MAX] = { TAB_Clothes, TAB_Hats, TAB_Glasses, TAB_Gear, TAB_Pets, TAB_Auras };
+static const INT GCosmeticTab[RSLOT_MAX] = { TAB_Clothes, TAB_Hats, TAB_Glasses, TAB_Gear, TAB_Pets, TAB_Auras, TAB_Friends };
 
 // Sell prices (beans per item) for the Sell tab.
 static const INT GSellPotion = 15;
