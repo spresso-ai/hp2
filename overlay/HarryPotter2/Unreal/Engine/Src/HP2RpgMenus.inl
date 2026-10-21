@@ -77,6 +77,7 @@
 			case CON_Potion: case CON_ChocFrog: return TAB_Potions;
 			case CON_FMucus: case CON_WBark: case CON_Bicorn: case CON_Boomslang: return TAB_Ingredients;
 			case CON_BronzeCard: case CON_SilverCard: return TAB_Cards;
+			case CON_Nimbus: case CON_QArmor: return TAB_Gear;
 			default: return TAB_Magic;
 		}
 	}
@@ -89,13 +90,26 @@
 		O->Tab = Tab;
 	}
 
+	// One-time game items Harry already has.
+	UBOOL OwnsGameItem( INT c )
+	{
+		APlayerPawn* Harry = CurrentHarry();
+		if( !Harry )
+			return 0;
+		if( c==CON_Nimbus )
+			return GetBoolProp( Harry, TEXT("bHaveNimbus2001") ) || CallInt( GetStatus(Harry), TEXT("GetNimbusCount") )>0;
+		if( c==CON_QArmor )
+			return GetBoolProp( Harry, TEXT("bHaveQArmor") ) || CallInt( GetStatus(Harry), TEXT("GetQArmorCount") )>0;
+		return 0;
+	}
+
 	void BuildOffers( INT Vendor )
 	{
 		Offers.Empty();
 		const FVendorDef& V = GVendors[Vendor];
 		for( INT c=0; c<CON_MAX; c++ )
 		{
-			if( !(V.Consumables & CONBIT(c)) )
+			if( !(V.Consumables & CONBIT(c)) || OwnsGameItem(c) )
 				continue;
 			INT Tab = ConsumableTab( c );
 			if( !(V.Tabs & TABBIT(Tab)) )
@@ -230,7 +244,12 @@
 		State.Perks = 0;
 		State.SkillPoints += Refund;
 		if( Harry )
+		{
 			SetBoolProp( Harry, TEXT("bCastFastSpells"), 0 );
+			UObject* Cursor = GetObjProp( Harry, TEXT("SpellCursor") );
+			if( Cursor )
+				SetFloatProp( Cursor, TEXT("fLOS_Distance"), GetFloatProp(Cursor->GetClass()->GetDefaultObject(),TEXT("fLOS_Distance"),0.f) );
+		}
 		AddFeed( TEXT("Forgetfulness Potion"), FColor(200,170,255,255), TOAST_Reward, *FString::Printf(TEXT("%i skill points to spend again"), Refund) );
 	}
 
@@ -256,6 +275,10 @@
 			}
 			case CON_Felix:      State.FelixSeconds = 300; return 1;
 			case CON_Pardon:     State.Trouble = Max( 0, State.Trouble-60 ); State.DetentionSeconds = 0; return 1;
+			// The game's own Quidditch gear: the status item plus Harry's flag,
+			// so Fred and George stop offering it too.
+			case CON_Nimbus:     SetBoolProp( Harry, TEXT("bHaveNimbus2001"), 1 ); return CallScript( Status, TEXT("AddNimbus"), &N, 1 );
+			case CON_QArmor:     SetBoolProp( Harry, TEXT("bHaveQArmor"), 1 ); return CallScript( Status, TEXT("AddQArmor"), &N, 1 );
 		}
 		return 0;
 	}
@@ -267,7 +290,7 @@
 
 	void Transact( APlayerPawn* Harry, const FOffer& O )
 	{
-		if( VendorRefuses() )
+		if( VendorRefuses() && !(O.Kind==OFFER_Consumable && O.Id==CON_Pardon) )
 		{
 			Speech = TEXT("You're in detention, Potter. Come back later.");
 			Ui.Play( RSND_Deny, Harry );
@@ -583,67 +606,99 @@
 	void DrawStatusHud( APlayerPawn* Harry, UBOOL bGameplay )
 	{
 		UCanvas* C = Ui.C;
-		const FLOAT S = Ui.S;
-		UFont* Num = Ui.FontModernBold;
-		const FLOAT NumH = Ui.TextHeight( Num );
+		const FColor Text1( 240,238,230,255 ), Text2( 182,186,206,255 ), Line( 46,56,96,255 );
+		const FColor GoldHi( 255,222,130,255 ), Gold( 201,162,74,255 ), XpCol( 120,190,255,255 );
+		static const FColor BarTint[HOUSE_MAX] = { FColor(160,40,32,255), FColor(40,110,64,255), FColor(40,70,150,255), FColor(170,130,30,255) };
 
-		// Row 1: four crests, each followed by its total.
-		const FLOAT Crest = NumH*1.15f, Gap = 4*S, Space = 16*S;
-		FString Values[HOUSE_MAX];
-		FLOAT RowW = 0.f;
-		for( INT i=0; i<HOUSE_MAX; i++ )
+		// House strip, top centre: neutral numbers, house colour on crest and bar.
 		{
-			Values[i] = FString::Printf( TEXT("%i"), bBaselineValid ? LastHouse[i] : 0 );
-			RowW += Crest + Gap + Ui.TextWidth( Num, *Values[i] ) + (i ? Space : 0.f);
-		}
-		FLOAT X = (C->ClipX - RowW)*0.5f;
-		const FLOAT Y0 = 8*S;
-		for( INT i=0; i<HOUSE_MAX; i++ )
-		{
-			if( i )
-				X += Space;
-			if( Crests[i] )
-				Ui.Icon( Crests[i], FRpgRect(X, Y0+(NumH-Crest)*0.5f, Crest, Crest), (PendingHouse[i] || i==HOUSE_Gryffindor) ? 1.f : 0.75f );
-			X += Crest + Gap;
-			Ui.Text( Num, X, Y0, GHouseColors[i], *Values[i] );
-			X += Ui.TextWidth( Num, *Values[i] );
+			const FLOAT W = Ui.P(440.f), H = Ui.P(44.f), Seg = W/HOUSE_MAX;
+			const FRpgRect Strip( (C->ClipX-W)*0.5f, Ui.P(20.f), W, H );
+			Ui.Glass( Strip );
+			INT Lead = 1;
+			for( INT i=0; i<HOUSE_MAX; i++ )
+				Lead = Max( Lead, bBaselineValid ? LastHouse[i] : 0 );
+			for( INT i=0; i<HOUSE_MAX; i++ )
+			{
+				const FLOAT X = Strip.X + Seg*i;
+				const UBOOL bOurs = i==HOUSE_Gryffindor;
+				const FLOAT Crest = Ui.P(26.f);
+				const FString Value = FString::Printf( TEXT("%i"), bBaselineValid ? LastHouse[i] : 0 );
+				const FLOAT TW = Crest + Ui.P(8.f) + Ui.TextWidth( Ui.FontNum, *Value );
+				const FLOAT CX = X + (Seg-TW)*0.5f;
+				if( Crests[i] )
+					Ui.Icon( Crests[i], FRpgRect(CX, Strip.Y+(H-Crest)*0.5f - Ui.P(2.f), Crest, Crest), bOurs ? 1.f : 0.7f );
+				Ui.Text( Ui.FontNum, CX+Crest+Ui.P(8.f), Strip.Y+(H-Ui.TextHeight(Ui.FontNum))*0.5f - Ui.P(2.f), bOurs ? Text1 : Text2, *Value, RALIGN_Left, 0 );
+				// Standing bar: width relative to the leader.
+				const FLOAT BarW = (Seg-Ui.P(24.f)) * Clamp( (FLOAT)(bBaselineValid ? LastHouse[i] : 0)/Lead, 0.f, 1.f );
+				Ui.Rect( FRpgRect(X+Ui.P(12.f), Strip.Y+H-Ui.P(6.f), BarW, Max(1.f,Ui.P(3.f))), BarTint[i] );
+				if( bOurs )
+					Ui.Brackets( FRpgRect(X+Ui.P(3.f), Strip.Y+Ui.P(3.f), Seg-Ui.P(6.f), H-Ui.P(6.f)), Ui.P(8.f), Max(1.f,Ui.P(2.f)), Gold );
+				// "+5" rising over the crest.
+				if( HouseFloat[i] && HouseFloatAge[i]<1.4f )
+				{
+					const FLOAT Rise = HouseFloatAge[i]*Ui.P(18.f);
+					Ui.Text( Ui.FontModernBold, X+Seg*0.5f, Strip.Y+H+Ui.P(4.f)-Rise+Ui.P(18.f), HouseFloat[i]>0 ? GHouseColors[i] : FColor(232,92,80,255),
+						*FString::Printf(TEXT("%s%i"), HouseFloat[i]>0 ? TEXT("+") : TEXT(""), HouseFloat[i]), RALIGN_Center );
+				}
+			}
 		}
 
-		// Row 2: level, XP bar, skill points.
-		UFont* Small = Ui.FontModern;
-		const FString Lv = FString::Printf( TEXT("Lv %i"), State.Level );
-		const FString Pts = State.SkillPoints>0 ? FString::Printf( TEXT("%i point%s  [K]"), State.SkillPoints, State.SkillPoints>1 ? TEXT("s") : TEXT("") ) : FString();
-		const FLOAT BarW = 130*S, BarH = 4*S;
-		const FLOAT LvW = Ui.TextWidth( Num, *Lv ), PtsW = Pts.Len() ? Ui.TextWidth( Small, *Pts ) + 8*S : 0.f;
-		const FLOAT Row2W = LvW + 8*S + BarW + PtsW;
-		const FLOAT Y1 = Y0 + NumH + 6*S;
-		X = (C->ClipX - Row2W)*0.5f;
-		Ui.Text( Num, X, Y1, RpgGoldBright, *Lv );
-		X += LvW + 8*S;
-		const FLOAT BarY = Y1 + (NumH-BarH)*0.5f;
-		Ui.Bar( FRpgRect(X, BarY, BarW, BarH), (FLOAT)State.Xp/XpForNextLevel(State.Level), FColor(120,190,255,255) );
-		X += BarW + 8*S;
-		if( Pts.Len() )
-			Ui.Text( Small, X, Y1+(NumH-Ui.TextHeight(Small))*0.5f, RpgGreen, *Pts );
-		FLOAT LineY = Y1 + NumH + 4*S;
-		if( State.DetentionSeconds>0 )
+		// Player plate, bottom left: level badge, XP bar, skill point marker.
 		{
-			Ui.Text( Ui.FontSmall, C->ClipX*0.5f, LineY, RpgRed, *FString::Printf(TEXT("Detention %i:%02i"), State.DetentionSeconds/60, State.DetentionSeconds%60), RALIGN_Center );
-			LineY += Ui.TextHeight(Ui.FontSmall);
-		}
-		if( State.FelixSeconds>0 )
-			Ui.Text( Ui.FontSmall, C->ClipX*0.5f, LineY, FColor(255,220,120,255), *FString::Printf(TEXT("Felix Felicis %i:%02i"), State.FelixSeconds/60, State.FelixSeconds%60), RALIGN_Center );
+			const FLOAT B = Ui.P(56.f);
+			const FRpgRect Badge( Ui.P(48.f), C->ClipY-Ui.P(48.f)-B, B, B );
+			Ui.Glass( Badge );
+			Ui.Border( Badge, Max(1.f,Ui.P(2.f)), Gold );
+			const FString Lv = FString::Printf( TEXT("%i"), State.Level );
+			Ui.Text( Ui.FontModernBig, Badge.X+B*0.5f, Badge.Y+(B-Ui.TextHeight(Ui.FontModernBig))*0.5f, GoldHi, *Lv, RALIGN_Center, 0 );
+			const FRpgRect Bar( Badge.X+B+Ui.P(12.f), Badge.Y+B*0.5f-Ui.P(3.f), Ui.P(240.f), Max(2.f,Ui.P(6.f)) );
+			Ui.Scrim( Bar, 0.35f );
+			Ui.Rect( FRpgRect(Bar.X, Bar.Y, Bar.W*Clamp((FLOAT)State.Xp/XpForNextLevel(State.Level),0.f,1.f), Bar.H), XpCol );
+			Ui.Border( Bar, Max(1.f,Ui.P(1.f)), Line );
+			if( XpShowTimer>0.f )
+				Ui.Text( Ui.FontCaption, Bar.X, Bar.Y-Ui.TextHeight(Ui.FontCaption)-Ui.P(4.f), Text2,
+					*FString::Printf(TEXT("Level %i   %i / %i XP"), State.Level, State.Xp, XpForNextLevel(State.Level)), RALIGN_Left );
+			if( XpFloat && XpFloatAge<1.6f )
+				Ui.Text( Ui.FontModernBold, Bar.X+Bar.W+Ui.P(10.f), Bar.Y-Ui.P(10.f)-XpFloatAge*Ui.P(14.f), XpCol, *FString::Printf(TEXT("+%i XP"), XpFloat), RALIGN_Left );
+			if( State.SkillPoints>0 )
+			{
+				const FLOAT Dot = Ui.P(14.f);
+				Ui.Chamfer( FRpgRect(Badge.X+B-Dot*0.6f, Badge.Y-Dot*0.4f, Dot, Dot), Ui.P(3.f), FColor(120,220,140,255) );
+				const FLOAT KX = Bar.X;
+				const FLOAT KY = Bar.Y+Bar.H+Ui.P(8.f);
+				const FLOAT KW = Ui.Keycap( KX, KY, TEXT("K") );
+				Ui.Text( Ui.FontCaption, KX+KW+Ui.P(8.f), KY+(Ui.P(26.f)-Ui.TextHeight(Ui.FontCaption))*0.5f, FColor(120,220,140,255),
+					*FString::Printf(TEXT("%i skill point%s"), State.SkillPoints, State.SkillPoints>1 ? TEXT("s") : TEXT("")), RALIGN_Left, 0 );
+			}
 
-		if( bGameplay && NearNpc && IsInLevel(NearNpc) && !IsTalking() )
+			// Status chips above the plate.
+			FLOAT ChipY = Badge.Y - Ui.P(40.f);
+			if( State.DetentionSeconds>0 )
+			{
+				const FString T = FString::Printf( TEXT("Detention %i:%02i"), State.DetentionSeconds/60, State.DetentionSeconds%60 );
+				const FRpgRect Chip( Badge.X, ChipY, Ui.TextWidth(Ui.FontCaption,*T)+Ui.P(24.f), Ui.P(28.f) );
+				Ui.Glass( Chip );
+				Ui.Rect( FRpgRect(Chip.X, Chip.Y, Max(1.f,Ui.P(3.f)), Chip.H), FColor(232,92,80,255) );
+				Ui.Text( Ui.FontCaption, Chip.X+Ui.P(12.f), Chip.Y+(Chip.H-Ui.TextHeight(Ui.FontCaption))*0.5f, FColor(232,92,80,255), *T, RALIGN_Left, 0 );
+				ChipY -= Ui.P(36.f);
+			}
+			if( State.FelixSeconds>0 )
+			{
+				const FString T = FString::Printf( TEXT("Felix Felicis %i:%02i"), State.FelixSeconds/60, State.FelixSeconds%60 );
+				const FRpgRect Chip( Badge.X, ChipY, Ui.TextWidth(Ui.FontCaption,*T)+Ui.P(24.f), Ui.P(28.f) );
+				Ui.Glass( Chip );
+				Ui.Rect( FRpgRect(Chip.X, Chip.Y, Max(1.f,Ui.P(3.f)), Chip.H), GoldHi );
+				Ui.Text( Ui.FontCaption, Chip.X+Ui.P(12.f), Chip.Y+(Chip.H-Ui.TextHeight(Ui.FontCaption))*0.5f, GoldHi, *T, RALIGN_Left, 0 );
+			}
+		}
+
+		// Interaction prompt: one slot above the hotbar.
+		if( bGameplay && NearNpc && IsInLevel(NearNpc) && !IsTalking() && !bAiming )
 		{
-			FString Prompt = NpcName( NearNpc ) + TEXT("    [E] Talk");
-			if( NearVendor>=0 )
-				Prompt += TEXT("    [B] Trade");
-			const FLOAT PW = Ui.TextWidth( Ui.FontModernBold, *Prompt ) + 24*S, PH = Ui.TextHeight( Ui.FontModernBold ) + 10*S;
-			const FRpgRect PR( (C->ClipX-PW)*0.5f, C->ClipY*0.78f, PW, PH );
-			Ui.Rect( PR, FColor(14,18,38,255) );
-			Ui.Rect( FRpgRect(PR.X, PR.Y+PR.H-2*S, PR.W, 2*S), RpgGold );
-			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, PR.Y+5*S, FColor(240,240,248,255), *Prompt, RALIGN_Center, 0 );
+			const TCHAR* Keys[2] = { TEXT("E"), TEXT("B") };
+			const TCHAR* Verbs[2] = { TEXT("Talk"), TEXT("Trade") };
+			Ui.Prompt( C->ClipX*0.5f, C->ClipY-Ui.P(160.f), Keys, Verbs, NearVendor>=0 ? 2 : 1, *NpcName(NearNpc) );
 		}
 	}
 
@@ -665,60 +720,84 @@
 		}
 	}
 
-	// Notification cards on the right, sliding in and out.
+	// Notification cards on the right (max 3) and the centre banner.
 	void DrawFeed()
 	{
 		UCanvas* C = Ui.C;
-		const FLOAT S = Ui.S;
 		UFont* Title = Ui.FontModernBold;
-		UFont* Sub = Ui.FontModern;
+		UFont* Sub = Ui.FontCaption;
 		const FLOAT TitleH = Ui.TextHeight( Title ), SubH = Ui.TextHeight( Sub );
-		const FLOAT W = Min( 200*S, C->ClipX*0.26f );
-		FLOAT Y = C->ClipY*0.20f;
+		const FLOAT W = Min( Ui.P(360.f), C->ClipX*0.3f );
+		FLOAT Y = Ui.P(260.f);
 		for( INT i=Feed.Num()-1; i>=0; i-- )
 		{
 			const FRpgFeed& Entry = Feed(i);
-			const UBOOL bSub = Entry.Sub.Len()>0;
-			const FLOAT H = 6*S + TitleH + (bSub ? SubH : 0.f);
-			// Slide in over 0.2s, out after 2.8s.
+			const FLOAT IconBox = Ui.P(56.f);
+			const FLOAT TextW = W - IconBox - Ui.P(24.f);
+			// The sub line wraps to two lines instead of being cut off.
+			FString Sub1 = Entry.Sub, Sub2;
+			if( Ui.TextWidth(Sub,*Sub1) > TextW )
+			{
+				INT Cut = Sub1.Len();
+				while( Cut>0 && (Ui.TextWidth(Sub,*Sub1.Left(Cut))>TextW || (*Sub1)[Cut-1]!=' ') )
+					Cut--;
+				if( Cut>0 )
+				{
+					Sub2 = Ui.FitText( Sub, *Sub1.Mid(Cut), TextW );
+					Sub1 = Sub1.Left( Cut-1 );
+				}
+				else
+					Sub1 = Ui.FitText( Sub, *Sub1, TextW );
+			}
+			const FLOAT H = Max( IconBox, Ui.P(12.f) + TitleH + (Sub1.Len() ? SubH : 0.f) + (Sub2.Len() ? SubH : 0.f) + Ui.P(10.f) );
 			FLOAT Slide = 0.f;
-			if( Entry.Age<0.2f )
-				Slide = 1.f - Entry.Age/0.2f;
-			else if( Entry.Age>2.8f )
-				Slide = Min( 1.f, (Entry.Age-2.8f)/0.4f );
-			const FLOAT X = C->ClipX - W - 14*S + Slide*(W+20*S);
-			const FRpgRect Card( X, Y, W, H );
-			Ui.Rect( Card, FColor(14,18,38,255) );
-			Ui.Rect( FRpgRect(Card.X, Card.Y, 3*S, Card.H), Entry.Color );
-			Ui.Rect( FRpgRect(Card.X, Card.Y+Card.H-1, Card.W, Max(1.f,S*0.5f)), FColor(48,56,96,255) );
-			FLOAT TX = Card.X + 10*S;
+			if( Entry.Age<0.18f )
+				Slide = 1.f - Entry.Age/0.18f;
+			else if( Entry.Age>3.8f )
+				Slide = Min( 1.f, (Entry.Age-3.8f)/0.35f );
+			const FRpgRect Card( C->ClipX - W - Ui.P(48.f) + Slide*(W+Ui.P(60.f)), Y, W, H );
+			Ui.Glass( Card );
+			Ui.Rect( FRpgRect(Card.X, Card.Y, Max(1.f,Ui.P(3.f)), Card.H), Entry.Color );
 			UTexture* Icon = ToastIcon( Entry );
 			if( Icon )
 			{
-				const FLOAT IS = Min( H - 8*S, 22*S );
-				Ui.Icon( Icon, FRpgRect(TX, Card.Y+(H-IS)*0.5f, IS, IS) );
-				TX += IS + 6*S;
+				const FLOAT IS = Ui.P(36.f);
+				Ui.Icon( Icon, FRpgRect(Card.X+Ui.P(3.f)+(IconBox-IS)*0.5f, Card.Y+(H-IS)*0.5f, IS, IS) );
 			}
-			Ui.Text( Title, TX, Card.Y+3*S, FColor(240,240,248,255), *Ui.FitText(Title,*Entry.Text,Card.X+Card.W-TX-6*S), RALIGN_Left, 0 );
-			if( bSub )
-				Ui.Text( Sub, TX, Card.Y+3*S+TitleH, FColor(150,158,190,255), *Ui.FitText(Sub,*Entry.Sub,Card.X+Card.W-TX-6*S), RALIGN_Left, 0 );
-			Y += H + 4*S;
+			const FLOAT TX = Card.X + IconBox + Ui.P(8.f);
+			FLOAT TY = Card.Y + Ui.P(8.f);
+			Ui.Text( Title, TX, TY, FColor(240,238,230,255), *Ui.FitText(Title,*Entry.Text,TextW), RALIGN_Left, 0 );
+			TY += TitleH + Ui.P(2.f);
+			if( Sub1.Len() )
+				Ui.Text( Sub, TX, TY, FColor(182,186,206,255), *Sub1, RALIGN_Left, 0 );
+			if( Sub2.Len() )
+				Ui.Text( Sub, TX, TY+SubH, FColor(182,186,206,255), *Sub2, RALIGN_Left, 0 );
+			Y += H + Ui.P(8.f);
 		}
 
-		// Level-up banner.
+		// Centre banner: level up, new school day.
 		if( BannerText.Len() && BannerAge<3.5f )
 		{
-			const FLOAT Grow = Min( 1.f, BannerAge/0.25f );
-			const FLOAT BigH = Ui.TextHeight( Ui.FontModernBig );
-			const FLOAT BW = C->ClipX*0.42f*Grow, BH = 6*S + BigH + 2*S + SubH + 8*S;
-			const FRpgRect B( (C->ClipX-BW)*0.5f, C->ClipY*0.18f, BW, BH );
-			Ui.Rect( B, FColor(12,16,36,255) );
-			Ui.Rect( FRpgRect(B.X, B.Y, B.W, 2*S), RpgGoldBright );
-			Ui.Rect( FRpgRect(B.X, B.Y+B.H-2*S, B.W, 2*S), RpgGoldBright );
+			const FLOAT Grow = Min( 1.f, BannerAge/0.2f );
+			const FLOAT BigH = Ui.TextHeight( Ui.FontTitle );
+			const FLOAT BW = Ui.P(760.f)*Grow, BH = Ui.P(20.f) + BigH + Ui.P(12.f) + SubH + Ui.P(20.f);
+			const FRpgRect B( (C->ClipX-BW)*0.5f, Ui.P(176.f), BW, BH );
+			Ui.Glass( B );
+			const FLOAT T = Max( 1.f, Ui.P(2.f) );
+			// Gold hairlines that fade towards the ends.
+			for( INT k=0; k<3; k++ )
+			{
+				const FLOAT Inset = B.W*0.12f*k;
+				const FColor Col( 255-60*k, 222-50*k, 130-40*k, 255 );
+				Ui.Rect( FRpgRect(B.X+Inset*0.5f, B.Y, B.W-Inset, T), Col );
+				Ui.Rect( FRpgRect(B.X+Inset*0.5f, B.Y+B.H-T, B.W-Inset, T), Col );
+			}
 			if( Grow>=1.f )
 			{
-				Ui.Text( Ui.FontModernBig, C->ClipX*0.5f, B.Y+6*S, RpgGoldBright, *BannerText, RALIGN_Center );
-				Ui.Text( Ui.FontModern, C->ClipX*0.5f, B.Y+6*S+BigH+2*S, FColor(220,224,240,255), *BannerSub, RALIGN_Center, 0 );
+				if( Ui.GlowGold )
+					Ui.Glow( Ui.GlowGold, FRpgRect(C->ClipX*0.5f-B.W*0.3f, B.Y, B.W*0.6f, B.H), 0.25f );
+				Ui.Text( Ui.FontTitle, C->ClipX*0.5f, B.Y+Ui.P(20.f), FColor(255,222,130,255), *BannerText, RALIGN_Center );
+				Ui.Text( Ui.FontModern, C->ClipX*0.5f, B.Y+Ui.P(20.f)+BigH+Ui.P(12.f), FColor(240,238,230,255), *BannerSub, RALIGN_Center, 0 );
 			}
 		}
 	}
@@ -894,7 +973,7 @@
 			const UBOOL bHover = Ui.Hovered( Cell, &Offers(Items[Index]) );
 			const FColor Accent = O.Kind==OFFER_Cosmetic ? GRarityColors[GCosmetics[O.Id].Rarity] : FColor(70,78,120,255);
 			Ui.Tile( Cell, Index==Sel, bHover, Accent );
-			const FRpgRect Pic( Cell.X+3*S, Cell.Y+3*S, Cell.W-6*S, Cell.H-Ui.TextHeight(Ui.FontBody)-8*S );
+			const FRpgRect Pic( Cell.X+3*S, Cell.Y+3*S, Cell.W-6*S, Cell.H-Ui.TextHeight(Ui.FontModern)-Ui.P(14.f)-3*S );
 			const FLOAT Yaw = (Index==Sel || bHover) ? PreviewYaw : 0.f;
 			if( O.Kind==OFFER_Cosmetic )
 				DrawCosmeticPreview( Engine, Pic, O.Id, Yaw );
@@ -923,7 +1002,7 @@
 				PriceText = FString::Printf( TEXT("%i beans"), Price );
 				PriceColor = Price<=Beans ? RpgParchment : RpgRed;
 			}
-			Ui.Text( Ui.FontBody, Cell.X+Cell.W*0.5f, Cell.Y+Cell.H-Ui.TextHeight(Ui.FontBody)-3*S, PriceColor, *PriceText, RALIGN_Center );
+			Ui.TileLabel( Cell, *PriceText, PriceColor );
 			if( Ui.Clicked( Cell, &Offers(Items[Index]) ) )
 			{
 				if( Sel==Index && ConfirmIndex==Index )
@@ -961,7 +1040,7 @@
 			const UBOOL bOwned = O.Kind==OFFER_Cosmetic && IsOwned(O.Id);
 			const TCHAR* Label = bOwned ? TEXT("Wear") : (O.Kind==OFFER_Sell ? TEXT("Sell") : (ConfirmIndex==Sel ? TEXT("Confirm") : TEXT("Buy")));
 			const FRpgRect BuyRect( Right.X+Right.W-230*S, Right.Y+Right.H-28*S, 110*S, 24*S );
-			if( Ui.Button( BuyRect, Label, !VendorRefuses(), &Ui ) )
+			if( Ui.Button( BuyRect, Label, !VendorRefuses() || (O.Kind==OFFER_Consumable && O.Id==CON_Pardon), &Ui ) )
 				bActivate = 1;
 			if( bActivate )
 			{
@@ -1246,10 +1325,10 @@
 			const UBOOL bHover = Ui.Hovered( Cell, &GCosmetics[Id] );
 			const UBOOL bOwned = IsOwned( Id );
 			Ui.Tile( Cell, Index==Sel, bHover, GRarityColors[Cos.Rarity] );
-			const FRpgRect Pic( Cell.X+3*S, Cell.Y+3*S, Cell.W-6*S, Cell.H-Ui.TextHeight(Ui.FontBody)-8*S );
+			const FRpgRect Pic( Cell.X+3*S, Cell.Y+3*S, Cell.W-6*S, Cell.H-Ui.TextHeight(Ui.FontModern)-Ui.P(14.f)-3*S );
 			DrawCosmeticPreview( Engine, Pic, Id, (Index==Sel || bHover) ? PreviewYaw : 0.f );
 			const FString Label = State.Equip[WardrobeSlot]==Id ? FString(TEXT("Wearing")) : (bOwned ? FString(TEXT("Owned")) : FString::Printf(TEXT("%i beans"), Cos.Price));
-			Ui.Text( Ui.FontBody, Cell.X+Cell.W*0.5f, Cell.Y+Cell.H-Ui.TextHeight(Ui.FontBody)-3*S, bOwned ? RpgGreen : RpgMuted, *Label, RALIGN_Center );
+			Ui.TileLabel( Cell, *Label, State.Equip[WardrobeSlot]==Id ? FColor(255,222,130,255) : (bOwned ? RpgGreen : (Cos.Price<=GetBeans(Harry) ? FColor(240,238,230,255) : FColor(232,92,80,255))) );
 			if( Ui.Clicked( Cell, &GCosmetics[Id] ) )
 			{
 				if( Sel==Index )
@@ -1613,8 +1692,10 @@
 		LastTalkTime = RpgClock;
 		FRpgArg JustTalk = FRpgArg::I( 1 );
 		CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
-		if( !TestAndSet(Npc,AF_Talked) )
+		const FString Key = (LastLevel ? LastLevel->URL.Map : FString()) + TEXT(":") + Npc->GetName();
+		if( TalkedToday.FindItemIndex(Key)==INDEX_NONE )
 		{
+			TalkedToday.AddItem( Key );
 			State.Counters[CNT_Talks]++;
 			GiveXp( 3, TEXT("new friend") );
 			if( IsStudent(Npc) )

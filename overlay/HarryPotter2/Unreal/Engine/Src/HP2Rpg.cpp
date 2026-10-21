@@ -423,6 +423,9 @@ struct FRpgState
 	INT LetterDay;
 	INT Inbox[MAX_INBOX];   // letter id + 1, newest first
 	INT LettersRead;        // bit per inbox slot
+	INT Delivered[2];       // bit per letter id ever delivered (gifts are one-time)
+	INT DayPlaySeconds;     // play time since the school day began
+	INT DayTaskDone;        // a house task was completed today
 
 	void Reset()
 	{
@@ -482,6 +485,7 @@ enum EActorFlag
 	AF_Rewarded  = 1<<6,
 	AF_Talked    = 1<<7,
 	AF_ImpStun   = 1<<8,
+	AF_Harvested = 1<<9,
 };
 
 enum EMenu { MENU_None, MENU_Shop, MENU_Book };
@@ -530,6 +534,11 @@ public:
 	UAnimation* HarryAnim;   // Harry's own animation set, kept for costumes
 	FLOAT HarrySince;
 	UBOOL bLoadedFromSlot;
+	FString PrevMap;               // map before this one (new-game detection)
+	TArray<FString> TalkedToday;   // map:actor talked to this school day
+	INT RpgPoints[HOUSE_MAX];      // house points the mod itself just gave
+	FLOAT DayPlayAccum;
+	UBOOL bWasCutscene;
 	UBOOL bLevelTransition;
 	FLOAT LastDayClock;
 	INT HealthTargetTried;
@@ -548,6 +557,14 @@ public:
 	FLOAT PendingHouseTimer[HOUSE_MAX];
 	FLOAT PollTimer;
 	FLOAT HouseHudTimer;
+	// Inline feedback instead of toasts: "+5" over a crest, "+25 XP" at the bar.
+	INT HouseFloat[HOUSE_MAX];
+	FLOAT HouseFloatAge[HOUSE_MAX];
+	INT XpFloat;
+	FLOAT XpFloatAge;
+	FLOAT XpShowTimer;
+	FLOAT HintTimer;
+	UBOOL bPausedHint;
 	INT QuidditchCountedLevel;
 	INT LuckyFeedBeans;
 	FLOAT LuckyFeedTimer;
@@ -808,7 +825,7 @@ public:
 	{
 		FString Text = FString::Printf
 		(
-			TEXT("HP2RPG Version=2 Xp=%i Level=%i SkillPoints=%i HealthBonus=%i Perks=%i CardRewards=%i Trouble=%i Detention=%i Day=%i Felix=%i StockDay=%i\r\n"),
+			TEXT("HP2RPG Version=3 Xp=%i Level=%i SkillPoints=%i HealthBonus=%i Perks=%i CardRewards=%i Trouble=%i Detention=%i Day=%i Felix=%i StockDay=%i\r\n"),
 			State.Xp, State.Level, State.SkillPoints, State.AppliedHealthBonus, State.Perks, State.CardRewards,
 			State.Trouble, State.DetentionSeconds, State.Day, State.FelixSeconds, State.StockDay
 		);
@@ -825,9 +842,36 @@ public:
 		Text += FString(TEXT("Rep=")) + IntList(State.Rep,4) + TEXT("\r\n");
 		Text += FString::Printf(TEXT("LetterDay=%i LettersRead=%i\r\n"), State.LetterDay, State.LettersRead);
 		Text += FString(TEXT("Inbox=")) + IntList(State.Inbox,MAX_INBOX) + TEXT("\r\n");
+		Text += FString(TEXT("Delivered=")) + IntList(State.Delivered,2) + TEXT("\r\n");
+		Text += FString::Printf(TEXT("DayPlay=%i DayTaskDone=%i\r\n"), State.DayPlaySeconds, State.DayTaskDone);
+		// By name too, so new table entries never shift what a save owns.
+		FString Names;
+		for( INT i=0; i<GNumCosmetics; i++ )
+			if( GCosmetics[i].Price>0 && IsOwned(i) )
+				Names += FString(GCosmetics[i].Name) + TEXT("|");
+		Text += FString(TEXT("OwnedNames=")) + Names + TEXT("\r\n");
+		Names = TEXT("");
+		for( INT s2=0; s2<RSLOT_MAX; s2++ )
+			Names += FString(GCosmetics[State.Equip[s2]].Name) + TEXT("|");
+		Text += FString(TEXT("EquipNames=")) + Names + TEXT("\r\n");
+		Names = TEXT("");
+		for( INT p=0; p<PERK_MAX; p++ )
+			if( HasPerk(p) )
+				Names += FString(GPerks[p].Name) + TEXT("|");
+		Text += FString(TEXT("PerkNames=")) + Names + TEXT("\r\n");
+		// Write a temporary file first and keep the previous one as .bak,
+		// so a crash mid-write never loses progress.
 		const FString Path = SidecarPath( Slot );
-		if( !appSaveStringToFile( Text, *Path ) )
-			RpgLog( TEXT("could not write %s"), *Path );
+		const FString Tmp = Path + TEXT(".tmp");
+		if( !appSaveStringToFile( Text, *Tmp ) )
+		{
+			RpgLog( TEXT("could not write %s"), *Tmp );
+			return;
+		}
+		if( GFileManager->FileSize(*Path)>0 )
+			GFileManager->Move( *(Path + TEXT(".bak")), *Path, 1 );
+		if( !GFileManager->Move( *Path, *Tmp, 1 ) )
+			RpgLog( TEXT("could not replace %s"), *Path );
 	}
 
 	void LoadSlot( INT Slot )
@@ -884,16 +928,92 @@ public:
 				Parse( S, TEXT("LetterDay="), State.LetterDay );
 				Parse( S, TEXT("LettersRead="), State.LettersRead );
 				ParseIntList( S, TEXT("Inbox="), State.Inbox, MAX_INBOX );
+				ParseIntList( S, TEXT("Delivered="), State.Delivered, 2 );
+				Parse( S, TEXT("DayPlay="), State.DayPlaySeconds );
+				Parse( S, TEXT("DayTaskDone="), State.DayTaskDone );
+				if( Version>=3 )
+					LoadNames( S );
 			}
 		}
+		else
+		{
+			// A save made before the mod (or a lost sidecar): try the backup.
+			FString Bak;
+			if( appLoadFileToString( Bak, *(Path + TEXT(".bak")) ) )
+				RpgLog( TEXT("sidecar missing for slot %i; a backup exists at %s.bak"), Slot, *Path );
+		}
+		// Letters already in the inbox count as delivered.
+		for( INT i=0; i<MAX_INBOX; i++ )
+			if( State.Inbox[i]>0 && State.Inbox[i]<=64 )
+				State.Delivered[(State.Inbox[i]-1)>>5] |= 1<<((State.Inbox[i]-1)&31);
 		Sanitize();
 		MarkWardrobeDirty();
 		SpellsKnownNotified = -1;
 		RpgLog( TEXT("loaded slot %i: level %i xp %i points %i"), Slot, State.Level, State.Xp, State.SkillPoints );
 	}
 
+	// Reads "A|B|C|" lists written by SaveSlot and maps them to table ids.
+	static void SplitNames( const TCHAR* Stream, const TCHAR* Key, TArray<FString>& Out )
+	{
+		const TCHAR* P = appStrstr( Stream, Key );
+		if( !P )
+			return;
+		P += appStrlen( Key );
+		FString Cur;
+		while( *P && *P!='\r' && *P!='\n' )
+		{
+			if( *P=='|' )
+			{
+				if( Cur.Len() )
+					Out.AddItem( Cur );
+				Cur = TEXT("");
+			}
+			else
+				Cur += FString::Printf( TEXT("%c"), *P );
+			P++;
+		}
+	}
+
+	void LoadNames( const TCHAR* S )
+	{
+		TArray<FString> Names;
+		SplitNames( S, TEXT("OwnedNames="), Names );
+		if( Names.Num() )
+		{
+			appMemzero( State.Owned, sizeof(State.Owned) );
+			for( INT n=0; n<Names.Num(); n++ )
+				for( INT i=0; i<GNumCosmetics; i++ )
+					if( appStricmp(GCosmetics[i].Name,*Names(n))==0 )
+						SetOwned( i );
+		}
+		Names.Empty();
+		SplitNames( S, TEXT("EquipNames="), Names );
+		for( INT n=0; n<Names.Num(); n++ )
+			for( INT i=0; i<GNumCosmetics; i++ )
+				if( appStricmp(GCosmetics[i].Name,*Names(n))==0 )
+					State.Equip[GCosmetics[i].Slot] = i;
+		Names.Empty();
+		SplitNames( S, TEXT("PerkNames="), Names );
+		if( Names.Num() || appStrstr(S,TEXT("PerkNames=")) )
+		{
+			State.Perks = 0;
+			for( INT n=0; n<Names.Num(); n++ )
+				for( INT p=0; p<PERK_MAX; p++ )
+					if( appStricmp(GPerks[p].Name,*Names(n))==0 )
+						State.Perks |= 1<<p;
+		}
+	}
+
 	void Sanitize()
 	{
+		State.Perks &= (1<<PERK_MAX)-1;
+		State.CardRewards &= (GNumCardRewards>=31) ? 0x7fffffff : ((1<<GNumCardRewards)-1);
+		for( INT i=GNumCosmetics; i<MAX_COSMETICS; i++ )
+			State.Owned[i>>5] &= ~(1<<(i&31));
+		State.DayPlaySeconds = Max( State.DayPlaySeconds, 0 );
+		for( INT t=0; t<TASKS_PER_DAY; t++ )
+			if( State.Tasks[t*3+1]<=0 )
+				State.TaskDay = 0; // goal 0 would complete instantly: re-roll
 		State.Level = Clamp( State.Level, 1, 99 );
 		State.Xp = Max( State.Xp, 0 );
 		State.SkillPoints = Clamp( State.SkillPoints, 0, 199 );
@@ -914,10 +1034,15 @@ public:
 				State.TaskDay = 0; // re-roll
 		for( INT h=0; h<4; h++ )
 			State.Rep[h] = Clamp( State.Rep[h], -100, 100 );
-		INT Kept = 0;
+		INT Kept = 0, Read = 0;
 		for( INT i=0; i<MAX_INBOX; i++ )
 			if( State.Inbox[i]>0 && State.Inbox[i]<=GNumLetters )
+			{
+				if( State.LettersRead & (1<<i) )
+					Read |= 1<<Kept;
 				State.Inbox[Kept++] = State.Inbox[i];
+			}
+		State.LettersRead = Read;
 		for( INT i=Kept; i<MAX_INBOX; i++ )
 			State.Inbox[i] = 0;
 		for( INT s=0; s<RSLOT_MAX; s++ )
@@ -1027,6 +1152,8 @@ public:
 			BannerAge = 0.f;
 			return;
 		}
+		if( Kind==TOAST_Bean )
+			return; // the game's bean counter already shows it
 		// Repeats refresh the existing card instead of stacking.
 		for( INT i=0; i<Feed.Num(); i++ )
 			if( Feed(i).Kind==Kind && Feed(i).Text==Text && Kind!=TOAST_House )
@@ -1048,6 +1175,10 @@ public:
 	// XP gained in quick succession is merged into one card.
 	void AddXpToast( INT Amount, const TCHAR* Reason )
 	{
+		XpFloat = (XpFloatAge<1.2f ? XpFloat : 0) + Amount;
+		XpFloatAge = 0.f;
+		XpShowTimer = 4.f;
+		return;
 		if( Feed.Num() )
 		{
 			FRpgFeed& Last = Feed(Feed.Num()-1);
@@ -1108,7 +1239,8 @@ public:
 		if( !Status || !Group || !Item )
 			return;
 		FRpgArg Args[3] = { FRpgArg::O(Group), FRpgArg::O(Item), FRpgArg::I(Points) };
-		CallScript( Status, TEXT("IncrementCount"), Args, 3 );
+		if( CallScript( Status, TEXT("IncrementCount"), Args, 3 ) )
+			RpgPoints[House] += Points;
 	}
 
 	void AddTrouble( INT Amount, const TCHAR* Reason )
@@ -1192,6 +1324,7 @@ public:
 			{
 				LastHouse[i] = House[i];
 				PendingHouse[i] = 0;
+				RpgPoints[i] = 0;
 			}
 			LastCards = Cards;
 			LastStars = Stars;
@@ -1201,12 +1334,16 @@ public:
 
 		for( INT i=0; i<HOUSE_MAX; i++ )
 		{
-			const INT Diff = House[i] - LastHouse[i];
+			// Points the mod gave itself already have their own toast and
+			// never count as earned (no XP or task loops).
+			const INT Diff = House[i] - LastHouse[i] - RpgPoints[i];
+			RpgPoints[i] = 0;
+			if( House[i]!=LastHouse[i] )
+				HouseHudTimer = 6.f;
 			if( Diff )
 			{
 				PendingHouse[i] += Diff;
 				PendingHouseTimer[i] = 0.f;
-				HouseHudTimer = 6.f;
 				if( i==HOUSE_Gryffindor && Diff>0 )
 				{
 					State.Counters[CNT_HousePoints] += Diff;
@@ -1238,12 +1375,9 @@ public:
 			PendingHouseTimer[i] += DeltaSeconds;
 			if( PendingHouseTimer[i] < 0.8f )
 				continue;
-			const INT P = PendingHouse[i];
-			const FString Text = P>0
-				? FString::Printf( TEXT("+%i %s"), P, GHouseNames[i] )
-				: FString::Printf( TEXT("%s loses %i point%s"), GHouseNames[i], -P, P==-1 ? TEXT("") : TEXT("s") );
-			AddFeed( Text, GHouseColors[i], TOAST_House, TEXT("House points") );
-			Feed(Feed.Num()-1).Amount = i;
+			HouseFloat[i] = PendingHouse[i];
+			HouseFloatAge[i] = 0.f;
+			HouseHudTimer = 6.f;
 			PendingHouse[i] = 0;
 		}
 	}
@@ -1323,7 +1457,6 @@ public:
 		AddHousePoints( Harry, HOUSE_Slytherin, Gains[0] );
 		AddHousePoints( Harry, HOUSE_Ravenclaw, Gains[1] );
 		AddHousePoints( Harry, HOUSE_Hufflepuff, Gains[2] );
-		bBaselineValid = 0; // don't announce these as separate house point cards
 		AddFeed( TEXT("House Cup update"), FColor(255,214,120,255), TOAST_House,
 			*FString::Printf(TEXT("Slytherin +%i, Ravenclaw +%i, Hufflepuff +%i"), Gains[0], Gains[1], Gains[2]) );
 		Feed(Feed.Num()-1).Amount = HOUSE_Slytherin;
@@ -1341,23 +1474,36 @@ public:
 		return 0;
 	}
 
+	UBOOL WasDelivered( INT Id )
+	{
+		return Id>=0 && Id<64 && (State.Delivered[Id>>5] & (1<<(Id&31)))!=0;
+	}
+
 	void DeliverLetter( APlayerPawn* Harry )
 	{
 		INT Candidates[64];
 		INT N = 0;
+		// New letters first; once all have come, only gift-free ones repeat.
 		for( INT l=0; l<GNumLetters && N<64; l++ )
-			if( GLetters[l].MinLevel<=State.Level && !HasLetter(l) )
+			if( GLetters[l].MinLevel<=State.Level && !WasDelivered(l) )
 				Candidates[N++] = l;
+		if( !N )
+			for( INT l=0; l<GNumLetters && N<64; l++ )
+				if( GLetters[l].MinLevel<=State.Level && !HasLetter(l) && GLetters[l].Gift==GIFT_None )
+					Candidates[N++] = l;
 		if( !N )
 			return;
 		const INT Id = Candidates[ HashMix((DWORD)State.Day,77u) % (DWORD)N ];
 		for( INT i=MAX_INBOX-1; i>0; i-- )
 			State.Inbox[i] = State.Inbox[i-1];
 		State.Inbox[0] = Id+1;
+		const UBOOL bGift = !WasDelivered( Id );
+		if( Id<64 )
+			State.Delivered[Id>>5] |= 1<<(Id&31);
 		State.LettersRead = (State.LettersRead<<1) & ((1<<MAX_INBOX)-1);
 		const FLetterDef& L = GLetters[Id];
 		FString Gift;
-		switch( L.Gift )
+		switch( bGift ? L.Gift : (INT)GIFT_None )
 		{
 			case GIFT_Beans:      GiveBeans( Harry, L.GiftAmount ); Gift = FString::Printf( TEXT("  +%i beans"), L.GiftAmount ); break;
 			case GIFT_Potion:     ApplyConsumable( Harry, CON_Potion, L.GiftAmount ); Gift = TEXT("  +Wiggenweld potion"); break;
@@ -1418,6 +1564,7 @@ public:
 			if( CounterValue(Harry,T.Counter) - State.Tasks[t*3+2] < State.Tasks[t*3+1] )
 				continue;
 			State.TasksDone |= (1<<t);
+			State.DayTaskDone = 1;
 			AddHousePoints( Harry, HOUSE_Gryffindor, T.Points );
 			GiveBeans( Harry, T.Beans );
 			AddFeed( TEXT("Task complete!"), FColor(120,220,140,255), TOAST_Reward,
@@ -1762,9 +1909,9 @@ public:
 				AddFeed( FString::Printf(TEXT("+%i beans"), Base*Worth*BeanMultiplier), Worth>=5 ? FColor(255,120,120,255) : (Worth>=3 ? FColor(255,220,90,255) : FColor(190,230,255,255)), TOAST_Bean, *FString::Printf(TEXT("%s bean!"), Kind) );
 			const INT Chance = GetStat( STAT_BeanFind );
 			INT Bonus = 0;
+			// Every full 100% is a sure extra bean, the rest a chance.
 			for( INT i=0; i<Base; i++ )
-				if( RpgRand(100) < Chance )
-					Bonus += Chance>100 ? 2 : 1;
+				Bonus += Chance/100 + (RpgRand(100) < Chance%100 ? 1 : 0);
 			Total += Bonus;
 			SetIntProp( Prop, TEXT("nPickupIncrement"), Total );
 			State.Counters[CNT_Beans] += Total;
@@ -1947,23 +2094,6 @@ public:
 			AActor* Spell = Level->Actors(i);
 			if( !Spell || Spell->bDeleteMe || !Spell->IsA(Flipendo) || !IsHarrysSpell(Spell,Harry) )
 				continue;
-			if( !TestAndSet(Spell,AF_Talked) )
-			{
-				// Diagnostics: first sighting of each Flipendo.
-				FLOAT Best = 1e9f;
-				AActor* BestStudent = NULL;
-				for( INT j=0; j<Level->Actors.Num(); j++ )
-				{
-					AActor* Other = Level->Actors(j);
-					if( Other && !Other->bDeleteMe && IsStudent(Other) )
-					{
-						const FLOAT D = (Other->Location-Spell->Location).Size();
-						if( D<Best ) { Best = D; BestStudent = Other; }
-					}
-				}
-				RpgLog( TEXT("flipendo %s owner=%s nearest student %s at %i"), Spell->GetName(),
-					Spell->Owner ? Spell->Owner->GetName() : TEXT("None"), BestStudent ? BestStudent->GetName() : TEXT("none"), appRound(Best) );
-			}
 			for( INT j=0; j<Level->Actors.Num(); j++ )
 			{
 				AActor* Other = Level->Actors(j);
@@ -2084,7 +2214,7 @@ public:
 				else if( Type==CR_Tentacula )
 					DecrementInt( Target, TEXT("NumLimbs"), 1 );
 			}
-			if( HasPerk(PERK_Harvest) && (Type==CR_Bowtruckle || Type==CR_SpikyPlant || Type==CR_Tentacula || Type==CR_Horklump) )
+			if( HasPerk(PERK_Harvest) && (Type==CR_Bowtruckle || Type==CR_SpikyPlant || Type==CR_Tentacula || Type==CR_Horklump) && !TestAndSet(Target,AF_Harvested) )
 				QueueBeans( Target->Location, 2 );
 			return;
 		}
@@ -3024,14 +3154,33 @@ public:
 			return;
 		}
 
+		// A cutscene starts: undo every spell and reaction so no one appears
+		// in it frozen, floating or as a pig.
+		{
+			AActor* Hud = Harry->myHUD;
+			const UBOOL bCut = Hud && (GetBoolProp(Hud,TEXT("bCutSceneMode")) || GetBoolProp(Hud,TEXT("bCutPopupMode")));
+			if( bCut && !bWasCutscene )
+			{
+				EndAllSpells( Engine );
+				EndWorld();
+			}
+			bWasCutscene = bCut;
+		}
+
 		for( INT i=Feed.Num()-1; i>=0; i-- )
 		{
 			Feed(i).Age += DeltaSeconds;
-			if( Feed(i).Age > 3.2f )
+			if( Feed(i).Age > 4.2f )
 				Feed.Remove( i );
 		}
 		BannerAge += DeltaSeconds;
 		HouseHudTimer = Max( 0.f, HouseHudTimer-DeltaSeconds );
+		XpFloatAge += DeltaSeconds;
+		XpShowTimer = Max( 0.f, XpShowTimer-DeltaSeconds );
+		for( INT h=0; h<HOUSE_MAX; h++ )
+			HouseFloatAge[h] += DeltaSeconds;
+		if( HintTimer<90.f && !bPausedHint )
+			HintTimer += DeltaSeconds;
 		NoticeTime = Max( 0.f, NoticeTime-DeltaSeconds );
 		if( Menu!=MENU_None )
 			PreviewYaw += DeltaSeconds*2600.f;
@@ -3050,6 +3199,7 @@ public:
 			while( SecondTimer>=1.f )
 			{
 				SecondTimer -= 1.f;
+				State.DayPlaySeconds++;
 				if( State.DetentionSeconds>0 && --State.DetentionSeconds==0 )
 					AddFeed( TEXT("Detention is over. Vendors will trade with you again."), FColor(200,230,255,255) );
 				if( State.FelixSeconds>0 && --State.FelixSeconds==0 )
@@ -3121,18 +3271,24 @@ public:
 		const TCHAR* MapName = Engine->GLevel->URL.Map.Len() ? *Engine->GLevel->URL.Map : TEXT("");
 		if( bLoadedFromSlot )
 			bLoadedFromSlot = 0;
-		else if( appStrfind(MapName,TEXT("PrivetDr")) || appStrfind(MapName,TEXT("privetdr")) )
+		else if( (appStrfind(MapName,TEXT("PrivetDr")) || appStrfind(MapName,TEXT("privetdr")))
+			&& (PrevMap.Len()==0 || appStrstr(*PrevMap,TEXT("Startup")) || appStrstr(*PrevMap,TEXT("startup"))) )
 		{
 			State.Reset();
 			Sanitize();
 			SpellsKnownNotified = -1;
 			RpgLog( TEXT("new game, RPG progress reset") );
 		}
-		else if( appStrstr(MapName,TEXT("_hub")) && RpgClock-LastDayClock > 300.f )
+		else if( appStrstr(MapName,TEXT("_hub")) && RpgClock-LastDayClock > 300.f
+			&& (State.DayPlaySeconds>=1200 || (State.DayTaskDone && State.DayPlaySeconds>=420)) )
 		{
-			// A new school day starts when you come back to a hub after a while.
+			// A new school day starts back in a hub after real play: 20 minutes,
+			// or 7 minutes once a house task is done.
 			LastDayClock = RpgClock;
 			State.Day++;
+			State.DayPlaySeconds = 0;
+			State.DayTaskDone = 0;
+			TalkedToday.Empty();
 		}
 		if( State.StockDay!=State.Day )
 		{
@@ -3140,6 +3296,7 @@ public:
 			appMemzero( State.StockUsed, sizeof(State.StockUsed) );
 		}
 		RpgLog( TEXT("level %s, day %i"), MapName, State.Day );
+		PrevMap = MapName;
 	}
 
 	void PreSave( UGameEngine* Engine )

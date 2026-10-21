@@ -96,8 +96,22 @@ public:
 	FString FitText( UFont* Font, const TCHAR* Str, FLOAT MaxW );
 	UFont* FontToFit( const TCHAR* const* Labels, INT Count, FLOAT MaxW, FLOAT Pad );
 	void Tile( const FRpgRect& R, UBOOL bSelected, UBOOL bHover, FColor Accent );
+	void TileLabel( const FRpgRect& R, const TCHAR* Label, FColor Color );
 	void Pips( FLOAT X, FLOAT Y, INT Filled, INT Total, FLOAT Size );
 	void Bar( const FRpgRect& R, FLOAT Pct, FColor Fill );
+
+	// Modern overlay kit (dark glass, gold hairlines). Sizes are given in
+	// 1080p pixels through P().
+	FLOAT P( FLOAT Px1080 ) const { return Px1080*S/2.25f; }
+	void Scrim( const FRpgRect& R, FLOAT Keep );              // darken what is behind
+	void Glass( const FRpgRect& R, UBOOL bAccent=0 );          // scrim + tint + hairline
+	void Chamfer( const FRpgRect& R, FLOAT Cut, FColor Color ); // "rounded" filled rect
+	void Brackets( const FRpgRect& R, FLOAT Len, FLOAT Thick, FColor Color );
+	FLOAT Keycap( FLOAT X, FLOAT Y, const TCHAR* Key, UBOOL bDraw=1 ); // returns width
+	// "[Key] Verb   [Key] Verb" in one glass pill centred on CX; returns its rect.
+	FRpgRect Prompt( FLOAT CX, FLOAT Y, const TCHAR* const* Keys, const TCHAR* const* Verbs, INT Count, const TCHAR* Lead=NULL );
+	UFont* FontCaption;     // Avenir Next Medium, small
+	UFont* FontNum;         // Avenir Next Bold, numbers
 
 	// 3D.
 	UBOOL ScreenToWorld( FLOAT SX, FLOAT SY, FLOAT Depth, FVector& Out );

@@ -827,6 +827,25 @@
 		return ClassChainIsAny( A, TEXT("Jellybean|WizardCardIcon|ChallengeStar|PotionIngredients|WiggenWell") ) && !A->Owner && GetStateName(A)!=PickupProp;
 	}
 
+	// Loose things and animals: any small game prop or animal that moves,
+	// but nothing the story or the level needs to stay put.
+	UBOOL IsLevitatable( AActor* A )
+	{
+		if( !A->Mesh || A->Tag==FName(TEXT("HP2RpgActor")) || A->bNoDelete || IsHolding(A) || IsStaff(A) )
+			return 0;
+		if( A->IsA(AMover::StaticClass()) || A->IsA(ATriggers::StaticClass()) || A->IsA(AInventory::StaticClass()) )
+			return 0;
+		// Puzzle and story props (chests, spell targets, spawners, save books,
+		// brewing stations, stars) keep working only if they stay where they are.
+		if( ClassChainIsAny( A, TEXT("chestbronze|bronzecauldron|CauldronMixing|GenericSpawner|SpongifyTarget|SavePoint|BooksSaveBook|ChallengeStar|GnomeHome|Quaffle|WizDuelKiosk") ) )
+			return 0;
+		if( A->Event!=NAME_None || GetBoolProp(A,TEXT("bPersistent")) || GetByteProp(A,TEXT("eVulnerableToSpell"),0)!=0 )
+			return 0;
+		if( ClassChainIsAny( A, TEXT("Pig|GNOME|HProp") ) )
+			return A->CollisionRadius<=60.f && A->CollisionHeight<=90.f;
+		return 0;
+	}
+
 	// What the spell can be aimed at.
 	UBOOL AimAccepts( INT Spell, AActor* A )
 	{
@@ -835,7 +854,7 @@
 		const UBOOL bStudent = (IsStudent(A) || IsTroublemaker(A)) && !IsHolding(A);
 		switch( Spell )
 		{
-			case SP2_Leviosa:  return bCreature || (bStudent && !IsTransfigured(A)) || ClassChainIsAny( A, TEXT("HFlipendo|chestbronze|bronzecauldron|GenericSpawner") );
+			case SP2_Leviosa:  return bCreature || (bStudent && !IsTransfigured(A)) || IsLevitatable(A);
 			case SP2_Glacius:  return bCreature;
 			case SP2_Transfig: return bStudent && !IsTransfigured(A);
 			default:           return 0;
@@ -998,61 +1017,82 @@
 		return TEXT("");
 	}
 
+	// Screen box around an actor (its collision cylinder).
+	UBOOL ActorScreenBox( AActor* A, FRpgRect& Out )
+	{
+		FLOAT X1, Y1, X2, Y2;
+		if( !WorldToScreen(A->Location + FVector(0,0,A->CollisionHeight), X1, Y1) || !WorldToScreen(A->Location - FVector(0,0,A->CollisionHeight), X2, Y2) )
+			return 0;
+		const FLOAT H = Max( Ui.P(48.f), Abs(Y2-Y1) );
+		const FLOAT W = Max( Ui.P(48.f), H*Clamp(A->CollisionRadius/Max(1.f,A->CollisionHeight), 0.5f, 1.4f) );
+		const FLOAT CX = (X1+X2)*0.5f, CY = (Y1+Y2)*0.5f;
+		Out = FRpgRect( CX-W*0.5f, CY-H*0.5f, W, H );
+		return 1;
+	}
+
 	void DrawAim( APlayerPawn* Harry )
 	{
 		UCanvas* C = Ui.C;
-		const FLOAT S = Ui.S;
+		const FColor Text1( 240,238,230,255 ), Dim( 110,116,146,255 );
+		const FLOAT T = Max( 1.f, Ui.P(2.f) );
+		const FLOAT PromptY = C->ClipY - Ui.P(160.f);
 		if( !bSelOurs )
 		{
-			Ui.Text( Ui.FontModern, C->ClipX*0.5f, C->ClipY*0.70f, FColor(220,224,240,255), TEXT("Wand: look at a target and left click (Flipendo, Alohomora, Lumos ...)"), RALIGN_Center );
+			const TCHAR* Keys[1] = { TEXT("LMB") };
+			const TCHAR* Verbs[1] = { TEXT("Cast your wand spell") };
+			Ui.Prompt( C->ClipX*0.5f, PromptY, Keys, Verbs, 1 );
 			return;
 		}
 		const FSpell2Def& D = Spell2( SelSpell );
 		UTexture* Icon = LoadTex( D.Icon );
-		const FLOAT Pulse = 0.75f + 0.25f*(FLOAT)appSin( RpgClock*7.f );
 		FLiftEntry* L = ControlledLift();
 		if( L )
 		{
-			FLOAT SX, SY;
-			if( Icon && WorldToScreen(L->Actor->Location, SX, SY) )
+			FRpgRect Box;
+			if( ActorScreenBox(L->Actor, Box) )
 			{
-				const FLOAT Sz = 34*S;
-				Ui.Icon( Icon, FRpgRect(SX-Sz*0.5f, SY-Sz*0.5f, Sz, Sz), Pulse );
+				Ui.Brackets( Box, Ui.P(12.f), T, D.Color );
+				if( Icon )
+					Ui.Icon( Icon, FRpgRect(Box.X+Box.W*0.5f-Ui.P(14.f), Box.Y-Ui.P(36.f), Ui.P(28.f), Ui.P(28.f)) );
+				// Distance gauge.
+				const FRpgRect Gauge( Box.X+Box.W+Ui.P(8.f), Box.Y+Box.H*0.5f-Ui.P(40.f), Max(2.f,Ui.P(4.f)), Ui.P(80.f) );
+				Ui.Scrim( Gauge, 0.4f );
+				const FLOAT Pct = Clamp( (L->HoldDist-120.f)/580.f, 0.f, 1.f );
+				Ui.Rect( FRpgRect(Gauge.X, Gauge.Y+Gauge.H*(1.f-Pct), Gauge.W, Gauge.H*Pct), D.Color );
 			}
-			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, C->ClipY*0.70f, D.Color, TEXT("Move the mouse to steer"), RALIGN_Center );
-			Ui.Text( Ui.FontModern, C->ClipX*0.5f, C->ClipY*0.70f + Ui.TextHeight(Ui.FontModernBold), FColor(220,224,240,255), TEXT("Wheel: closer / further    Left click: throw    Release right: drop"), RALIGN_Center );
+			const TCHAR* Keys[4] = { TEXT("Mouse"), TEXT("Wheel"), TEXT("LMB"), TEXT("Release RMB") };
+			const TCHAR* Verbs[4] = { TEXT("Steer"), TEXT("Distance"), TEXT("Throw"), TEXT("Drop") };
+			Ui.Prompt( C->ClipX*0.5f, PromptY, Keys, Verbs, 4 );
 			return;
 		}
 		if( !SpellNeedsTarget(SelSpell) )
 		{
-			if( Icon )
-			{
-				const FLOAT Sz = 30*S;
-				Ui.Icon( Icon, FRpgRect(C->ClipX*0.5f-Sz*0.5f, C->ClipY*0.42f-Sz*0.5f, Sz, Sz), Pulse );
-			}
-			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, C->ClipY*0.42f + 20*S, D.Color, *FString::Printf(TEXT("Click to cast %s"), D.Name), RALIGN_Center );
+			const TCHAR* Keys[1] = { TEXT("LMB") };
+			const FString Verb = FString::Printf( TEXT("Cast %s"), D.Name );
+			const TCHAR* Verbs[1] = { *Verb };
+			Ui.Prompt( C->ClipX*0.5f, C->ClipY*0.62f, Keys, Verbs, 1 );
 			return;
 		}
-		FLOAT SX, SY;
-		if( AimTarget && IsInLevel(AimTarget) && WorldToScreen(AimTarget->Location + FVector(0,0,AimTarget->CollisionHeight*0.4f), SX, SY) )
+		FRpgRect Box;
+		if( AimTarget && IsInLevel(AimTarget) && ActorScreenBox(AimTarget, Box) )
 		{
-			const FLOAT Sz = 40*S;
+			Ui.Brackets( Box, Ui.P(12.f), T, D.Color );
 			if( Icon )
-				Ui.Icon( Icon, FRpgRect(SX-Sz*0.5f, SY-Sz*0.5f, Sz, Sz), Pulse );
-			Ui.Border( FRpgRect(SX-Sz*0.6f, SY-Sz*0.6f, Sz*1.2f, Sz*1.2f), Max(1.f,S*1.5f), D.Color );
+				Ui.Icon( Icon, FRpgRect(Box.X+Box.W*0.5f-Ui.P(14.f), Box.Y-Ui.P(36.f), Ui.P(28.f), Ui.P(28.f)) );
 			const FString Label = AimLabel( AimTarget );
-			if( Label.Len() )
-				Ui.Text( Ui.FontModernBold, SX, SY+Sz*0.65f, FColor(240,240,248,255), *Label, RALIGN_Center );
-			Ui.Text( Ui.FontModern, SX, SY+Sz*0.65f+Ui.TextHeight(Ui.FontModernBold), D.Color, TEXT("Left click to cast"), RALIGN_Center );
+			const TCHAR* Keys[1] = { TEXT("LMB") };
+			const TCHAR* Verbs[1] = { TEXT("Cast") };
+			Ui.Prompt( Box.X+Box.W*0.5f, Box.Y+Box.H+Ui.P(8.f), Keys, Verbs, 1, Label.Len() ? *Label : NULL );
 		}
 		else
 		{
-			// Plain reticle at the view centre.
-			const FLOAT Sz = 10*S;
-			const FColor Dim( 200, 200, 220, 255 );
-			Ui.Rect( FRpgRect(C->ClipX*0.5f-Sz, C->ClipY*0.42f-1*S, Sz*2, 2*S), Dim );
-			Ui.Rect( FRpgRect(C->ClipX*0.5f-1*S, C->ClipY*0.42f-Sz, 2*S, Sz*2), Dim );
-			Ui.Text( Ui.FontModern, C->ClipX*0.5f, C->ClipY*0.42f+Sz+4*S, Dim, *FString::Printf(TEXT("%s: aim at a target"), D.Name), RALIGN_Center );
+			// Idle reticle at the view centre (where the aim ray points).
+			const FLOAT R = Ui.P(18.f);
+			const FRpgRect Ret( C->ClipX*0.5f-R, C->ClipY*0.5f-R, R*2, R*2 );
+			Ui.Brackets( FRpgRect(Ret.X+1, Ret.Y+1, Ret.W, Ret.H), Ui.P(10.f), T, FColor(0,0,0,255) );
+			Ui.Brackets( Ret, Ui.P(10.f), T, Text1 );
+			Ui.Rect( FRpgRect(C->ClipX*0.5f-T, C->ClipY*0.5f-T, T*2, T*2), Text1 );
+			Ui.Text( Ui.FontCaption, C->ClipX*0.5f, Ret.Y+Ret.H+Ui.P(8.f), Dim, TEXT("No target"), RALIGN_Center );
 		}
 	}
 
@@ -1084,8 +1124,6 @@
 			CamDir = C->Frame->Coords.ZAxis;
 			bCamValid = 1;
 		}
-		if( bAiming )
-			DrawAim( Harry );
 
 		// Arresto: blue wash over the world.
 		if( ArrestoLeft>0.f && Ui.White )
@@ -1119,52 +1157,71 @@
 		// Hotbar, bottom centre; hidden while someone speaks (the subtitle sits there).
 		if( IsTalking() )
 			return;
-		const FLOAT Slot = 40*S, Gap = 6*S;
-		const FLOAT W = (SP2_MAX+1)*Slot + SP2_MAX*Gap;
-		const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - 18*S;
 		{
-			// The wand: the game's own spells.
-			const FRpgRect R( X0, Y0, Slot, Slot );
-			Ui.Rect( R, !bSelOurs ? FColor(34,40,78,255) : FColor(12,16,36,255) );
-			Ui.Border( R, !bSelOurs ? Max(2.f,S*2.5f) : Max(1.f,S), !bSelOurs ? RpgGoldBright : FColor(170,150,110,255) );
-			UTexture* Icon = LoadTex( TEXT("SpellShapes.Shapes.SPSflipendo") );
-			if( Icon )
-				Ui.Icon( Icon, R.Inset(5*S), 1.f );
-		}
-		for( INT i=0; i<SP2_MAX; i++ )
-		{
-			const FSpell2Def& D = Spell2( i );
-			const FRpgRect R( X0 + (i+1)*(Slot+Gap), Y0, Slot, Slot );
-			const UBOOL bOn = SpellUnlocked( i );
-			const UBOOL bSel = bSelOurs && i==SelSpell && bOn;
-			Ui.Rect( R, bSel ? FColor(34,40,78,255) : FColor(12,16,36,255) );
-			Ui.Border( R, bSel ? Max(2.f,S*2.5f) : Max(1.f,S), bSel ? RpgGoldBright : (bOn ? (SpellCooldown[i]>0.f ? FColor(80,84,110,255) : D.Color) : FColor(50,52,70,255)) );
-			UTexture* Icon = LoadTex( D.Icon );
-			if( Icon )
-				Ui.Icon( Icon, R.Inset(5*S), bOn ? (SpellCooldown[i]>0.f ? 0.35f : 1.f) : 0.15f );
-			if( bOn && SpellCooldown[i]>0.f )
+			const FColor Line( 46,56,96,255 ), GoldHi( 255,222,130,255 ), Text2( 182,186,206,255 );
+			const FLOAT Slot = Ui.P(56.f), Gap = Ui.P(8.f), Div = Ui.P(16.f);
+			// Only spells you know are shown; the bar grows as you learn.
+			INT Shown[SP2_MAX], NumShown = 0;
+			for( INT i=0; i<SP2_MAX; i++ )
+				if( SpellUnlocked(i) )
+					Shown[NumShown++] = i;
+			const FLOAT W = Slot + (NumShown ? Div + NumShown*Slot + (NumShown-1)*Gap : 0.f);
+			const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - Ui.P(32.f);
+			Ui.Glass( FRpgRect(X0-Ui.P(10.f), Y0-Ui.P(10.f), W+Ui.P(20.f), Slot+Ui.P(20.f)) );
+			for( INT k=-1; k<NumShown; k++ )
 			{
-				const FLOAT Pct = SpellCooldown[i]/D.Cooldown;
-				Ui.Rect( FRpgRect(R.X+2*S, R.Y+R.H-2*S-(R.H-4*S)*Pct, R.W-4*S, (R.H-4*S)*Pct), FColor(30,34,60,255) );
-				Ui.Text( Ui.FontModernBold, R.X+R.W*0.5f, R.Y+(R.H-Ui.TextHeight(Ui.FontModernBold))*0.5f, FColor(230,230,240,255), *FString::Printf(TEXT("%i"), appCeil(SpellCooldown[i])), RALIGN_Center );
+				const UBOOL bWand = k<0;
+				const INT i = bWand ? -1 : Shown[k];
+				const UBOOL bSel = bWand ? !bSelOurs : (bSelOurs && SelSpell==i);
+				FLOAT X = bWand ? X0 : X0 + Slot + Div + k*(Slot+Gap);
+				FRpgRect R( X, Y0 - (bSel ? Ui.P(6.f) : 0.f), Slot, Slot );
+				if( bSel && Ui.GlowGold )
+					Ui.Glow( Ui.GlowGold, FRpgRect(R.X-Slot*0.25f, R.Y-Slot*0.25f, Slot*1.5f, Slot*1.5f), 0.35f );
+				Ui.Chamfer( R, Ui.P(3.f), bSel ? FColor(32,42,82,255) : FColor(12,16,34,255) );
+				Ui.Border( R, bSel ? Max(1.f,Ui.P(2.f)) : Max(1.f,Ui.P(1.f)), bSel ? GoldHi : Line );
+				if( bSel )
+					Ui.Brackets( FRpgRect(R.X-Ui.P(4.f), R.Y-Ui.P(4.f), R.W+Ui.P(8.f), R.H+Ui.P(8.f)), Ui.P(8.f), Max(1.f,Ui.P(2.f)), GoldHi );
+				UTexture* Icon = LoadTex( bWand ? TEXT("SpellShapes.Shapes.SPSflipendo") : Spell2(i).Icon );
+				const FLOAT Cool = bWand ? 0.f : SpellCooldown[i];
+				if( Icon )
+					Ui.Icon( Icon, FRpgRect(R.X+(Slot-Ui.P(40.f))*0.5f, R.Y+(Slot-Ui.P(40.f))*0.5f, Ui.P(40.f), Ui.P(40.f)), Cool>0.f ? 0.45f : 1.f );
+				// Colour strip along the bottom edge.
+				Ui.Rect( FRpgRect(R.X+Ui.P(3.f), R.Y+R.H-Max(1.f,Ui.P(3.f)), R.W-Ui.P(6.f), Max(1.f,Ui.P(3.f))), bWand ? FColor(201,162,74,255) : Spell2(i).Color );
+				if( Cool>0.f )
+				{
+					// Dark sweep from the top, seconds in the middle.
+					const FLOAT Pct = Clamp( Cool/Spell2(i).Cooldown, 0.f, 1.f );
+					Ui.Scrim( FRpgRect(R.X+1, R.Y+1, R.W-2, (R.H-2)*Pct), 0.35f );
+					Ui.Text( Ui.FontNum, R.X+R.W*0.5f, R.Y+(R.H-Ui.TextHeight(Ui.FontNum))*0.5f, FColor(240,238,230,255), *FString::Printf(TEXT("%i"), appCeil(Cool)), RALIGN_Center );
+				}
+				// Key in a small corner keycap, outside the icon.
+				if( !bWand )
+				{
+					const FString Key = FString::Printf( TEXT("%i"), (i+4)%10 );
+					UFont* F = Ui.FontCaption;
+					const FLOAT KS = Ui.P(18.f);
+					const FRpgRect KR( R.X+R.W-KS+Ui.P(4.f), R.Y+R.H-KS+Ui.P(4.f), KS, KS );
+					Ui.Chamfer( KR, Ui.P(2.f), Line );
+					Ui.Chamfer( KR.Inset(Max(1.f,Ui.P(1.f))), Ui.P(2.f), FColor(20,27,54,255) );
+					Ui.Text( F, KR.X+KS*0.5f, KR.Y+(KS-Ui.TextHeight(F))*0.5f, Text2, *Key, RALIGN_Center, 0 );
+				}
+				if( bSel && SelFlash>0.f )
+					Ui.Text( Ui.FontModernBold, R.X+R.W*0.5f, R.Y-Ui.TextHeight(Ui.FontModernBold)-Ui.P(10.f), GoldHi, bWand ? TEXT("Wand") : Spell2(i).Name, RALIGN_Center );
 			}
-			Ui.Text( Ui.FontModern, R.X+3*S, R.Y+1*S, bOn ? FColor(230,230,240,255) : RpgMuted, *FString::Printf(TEXT("%i"), (i+4)%10), RALIGN_Left );
-			if( !bOn )
-				Ui.Text( Ui.FontModern, R.X+R.W*0.5f, R.Y+R.H-Ui.TextHeight(Ui.FontModern)-1*S, RpgMuted, *FString::Printf(TEXT("Lv%i"), D.UnlockLevel), RALIGN_Center );
+			// Controls hint: first minute and a half, or when picking a spell.
+			if( !bAiming && (HintTimer<90.f || SelFlash>0.f) && NumShown && !NearNpc && ShieldLeft<=0.f && ArrestoLeft<=0.f )
+			{
+				const TCHAR* Keys[3] = { TEXT("Wheel"), TEXT("RMB"), TEXT("LMB") };
+				const TCHAR* Verbs[3] = { TEXT("Pick"), TEXT("Aim"), TEXT("Cast") };
+				Ui.Prompt( C->ClipX*0.5f, Y0-Ui.P(70.f), Keys, Verbs, 3 );
+			}
+			if( ShieldLeft>0.f || ArrestoLeft>0.f )
+			{
+				const UBOOL bShield = ShieldLeft>0.f;
+				const FString T = FString::Printf( TEXT("%s %.1f"), bShield ? TEXT("Protego") : TEXT("Arresto Momentum"), bShield ? ShieldLeft : ArrestoLeft );
+				Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, Y0-Ui.P(46.f), Spell2(bShield ? SP2_Protego : SP2_Arresto).Color, *T, RALIGN_Center );
+			}
 		}
-		// Picked spell: name after a change, a short hint otherwise.
-		if( (!bSelOurs || SpellUnlocked(SelSpell)) && !bAiming && ShieldLeft<=0.f && ArrestoLeft<=0.f )
-		{
-			const FLOAT HY = Y0-Ui.TextHeight(Ui.FontModernBold)-4*S;
-			if( SelFlash>0.f )
-				Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, HY, bSelOurs ? Spell2(SelSpell).Color : RpgGoldBright, bSelOurs ? Spell2(SelSpell).Name : TEXT("Wand"), RALIGN_Center );
-			else if( !bSelOurs )
-				Ui.Text( Ui.FontModern, C->ClipX*0.5f, Y0-Ui.TextHeight(Ui.FontModern)-4*S, FColor(170,176,200,255), TEXT("Wand: left click as usual    Scroll: pick a new spell"), RALIGN_Center );
-			else
-				Ui.Text( Ui.FontModern, C->ClipX*0.5f, Y0-Ui.TextHeight(Ui.FontModern)-4*S, FColor(170,176,200,255), TEXT("Scroll: pick spell    Hold right mouse: aim    Left click: cast"), RALIGN_Center );
-		}
-		if( ShieldLeft>0.f )
-			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, Y0-Ui.TextHeight(Ui.FontModernBold)-4*S, Spell2(SP2_Protego).Color, *FString::Printf(TEXT("Protego %.1f"), ShieldLeft), RALIGN_Center );
-		else if( ArrestoLeft>0.f )
-			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, Y0-Ui.TextHeight(Ui.FontModernBold)-4*S, Spell2(SP2_Arresto).Color, *FString::Printf(TEXT("Arresto Momentum %.1f"), ArrestoLeft), RALIGN_Center );
+		if( bAiming )
+			DrawAim( Harry );
 	}

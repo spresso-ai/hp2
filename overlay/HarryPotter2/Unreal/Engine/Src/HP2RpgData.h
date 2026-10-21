@@ -162,7 +162,7 @@ enum EConsumable
 {
 	CON_Potion, CON_FMucus, CON_WBark, CON_Bicorn, CON_Boomslang,
 	CON_BronzeCard, CON_SilverCard, CON_Lesson, CON_Respec, CON_ChocFrog,
-	CON_Felix, CON_Pardon, CON_MAX
+	CON_Felix, CON_Pardon, CON_Nimbus, CON_QArmor, CON_MAX
 };
 
 struct FConsumable
@@ -191,6 +191,8 @@ static const FConsumable GConsumables[CON_MAX] =
 	{ TEXT("Chocolate Frog"), TEXT("Restores all your health right now."), 30, 1, 4, TEXT("HP2_Menu.Icons.HP2MenuJellybeans"), TEXT("HProps.skChocolateFrogMesh"), 0.25f },
 	{ TEXT("Felix Felicis"), TEXT("Liquid luck: double bean find and XP for 5 minutes."), 300, 1, 1, TEXT("HP2_Menu.Icons.HP2WiggenwellPotion"), TEXT("HProps.skBottlePotionOrangeMesh"), 1.f },
 	{ TEXT("Detention Pardon"), TEXT("A word from a prefect. Clears 60 trouble."), 120, 1, 1, TEXT("HP2_Menu.Icons.HP2SilverCardKey"), TEXT("HProps.skBooksSmallBookMesh"), 1.f },
+	{ TEXT("Nimbus 2001"), TEXT("The fastest broom money can buy. Faster flying in Quidditch."), 700, 1, 1, TEXT("HP2_Menu.Icons.HP2Nimbus2001"), TEXT("HProps.skBroomQudditchMesh"), 1.f },
+	{ TEXT("Quidditch Armour"), TEXT("Padding for the pitch. Bludgers hurt less in Quidditch."), 500, 1, 1, TEXT("HP2_Menu.Icons.HP2QuidditchArmor"), TEXT("HProps.skQuidArmorMesh"), 1.f },
 };
 
 /*-----------------------------------------------------------------------------
@@ -229,7 +231,7 @@ static const FVendorDef GVendors[VEN_MAX] =
 {
 	{ TEXT("Fred & George"), TEXT("Psst! Best prices in Hogwarts. Probably."), TEXT("FredWeasley"),
 		TABBIT(TAB_Cards)|TABBIT(TAB_Clothes)|TABBIT(TAB_Hats)|TABBIT(TAB_Gear)|TABBIT(TAB_Pets)|TABBIT(TAB_Magic)|TABBIT(TAB_Sell),
-		CONBIT(CON_BronzeCard)|CONBIT(CON_SilverCard)|CONBIT(CON_ChocFrog)|CONBIT(CON_Felix), NULL, 6, 0 },
+		CONBIT(CON_BronzeCard)|CONBIT(CON_SilverCard)|CONBIT(CON_ChocFrog)|CONBIT(CON_Felix)|CONBIT(CON_Nimbus)|CONBIT(CON_QArmor), NULL, 6, 0 },
 	{ TEXT("Madam Pomfrey"), TEXT("Sit down, Potter. What hurts this time?"), TEXT("MadamePomfrey"),
 		TABBIT(TAB_Potions)|TABBIT(TAB_Ingredients)|TABBIT(TAB_Magic)|TABBIT(TAB_Sell),
 		CONBIT(CON_Potion)|CONBIT(CON_FMucus)|CONBIT(CON_WBark)|CONBIT(CON_ChocFrog)|CONBIT(CON_Respec), NULL, 0, 0 },

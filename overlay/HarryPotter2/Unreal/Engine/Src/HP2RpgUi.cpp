@@ -104,6 +104,8 @@ void FRpgUi::Resolve()
 	FontModern = MakeNativeFont( FontBody, TEXT("AvenirNext-Medium"), 13 );
 	FontModernBold = MakeNativeFont( FontBody, TEXT("AvenirNext-DemiBold"), 14 );
 	FontModernBig = MakeNativeFont( FontItem, TEXT("AvenirNext-Bold"), 26 );
+	FontCaption = MakeNativeFont( FontBody, TEXT("AvenirNext-Medium"), 11 );
+	FontNum = MakeNativeFont( FontBody, TEXT("AvenirNext-Bold"), 17 );
 	for( INT i=0; i<RSND_MAX; i++ )
 		for( INT p=0; p<3 && GSoundPaths[i][p] && !Sounds[i]; p++ )
 			Sounds[i] = (USound*)LoadRooted( USound::StaticClass(), GSoundPaths[i][p] );
@@ -157,6 +159,83 @@ void FRpgUi::Rect( const FRpgRect& R, FColor Color )
 		return;
 	C->DrawTile( White, R.X, R.Y, R.W, R.H, 0, 0, 1, 1, NULL, 1.f,
 		FPlane(Color.R/255.f,Color.G/255.f,Color.B/255.f,1.f), FPlane(0,0,0,0), PF_NoSmooth );
+}
+
+void FRpgUi::Scrim( const FRpgRect& R, FLOAT Keep )
+{
+	if( !White || R.W<=0 || R.H<=0 )
+		return;
+	C->DrawTile( White, R.X, R.Y, R.W, R.H, 0, 0, 1, 1, NULL, 1.f,
+		FPlane(Keep,Keep,Keep*1.08f,1.f), FPlane(0,0,0,0), PF_Modulated|PF_NoSmooth );
+}
+
+void FRpgUi::Glass( const FRpgRect& R, UBOOL bAccent )
+{
+	Scrim( R, 0.30f );
+	if( White )
+		C->DrawTile( White, R.X, R.Y, R.W, R.H, 0, 0, 1, 1, NULL, 1.f,
+			FPlane(0.03f,0.04f,0.09f,1.f), FPlane(0,0,0,0), PF_Translucent|PF_NoSmooth );
+	const FLOAT T = Max( 1.f, P(1.f) );
+	Border( R, T, FColor(46,56,96,255) );
+	if( bAccent )
+		Rect( FRpgRect(R.X, R.Y, R.W, Max(1.f,P(2.f))), FColor(201,162,74,255) );
+}
+
+void FRpgUi::Chamfer( const FRpgRect& R, FLOAT Cut, FColor Color )
+{
+	Rect( FRpgRect(R.X+Cut, R.Y, R.W-2*Cut, R.H), Color );
+	Rect( FRpgRect(R.X, R.Y+Cut, Cut, R.H-2*Cut), Color );
+	Rect( FRpgRect(R.X+R.W-Cut, R.Y+Cut, Cut, R.H-2*Cut), Color );
+}
+
+void FRpgUi::Brackets( const FRpgRect& R, FLOAT Len, FLOAT T, FColor Color )
+{
+	Len = Min( Len, Min(R.W,R.H)*0.5f );
+	Rect( FRpgRect(R.X, R.Y, Len, T), Color );                     Rect( FRpgRect(R.X, R.Y, T, Len), Color );
+	Rect( FRpgRect(R.X+R.W-Len, R.Y, Len, T), Color );             Rect( FRpgRect(R.X+R.W-T, R.Y, T, Len), Color );
+	Rect( FRpgRect(R.X, R.Y+R.H-T, Len, T), Color );               Rect( FRpgRect(R.X, R.Y+R.H-Len, T, Len), Color );
+	Rect( FRpgRect(R.X+R.W-Len, R.Y+R.H-T, Len, T), Color );       Rect( FRpgRect(R.X+R.W-T, R.Y+R.H-Len, T, Len), Color );
+}
+
+FLOAT FRpgUi::Keycap( FLOAT X, FLOAT Y, const TCHAR* Key, UBOOL bDraw )
+{
+	UFont* F = FontCaption ? FontCaption : FontModern;
+	const FLOAT H = P(26.f);
+	const FLOAT W = Max( H, TextWidth(F,Key) + P(14.f) );
+	if( bDraw )
+	{
+		const FRpgRect R( X, Y, W, H );
+		Chamfer( R, P(3.f), FColor(46,56,96,255) );
+		Chamfer( R.Inset(Max(1.f,P(1.f))), P(2.f), FColor(20,27,54,255) );
+		Text( F, X+W*0.5f, Y+(H-TextHeight(F))*0.5f, FColor(240,238,230,255), Key, RALIGN_Center, 0 );
+	}
+	return W;
+}
+
+FRpgRect FRpgUi::Prompt( FLOAT CX, FLOAT Y, const TCHAR* const* Keys, const TCHAR* const* Verbs, INT Count, const TCHAR* Lead )
+{
+	UFont* F = FontModern;
+	const FLOAT Pad = P(12.f), Gap = P(8.f), Sep = P(20.f), H = P(40.f);
+	FLOAT W = Pad*2;
+	if( Lead && *Lead )
+		W += TextWidth( FontModernBold, Lead ) + Sep;
+	for( INT i=0; i<Count; i++ )
+		W += Keycap( 0, 0, Keys[i], 0 ) + Gap + TextWidth( F, Verbs[i] ) + (i<Count-1 ? Sep : 0.f);
+	const FRpgRect R( CX-W*0.5f, Y, W, H );
+	Glass( R );
+	FLOAT X = R.X + Pad;
+	if( Lead && *Lead )
+	{
+		Text( FontModernBold, X, Y+(H-TextHeight(FontModernBold))*0.5f, FColor(240,238,230,255), Lead, RALIGN_Left, 0 );
+		X += TextWidth( FontModernBold, Lead ) + Sep;
+	}
+	for( INT i=0; i<Count; i++ )
+	{
+		X += Keycap( X, Y+(H-P(26.f))*0.5f, Keys[i] ) + Gap;
+		Text( F, X, Y+(H-TextHeight(F))*0.5f, FColor(182,186,206,255), Verbs[i], RALIGN_Left, 0 );
+		X += TextWidth( F, Verbs[i] ) + Sep;
+	}
+	return R;
 }
 
 void FRpgUi::Border( const FRpgRect& R, FLOAT T, FColor Color )
@@ -396,10 +475,24 @@ UBOOL FRpgUi::Tab( const FRpgRect& R, const TCHAR* Label, UBOOL bActive, const v
 	return Clicked( R, Id );
 }
 
+// Flat tile: rarity/accent as a strip on top, gold border and corner
+// brackets when selected.
 void FRpgUi::Tile( const FRpgRect& R, UBOOL bSelected, UBOOL bHover, FColor Accent )
 {
-	Rect( R, bSelected ? RpgTileFillSelected : (bHover ? RpgTileFillHover : RpgTileFill) );
-	Border( R, Max(1.f,S*(bSelected?2.f:1.f)), bSelected ? RpgParchment : Accent );
+	Rect( R, bSelected ? FColor(32,42,82,255) : (bHover ? FColor(26,34,66,255) : FColor(20,27,54,255)) );
+	Border( R, bSelected ? Max(1.f,P(2.f)) : Max(1.f,P(1.f)), bSelected ? FColor(255,222,130,255) : (bHover ? FColor(201,162,74,255) : FColor(46,56,96,255)) );
+	Rect( FRpgRect(R.X+P(2.f), R.Y+P(2.f), R.W-P(4.f), Max(1.f,P(3.f))), Accent );
+	if( bSelected )
+		Brackets( FRpgRect(R.X-P(4.f), R.Y-P(4.f), R.W+P(8.f), R.H+P(8.f)), P(10.f), Max(1.f,P(2.f)), FColor(255,222,130,255) );
+}
+
+void FRpgUi::TileLabel( const FRpgRect& R, const TCHAR* Label, FColor Color )
+{
+	UFont* F = FontModern;
+	const FLOAT H = TextHeight( F ) + P(8.f);
+	const FRpgRect Band( R.X+P(2.f), R.Y+R.H-H-P(2.f), R.W-P(4.f), H );
+	Rect( Band, FColor(12,16,34,255) );
+	Text( F, Band.X+Band.W*0.5f, Band.Y+P(4.f), Color, *FitText(F,Label,Band.W-P(8.f)), RALIGN_Center, 0 );
 }
 
 void FRpgUi::Pips( FLOAT X, FLOAT Y, INT Filled, INT Total, FLOAT Size )

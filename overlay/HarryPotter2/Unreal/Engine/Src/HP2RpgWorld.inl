@@ -185,7 +185,6 @@
 			AddRep( HOUSE_Ravenclaw, 2 );
 			AddRep( HOUSE_Hufflepuff, 2 );
 			AddRep( HOUSE_Slytherin, -2 );
-			State.Counters[CNT_Duels]++; // counts towards duelling feats
 			AddFeed( TEXT("Lesson taught!"), FColor(120,220,140,255), TOAST_Reward, *FString::Printf(TEXT("+%i Gryffindor%s"), Points, bRedHanded ? TEXT(", caught red-handed") : TEXT("")) );
 			RpgLog( TEXT("troublemaker %s taught a lesson (%s)"), Student->GetName(), bRedHanded ? TEXT("red-handed") : TEXT("quiet") );
 			return;
