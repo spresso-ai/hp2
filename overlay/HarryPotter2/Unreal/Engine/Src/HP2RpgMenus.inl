@@ -322,10 +322,22 @@
 				Ui.Play( RSND_Deny, Harry );
 				return;
 			}
-			ApplyConsumable( Harry, O.Id, -1 );
+			// Pay only once the item has really left the inventory.
+			if( !ApplyConsumable( Harry, O.Id, -1 ) )
+			{
+				Speech = TEXT("Hmm, I can't take that right now.");
+				Ui.Play( RSND_Deny, Harry );
+				return;
+			}
 			GiveBeans( Harry, Price );
 			Speech = FString::Printf( TEXT("I'll take that %s. Here's %i beans."), Name, Price );
 			Ui.Play( RSND_Buy, Harry );
+			return;
+		}
+		if( O.Kind==OFFER_Consumable && OwnsGameItem(O.Id) )
+		{
+			Speech = TEXT("You've already got one of those.");
+			Ui.Play( RSND_Deny, Harry );
 			return;
 		}
 		if( O.Kind==OFFER_Consumable && StockLeft(O)<=0 )
@@ -961,16 +973,69 @@
 		Shop.
 	-------------------------------------------------------------------------*/
 
+	// What the buy button can do for an offer, and the reason if not.
+	FString OfferAction( APlayerPawn* Harry, const FOffer& O, UBOOL& bEnabled, FColor& StatusColor, FString& Status )
+	{
+		const INT Price = OfferPrice( O ), Beans = GetBeans( Harry );
+		bEnabled = 1;
+		StatusColor = RpgParchment;
+		Status = FString::Printf( TEXT("%i beans"), Price );
+		if( VendorRefuses() && !(O.Kind==OFFER_Consumable && O.Id==CON_Pardon) )
+		{
+			bEnabled = 0;
+			return TEXT("In detention");
+		}
+		if( O.Kind==OFFER_Cosmetic && IsOwned(O.Id) )
+		{
+			const UBOOL bWearing = State.Equip[GCosmetics[O.Id].Slot]==O.Id;
+			StatusColor = RpgGreen;
+			Status = bWearing ? TEXT("Wearing") : TEXT("Owned");
+			bEnabled = !bWearing;
+			return bWearing ? TEXT("Wearing") : TEXT("Wear");
+		}
+		if( O.Kind==OFFER_Sell )
+		{
+			const INT Have = SellCount( Harry, O.Id );
+			StatusColor = RpgGreen;
+			Status = FString::Printf( TEXT("+%i beans  (have %i)"), Price, Have );
+			bEnabled = Have>0;
+			return Have>0 ? FString::Printf( TEXT("Sell for %i"), Price ) : FString(TEXT("None to sell"));
+		}
+		if( O.Kind==OFFER_Consumable && OwnsGameItem(O.Id) )
+		{
+			StatusColor = RpgGreen;
+			Status = TEXT("Owned");
+			bEnabled = 0;
+			return TEXT("Owned");
+		}
+		if( O.Kind==OFFER_Consumable && StockLeft(O)<=0 )
+		{
+			StatusColor = RpgMuted;
+			Status = TEXT("Sold out");
+			bEnabled = 0;
+			return TEXT("Sold out today");
+		}
+		if( Beans<Price )
+		{
+			StatusColor = RpgRed;
+			bEnabled = 0;
+			return FString::Printf( TEXT("Need %i more beans"), Price-Beans );
+		}
+		return TEXT("Buy");
+	}
+
 	void DrawShop( UGameEngine* Engine, APlayerPawn* Harry )
 	{
 		const FLOAT S = Ui.S;
 		FRpgRect Left, Right;
 		Ui.Screen( Left, Right );
+		// Same calm, flat backdrop as the book.
+		Ui.Rect( FRpgRect(0, 0, Ui.C->ClipX, Ui.C->ClipY), FColor(17,24,32,255) );
 		const FVendorDef& V = GVendors[ShopVendorDef];
 
 		// Left: the vendor in 3D, their name and what they say.
 		const FRpgRect Stage( Left.X, Left.Y, Left.W, Left.H*0.66f );
-		Ui.Rect( Stage, FColor(14,18,46,255) );
+		Ui.Rect( Stage, FColor(29,39,48,255) );
 		if( ShopVendor && !IsInLevel(ShopVendor) )
 			ShopVendor = NULL;
 		// Try-on: a selected outfit, hat or pair of glasses is shown on Harry.
@@ -991,7 +1056,7 @@
 		Ui.Text( Ui.FontTitle, Left.X+Left.W*0.5f, Y, RpgGoldBright, *VendorName, RALIGN_Center );
 		Y += Ui.TextHeight( Ui.FontTitle ) + 6*S;
 		const FRpgRect Bubble( Left.X, Y, Left.W, Left.Y+Left.H - Y - 36*S );
-		Ui.Rect( Bubble, FColor(20,26,62,255) );
+		Ui.Rect( Bubble, FColor(24,33,42,255) );
 		Ui.TextWrapped( Ui.FontBody, Bubble.Inset(8*S), RpgParchment, VendorRefuses() ? TEXT("You're in detention, Potter. No trading until it's over.") : *Speech );
 		DrawBeansLine( Harry, Left.X, Left.Y+Left.H-24*S );
 
@@ -1058,36 +1123,20 @@
 			Ui.Tile( Cell, Index==Sel, bHover, Accent );
 			if( Index==Sel )
 				TryOn = O.Kind==OFFER_Cosmetic ? O.Id : -1;
-			const FRpgRect Pic( Cell.X+3*S, Cell.Y+3*S, Cell.W-6*S, Cell.H-Ui.TextHeight(Ui.FontModern)-Ui.P(14.f)-3*S );
-			const FLOAT Yaw = (Index==Sel || bHover) ? PreviewYaw : 0.f;
+			const FLOAT LineH = Ui.TextHeight( Ui.FontBody ), Pad = Ui.P(8.f);
+			const FLOAT LabelH = LineH*2 + Ui.P(10.f);
+			const FRpgRect Pic( Cell.X+Pad, Cell.Y+Pad, Cell.W-Pad*2, Max(LineH, Cell.H-LabelH-Pad*2) );
 			if( O.Kind==OFFER_Cosmetic )
-				DrawCosmeticPreview( Engine, Pic, O.Id, Yaw );
+				DrawCosmeticPreview( Engine, Pic, O.Id, 0.f );
 			else
-				DrawConsumablePreview( Engine, Pic, O.Id, Yaw );
-			FString PriceText;
-			FColor PriceColor = RpgParchment;
-			const INT Price = OfferPrice( O );
-			if( O.Kind==OFFER_Cosmetic && IsOwned(O.Id) )
-			{
-				PriceText = State.Equip[GCosmetics[O.Id].Slot]==O.Id ? TEXT("Wearing") : TEXT("Owned");
-				PriceColor = RpgGreen;
-			}
-			else if( O.Kind==OFFER_Sell )
-			{
-				PriceText = FString::Printf( TEXT("+%i (have %i)"), Price, SellCount(Harry,O.Id) );
-				PriceColor = RpgGreen;
-			}
-			else if( StockLeft(O)<=0 )
-			{
-				PriceText = TEXT("Sold out");
-				PriceColor = RpgMuted;
-			}
-			else
-			{
-				PriceText = FString::Printf( TEXT("%i beans"), Price );
-				PriceColor = Price<=Beans ? RpgParchment : RpgRed;
-			}
-			Ui.TileLabel( Cell, *PriceText, PriceColor );
+				DrawConsumablePreview( Engine, Pic, O.Id, 0.f );
+			UBOOL bCan;
+			FColor StatusColor;
+			FString Status;
+			OfferAction( Harry, O, bCan, StatusColor, Status );
+			const FLOAT LY = Cell.Y + Cell.H - LabelH;
+			Ui.Text( Ui.FontBody, Cell.X+Pad, LY, RpgParchment, *Ui.FitText(Ui.FontBody,OfferName(O),Cell.W-Pad*2), RALIGN_Left, 0 );
+			Ui.Text( Ui.FontBody, Cell.X+Pad, LY+LineH, StatusColor, *Ui.FitText(Ui.FontBody,*Status,Cell.W-Pad*2), RALIGN_Left, 0 );
 			if( Ui.Clicked( Cell, &Offers(Items[Index]) ) )
 			{
 				if( Sel==Index && ConfirmIndex==Index )
@@ -1123,10 +1172,23 @@
 			Ui.TextWrapped( Ui.FontBody, FRpgRect(Right.X, DY, Right.W, Right.Y+Right.H-DY-34*S), RpgParchment, Desc );
 
 			const UBOOL bOwned = O.Kind==OFFER_Cosmetic && IsOwned(O.Id);
-			const TCHAR* Label = bOwned ? TEXT("Wear") : (O.Kind==OFFER_Sell ? TEXT("Sell") : (ConfirmIndex==Sel ? TEXT("Confirm") : TEXT("Buy")));
-			const FRpgRect BuyRect( Right.X+Right.W-230*S, Right.Y+Right.H-28*S, 110*S, 24*S );
-			if( Ui.Button( BuyRect, Label, !VendorRefuses() || (O.Kind==OFFER_Consumable && O.Id==CON_Pardon), &Ui ) )
+			UBOOL bCan;
+			FColor StatusColor;
+			FString Status;
+			FString Label = OfferAction( Harry, O, bCan, StatusColor, Status );
+			if( bCan && Label==TEXT("Buy") && ConfirmIndex==Sel )
+				Label = FString::Printf( TEXT("Confirm - %i beans"), OfferPrice(O) );
+			const FLOAT BH = Ui.TextHeight(Ui.FontBody) + Ui.P(16.f);
+			const FLOAT CloseW = Ui.TextWidth(Ui.FontBody,TEXT("Close")) + Ui.P(40.f);
+			const FLOAT BuyW = Ui.TextWidth(Ui.FontBody,*Label) + Ui.P(40.f);
+			const FRpgRect BuyRect( Right.X+Right.W-CloseW-Ui.P(12.f)-BuyW, Right.Y+Right.H-BH, BuyW, BH );
+			if( Ui.Button( BuyRect, *Label, bCan, &Ui ) )
 				bActivate = 1;
+			if( bActivate && !bCan )
+			{
+				Ui.Play( RSND_Deny, Harry );
+				bActivate = 0;
+			}
 			if( bActivate )
 			{
 				if( bOwned || O.Kind==OFFER_Sell || ConfirmIndex==Sel )
@@ -1143,9 +1205,13 @@
 				bActivate = 0;
 			}
 		}
-		if( Ui.Button( FRpgRect(Right.X+Right.W-110*S, Right.Y+Right.H-28*S, 110*S, 24*S), TEXT("Close"), 1, &Offers ) )
-			CloseMenu( Engine );
-		Ui.Footer( TEXT("Q/E: tab    Arrows: choose    Enter: buy    Esc/B: close") );
+		{
+			const FLOAT BH = Ui.TextHeight(Ui.FontBody) + Ui.P(16.f);
+			const FLOAT CloseW = Ui.TextWidth(Ui.FontBody,TEXT("Close")) + Ui.P(40.f);
+			if( Ui.Button( FRpgRect(Right.X+Right.W-CloseW, Right.Y+Right.H-BH, CloseW, BH), TEXT("Close"), 1, &Offers ) )
+				CloseMenu( Engine );
+		}
+		Ui.Footer( TEXT("Q/E: tab    Arrows / wheel: choose    Enter: buy    Esc/B: close") );
 	}
 
 	/*-------------------------------------------------------------------------
