@@ -3311,13 +3311,16 @@ public:
 			bWasCutscene = bCut;
 		}
 
+		const UBOOL bDeferFeed = Menu==MENU_None && (IsTalking() || !IsFreeGameplay(Engine,Harry));
 		for( INT i=Feed.Num()-1; i>=0; i-- )
 		{
-			Feed(i).Age += DeltaSeconds;
+			if( !bDeferFeed )
+				Feed(i).Age += DeltaSeconds;
 			if( Feed(i).Age > 4.2f )
 				Feed.Remove( i );
 		}
-		BannerAge += DeltaSeconds;
+		if( !bDeferFeed )
+			BannerAge += DeltaSeconds;
 		HouseHudTimer = Max( 0.f, HouseHudTimer-DeltaSeconds );
 		XpFloatAge += DeltaSeconds;
 		XpShowTimer = Max( 0.f, XpShowTimer-DeltaSeconds );

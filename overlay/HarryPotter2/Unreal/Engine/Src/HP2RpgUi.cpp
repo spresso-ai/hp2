@@ -7,10 +7,10 @@
 #include "UnSkeletalMesh.h"
 #include "HP2RpgUi.h"
 
-const FColor RpgGold( 201, 162, 74, 255 );
-const FColor RpgGoldBright( 255, 222, 130, 255 );
-const FColor RpgParchment( 236, 228, 206, 255 );
-const FColor RpgMuted( 160, 164, 196, 255 );
+const FColor RpgGold( 200, 172, 107, 255 );
+const FColor RpgGoldBright( 226, 202, 148, 255 );
+const FColor RpgParchment( 238, 232, 217, 255 );
+const FColor RpgMuted( 181, 181, 173, 255 );
 const FColor RpgRed( 230, 80, 72, 255 );
 const FColor RpgGreen( 120, 220, 140, 255 );
 const FColor RpgTileFill( 16, 24, 58, 255 );
@@ -173,20 +173,19 @@ void FRpgUi::Rect( const FRpgRect& R, FColor Color )
 
 void FRpgUi::Scrim( const FRpgRect& R, FLOAT Keep )
 {
-	if( !White || R.W<=0 || R.H<=0 )
-		return;
-	C->DrawTile( White, R.X, R.Y, R.W, R.H, 0, 0, 1, 1, NULL, 1.f,
-		FPlane(Keep,Keep,Keep*1.08f,1.f), FPlane(0,0,0,0), PF_Modulated|PF_NoSmooth );
+	// This renderer cannot reliably darken the existing framebuffer.
+	// Retain the API for gauges and photo borders, but use an opaque fill.
+	Rect( R, FColor(17,24,32,255) );
 }
 
 // Flat dark panel (the renderer's blend modes can't darken cleanly).
 void FRpgUi::Glass( const FRpgRect& R, UBOOL bAccent )
 {
-	Rect( R, FColor(12,16,34,255) );
+	Rect( R, FColor(17,24,32,255) );
 	const FLOAT T = Max( 1.f, P(1.f) );
-	Border( R, T, FColor(46,56,96,255) );
+	Border( R, T, FColor(56,65,74,255) );
 	if( bAccent )
-		Rect( FRpgRect(R.X, R.Y, R.W, Max(1.f,P(2.f))), FColor(201,162,74,255) );
+		Rect( FRpgRect(R.X, R.Y, R.W, Max(1.f,P(2.f))), RpgGold );
 }
 
 void FRpgUi::Chamfer( const FRpgRect& R, FLOAT Cut, FColor Color )
@@ -208,7 +207,7 @@ void FRpgUi::Brackets( const FRpgRect& R, FLOAT Len, FLOAT T, FColor Color )
 FLOAT FRpgUi::Keycap( FLOAT X, FLOAT Y, const TCHAR* Key, UBOOL bDraw )
 {
 	UFont* F = FontCaption ? FontCaption : FontModern;
-	const FLOAT H = P(26.f);
+	const FLOAT H = Max(P(26.f),TextHeight(F)+P(6.f));
 	const FLOAT W = Max( H, TextWidth(F,Key) + P(14.f) );
 	if( bDraw )
 	{
@@ -223,25 +222,42 @@ FLOAT FRpgUi::Keycap( FLOAT X, FLOAT Y, const TCHAR* Key, UBOOL bDraw )
 FRpgRect FRpgUi::Prompt( FLOAT CX, FLOAT Y, const TCHAR* const* Keys, const TCHAR* const* Verbs, INT Count, const TCHAR* Lead )
 {
 	UFont* F = FontModern;
-	const FLOAT Pad = P(12.f), Gap = P(8.f), Sep = P(20.f), H = P(40.f);
-	FLOAT W = Pad*2;
-	if( Lead && *Lead )
-		W += TextWidth( FontModernBold, Lead ) + Sep;
+	const FLOAT Pad = P(12.f), Gap = P(8.f), Sep = P(20.f);
+	const FLOAT KeyH = Max(P(26.f),TextHeight(FontCaption ? FontCaption : F)+P(6.f));
+	const FLOAT RowH = Max(KeyH,TextHeight(F))+P(8.f);
+	const FLOAT MaxW = Max(P(40.f),C->ClipX-P(48.f)-Pad*2);
+	const FLOAT HeadH = Lead && *Lead ? TextHeight(FontModernBold)+P(4.f) : 0.f;
+	TArray<FRpgRect> Parts;
+	TArray<FString> Labels;
+	FLOAT X = 0.f, RowY = 0.f, W = 0.f;
 	for( INT i=0; i<Count; i++ )
-		W += Keycap( 0, 0, Keys[i], 0 ) + Gap + TextWidth( F, Verbs[i] ) + (i<Count-1 ? Sep : 0.f);
-	const FRpgRect R( CX-W*0.5f, Y, W, H );
-	Glass( R );
-	FLOAT X = R.X + Pad;
-	if( Lead && *Lead )
 	{
-		Text( FontModernBold, X, Y+(H-TextHeight(FontModernBold))*0.5f, FColor(240,238,230,255), Lead, RALIGN_Left, 0 );
-		X += TextWidth( FontModernBold, Lead ) + Sep;
+		const FLOAT KW = Keycap(0,0,Keys[i],0);
+		const FString Label = FitText(F,Verbs[i],Max(1.f,MaxW-KW-Gap));
+		const FLOAT PW = KW+Gap+TextWidth(F,*Label);
+		if( X>0.f && X+PW>MaxW )
+		{
+			X = 0.f;
+			RowY += RowH;
+		}
+		Parts.AddItem(FRpgRect(X,RowY,KW,PW));
+		Labels.AddItem(Label);
+		W = Max(W,X+PW);
+		X += PW+Sep;
 	}
+	if( HeadH>0.f )
+		W = Max(W,Min(MaxW,TextWidth(FontModernBold,Lead)));
+	W = Min(MaxW,W)+Pad*2;
+	const FLOAT H = Pad*2+HeadH+RowY+RowH;
+	const FRpgRect R( Clamp(CX-W*0.5f,P(24.f),Max(P(24.f),C->ClipX-W-P(24.f))), Clamp(Y,P(16.f),Max(P(16.f),C->ClipY-H-P(16.f))), W, H );
+	Glass( R );
+	if( HeadH>0.f )
+		Text(FontModernBold,R.X+Pad,R.Y+Pad,RpgParchment,*FitText(FontModernBold,Lead,MaxW),RALIGN_Left,0);
 	for( INT i=0; i<Count; i++ )
 	{
-		X += Keycap( X, Y+(H-P(26.f))*0.5f, Keys[i] ) + Gap;
-		Text( F, X, Y+(H-TextHeight(F))*0.5f, FColor(182,186,206,255), Verbs[i], RALIGN_Left, 0 );
-		X += TextWidth( F, Verbs[i] ) + Sep;
+		const FLOAT PX = R.X+Pad+Parts(i).X, PY = R.Y+Pad+HeadH+Parts(i).Y;
+		Keycap(PX,PY+(RowH-KeyH)*0.5f,Keys[i]);
+		Text(F,PX+Parts(i).W+Gap,PY+(RowH-TextHeight(F))*0.5f,RpgMuted,*Labels(i),RALIGN_Left,0);
 	}
 	return R;
 }
@@ -671,3 +687,4 @@ void FRpgUi::Play( INT Sound, AActor* Listener )
 	Engine->Audio->PlaySound( Listener, (INT)Listener->GetIndex()*16 + SLOT_Interface*2, Sounds[Sound], Listener->Location,
 		0.8f, GAudioDefaultRadius, 1.f, SF_No3D, 0.f );
 }
+

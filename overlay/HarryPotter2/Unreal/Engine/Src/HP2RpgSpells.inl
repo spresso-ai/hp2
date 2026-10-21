@@ -1155,9 +1155,7 @@
 			bCamValid = 1;
 		}
 
-		// Arresto: blue wash over the world.
-		if( ArrestoLeft>0.f && Ui.White )
-			C->DrawTile( Ui.White, 0, 0, C->ClipX, C->ClipY, 0, 0, 1, 1, NULL, 1.f, FPlane(0.f,0.03f,0.12f,1.f), FPlane(0,0,0,0), PF_Translucent );
+		// Arresto is communicated by its timer, without a framebuffer wash.
 
 		// Revelio markers.
 		if( RevealLeft>0.f )
@@ -1201,10 +1199,10 @@
 			// Only spells you know are shown; the bar grows as you learn.
 			INT Shown[SP2_MAX], NumShown = 0;
 			for( INT i=0; i<SP2_MAX; i++ )
-				if( SpellUnlocked(i) )
+				if( SpellUnlocked(i) && (bShowAllHud || SelFlash>0.f || (bSelOurs && SelSpell==i) || SpellCooldown[i]>0.f) )
 					Shown[NumShown++] = i;
 			const FLOAT W = Slot + (NumShown ? Div + NumShown*Slot + (NumShown-1)*Gap : 0.f);
-			const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - Ui.P(24.f);
+			const FLOAT X0 = Max(Ui.P(24.f),C->ClipX-W-Ui.P(32.f)), Y0 = C->ClipY - Slot - Ui.P(32.f);
 			for( INT k=-1; k<NumShown; k++ )
 			{
 				const UBOOL bWand = k<0;
@@ -1212,12 +1210,8 @@
 				const UBOOL bSel = bWand ? !bSelOurs : (bSelOurs && SelSpell==i);
 				FLOAT X = bWand ? X0 : X0 + Slot + Div + k*(Slot+Gap);
 				FRpgRect R( X, Y0 - (bSel ? Ui.P(6.f) : 0.f), Slot, Slot );
-				if( bSel && Ui.GlowGold )
-					Ui.Glow( Ui.GlowGold, FRpgRect(R.X-Slot*0.25f, R.Y-Slot*0.25f, Slot*1.5f, Slot*1.5f), 0.35f );
 				Ui.Chamfer( R, Ui.P(3.f), bSel ? FColor(44,56,104,255) : FColor(28,36,70,255) );
 				Ui.Border( R, bSel ? Max(1.f,Ui.P(2.f)) : Max(1.f,Ui.P(1.f)), bSel ? GoldHi : Line );
-				if( bSel )
-					Ui.Brackets( FRpgRect(R.X-Ui.P(4.f), R.Y-Ui.P(4.f), R.W+Ui.P(8.f), R.H+Ui.P(8.f)), Ui.P(8.f), Max(1.f,Ui.P(2.f)), GoldHi );
 				UTexture* Icon = LoadTex( bWand ? TEXT("SpellShapes.Shapes.SPSflipendo") : Spell2(i).Icon );
 				const FLOAT Cool = bWand ? 0.f : SpellCooldown[i];
 				if( Icon )
@@ -1236,22 +1230,23 @@
 				{
 					const FString Key = FString::Printf( TEXT("%i"), (i+4)%10 );
 					UFont* F = Ui.FontCaption;
-					const FLOAT KS = Ui.P(14.f);
+					const FLOAT KS = Max(Ui.TextHeight(F),Ui.TextWidth(F,*Key))+Ui.P(6.f);
 					const FRpgRect KR( R.X+R.W-KS+Ui.P(4.f), R.Y+R.H-KS+Ui.P(4.f), KS, KS );
 					Ui.Chamfer( KR, Ui.P(2.f), Line );
 					Ui.Chamfer( KR.Inset(Max(1.f,Ui.P(1.f))), Ui.P(2.f), FColor(20,27,54,255) );
 					Ui.Text( F, KR.X+KS*0.5f, KR.Y+(KS-Ui.TextHeight(F))*0.5f, Text2, *Key, RALIGN_Center, 0 );
 				}
 				if( bSel && SelFlash>0.f )
-					Ui.Text( Ui.FontModernBold, R.X+R.W*0.5f, R.Y-Ui.TextHeight(Ui.FontModernBold)-Ui.P(10.f), GoldHi, bWand ? TEXT("Wand") : Spell2(i).Name, RALIGN_Center );
+					Ui.Text( Ui.FontModernBold, C->ClipX-Ui.P(32.f), Y0-Ui.TextHeight(Ui.FontModernBold)-Ui.P(10.f), GoldHi, *Ui.FitText(Ui.FontModernBold,bWand ? TEXT("Wand") : Spell2(i).Name,C->ClipX*0.4f), RALIGN_Right );
 			}
 			if( ShieldLeft>0.f || ArrestoLeft>0.f )
 			{
 				const UBOOL bShield = ShieldLeft>0.f;
 				const FString T = FString::Printf( TEXT("%s %.1f"), bShield ? TEXT("Protego") : TEXT("Arresto Momentum"), bShield ? ShieldLeft : ArrestoLeft );
-				Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, Y0-Ui.P(46.f), Spell2(bShield ? SP2_Protego : SP2_Arresto).Color, *T, RALIGN_Center );
+				Ui.Text( Ui.FontModernBold, C->ClipX-Ui.P(32.f), Y0-Ui.TextHeight(Ui.FontModernBold)*2-Ui.P(18.f), Spell2(bShield ? SP2_Protego : SP2_Arresto).Color, *T, RALIGN_Right );
 			}
 		}
 		if( bAiming )
 			DrawAim( Harry );
 	}
+
