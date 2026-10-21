@@ -477,7 +477,7 @@ enum EActorFlag
 
 enum EMenu { MENU_None, MENU_Shop, MENU_Book };
 enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
-static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Trophies"), TEXT("House Cup"), TEXT("Owl Post"), TEXT("Status") };
+static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Trophies"), TEXT("House"), TEXT("Post"), TEXT("Status") };
 
 enum EHouse { HOUSE_Gryffindor, HOUSE_Slytherin, HOUSE_Ravenclaw, HOUSE_Hufflepuff, HOUSE_MAX };
 static const TCHAR* GHouseNames[HOUSE_MAX] = { TEXT("Gryffindor"), TEXT("Slytherin"), TEXT("Ravenclaw"), TEXT("Hufflepuff") };
@@ -518,6 +518,7 @@ public:
 	// Level tracking.
 	ULevel* LastLevel;
 	APlayerPawn* LastHarry;
+	FLOAT HarrySince;
 	UBOOL bLoadedFromSlot;
 	UBOOL bLevelTransition;
 	FLOAT LastDayClock;
@@ -1017,7 +1018,7 @@ public:
 				Feed(i).Age = Min( Feed(i).Age, 0.2f );
 				return;
 			}
-		if( Feed.Num()>=5 )
+		if( Feed.Num()>=3 )
 			Feed.Remove( 0 );
 		FRpgFeed* Entry = new(Feed) FRpgFeed;
 		Entry->Text = Text;
@@ -1193,7 +1194,7 @@ public:
 				if( i==HOUSE_Gryffindor && Diff>0 )
 				{
 					State.Counters[CNT_HousePoints] += Diff;
-					GiveXp( Diff/2, TEXT("house points") );
+					GiveXp( Min( Diff/2, 25 ), TEXT("house points") );
 				}
 			}
 			LastHouse[i] = House[i];
@@ -2384,6 +2385,12 @@ public:
 			UTexture* S1 = LoadTex( O.Skin1 );
 			if( Body->Mesh!=Mesh || Body->MultiSkins[0]!=S0 || Body->MultiSkins[1]!=S1 )
 			{
+				// A fresh pawn has no animation linked yet; the costume mesh would
+				// link its own default set (without Harry's moves) and T-pose.
+				if( !Body->SkelAnim && HarryMesh && HarryMesh->IsA(USkeletalMesh::StaticClass()) )
+					Body->SkelAnim = ((USkeletalMesh*)HarryMesh)->DefaultAnimation;
+				if( !Body->SkelAnim )
+					return;
 				Body->Mesh = Mesh;
 				for( INT i=0; i<8; i++ )
 					Body->MultiSkins[i] = NULL;
@@ -2411,6 +2418,9 @@ public:
 	{
 		// The game swaps Harry's mesh for cutscenes and Polyjuice; never fight it.
 		if( Harry->Mesh!=HarryMesh && (!CostumeApplied || Harry->Mesh!=CostumeApplied) )
+			return;
+		// Let a new pawn settle (and link its animation) first.
+		if( RpgClock-HarrySince < 1.f )
 			return;
 		SetCostume( Harry, State.Equip[RSLOT_Outfit], 1 );
 	}
@@ -2702,10 +2712,15 @@ public:
 			OnLevelChanged( Engine );
 		}
 
+		for( INT d=0; d<Ui.DiagLines.Num(); d++ )
+			RpgLog( TEXT("%s"), *Ui.DiagLines(d) );
+		Ui.DiagLines.Empty();
+
 		APlayerPawn* Harry = GetHarry( Engine );
 		if( Harry!=LastHarry )
 		{
 			LastHarry = Harry;
+			HarrySince = RpgClock;
 			bBaselineValid = 0;
 			MarkWardrobeDirty();
 			HeldWeapon = NULL;
@@ -2723,7 +2738,7 @@ public:
 		for( INT i=Feed.Num()-1; i>=0; i-- )
 		{
 			Feed(i).Age += DeltaSeconds;
-			if( Feed(i).Age > 4.5f )
+			if( Feed(i).Age > 3.2f )
 				Feed.Remove( i );
 		}
 		BannerAge += DeltaSeconds;

@@ -644,10 +644,12 @@
 			}
 		}
 
-		// Hotbar, bottom centre.
+		// Hotbar, bottom centre; hidden while someone speaks (the subtitle sits there).
+		if( IsTalking() )
+			return;
 		const FLOAT Slot = 40*S, Gap = 6*S;
 		const FLOAT W = SP2_MAX*Slot + (SP2_MAX-1)*Gap;
-		const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - 12*S;
+		const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - 18*S;
 		for( INT i=0; i<SP2_MAX; i++ )
 		{
 			const FSpell2Def& D = Spell2( i );

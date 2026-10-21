@@ -4,6 +4,7 @@
 =============================================================================*/
 
 	// Extra menu state.
+	UBOOL bPreviewDiagDone;
 	AActor* PreviewNpc;
 	INT SpellTab;
 	INT CollectionTab;
@@ -628,7 +629,7 @@
 		if( State.FelixSeconds>0 )
 			Ui.Text( Ui.FontSmall, C->ClipX*0.5f, LineY, FColor(255,220,120,255), *FString::Printf(TEXT("Felix Felicis %i:%02i"), State.FelixSeconds/60, State.FelixSeconds%60), RALIGN_Center );
 
-		if( bGameplay && NearNpc && IsInLevel(NearNpc) )
+		if( bGameplay && NearNpc && IsInLevel(NearNpc) && !IsTalking() )
 		{
 			FString Prompt = NpcName( NearNpc ) + TEXT("    [E] Talk");
 			if( NearVendor>=0 )
@@ -667,19 +668,19 @@
 		UFont* Title = Ui.FontModernBold;
 		UFont* Sub = Ui.FontModern;
 		const FLOAT TitleH = Ui.TextHeight( Title ), SubH = Ui.TextHeight( Sub );
-		const FLOAT W = Min( 250*S, C->ClipX*0.32f );
-		FLOAT Y = C->ClipY*0.16f;
+		const FLOAT W = Min( 200*S, C->ClipX*0.26f );
+		FLOAT Y = C->ClipY*0.20f;
 		for( INT i=Feed.Num()-1; i>=0; i-- )
 		{
 			const FRpgFeed& Entry = Feed(i);
 			const UBOOL bSub = Entry.Sub.Len()>0;
-			const FLOAT H = 10*S + TitleH + (bSub ? SubH : 0.f);
-			// Slide in over 0.2s, out after 3.6s.
+			const FLOAT H = 6*S + TitleH + (bSub ? SubH : 0.f);
+			// Slide in over 0.2s, out after 2.8s.
 			FLOAT Slide = 0.f;
 			if( Entry.Age<0.2f )
 				Slide = 1.f - Entry.Age/0.2f;
-			else if( Entry.Age>3.6f )
-				Slide = Min( 1.f, (Entry.Age-3.6f)/0.4f );
+			else if( Entry.Age>2.8f )
+				Slide = Min( 1.f, (Entry.Age-2.8f)/0.4f );
 			const FLOAT X = C->ClipX - W - 14*S + Slide*(W+20*S);
 			const FRpgRect Card( X, Y, W, H );
 			Ui.Rect( Card, FColor(14,18,38,255) );
@@ -689,14 +690,14 @@
 			UTexture* Icon = ToastIcon( Entry );
 			if( Icon )
 			{
-				const FLOAT IS = H - 10*S;
-				Ui.Icon( Icon, FRpgRect(TX, Card.Y+5*S, IS, IS) );
-				TX += IS + 8*S;
+				const FLOAT IS = Min( H - 8*S, 22*S );
+				Ui.Icon( Icon, FRpgRect(TX, Card.Y+(H-IS)*0.5f, IS, IS) );
+				TX += IS + 6*S;
 			}
-			Ui.Text( Title, TX, Card.Y+5*S, FColor(240,240,248,255), *Ui.FitText(Title,*Entry.Text,Card.X+Card.W-TX-6*S), RALIGN_Left, 0 );
+			Ui.Text( Title, TX, Card.Y+3*S, FColor(240,240,248,255), *Ui.FitText(Title,*Entry.Text,Card.X+Card.W-TX-6*S), RALIGN_Left, 0 );
 			if( bSub )
-				Ui.Text( Sub, TX, Card.Y+5*S+TitleH, FColor(150,158,190,255), *Ui.FitText(Sub,*Entry.Sub,Card.X+Card.W-TX-6*S), RALIGN_Left, 0 );
-			Y += H + 6*S;
+				Ui.Text( Sub, TX, Card.Y+3*S+TitleH, FColor(150,158,190,255), *Ui.FitText(Sub,*Entry.Sub,Card.X+Card.W-TX-6*S), RALIGN_Left, 0 );
+			Y += H + 4*S;
 		}
 
 		// Level-up banner.
@@ -983,6 +984,15 @@
 
 	void DrawBook( UGameEngine* Engine, APlayerPawn* Harry )
 	{
+		if( !bPreviewDiagDone )
+		{
+			bPreviewDiagDone = 1;
+			Ui.PreviewLogsLeft = 6;
+			AActor* Body = EnsurePreview( Engine, PreviewBody );
+			RpgLog( TEXT("book opened: preview body %s harrymesh=%s frame=%s render=%s"),
+				Body ? Body->GetName() : TEXT("SPAWN FAILED"), HarryMesh ? HarryMesh->GetName() : TEXT("none"),
+				Ui.C && Ui.C->Frame ? TEXT("ok") : TEXT("none"), Ui.C && Ui.C->Render ? TEXT("ok") : TEXT("none") );
+		}
 		const FLOAT S = Ui.S;
 		FRpgRect Left, Right;
 		Ui.Screen( Left, Right );
@@ -1557,6 +1567,15 @@
 	/*-------------------------------------------------------------------------
 		Input.
 	-------------------------------------------------------------------------*/
+
+	// True while an NPC speaks a line (the game shows its subtitle then).
+	UBOOL IsTalking()
+	{
+		static FName DoingBumpLine( TEXT("DoingBumpLine") );
+		if( RpgClock-LastTalkTime < 4.f )
+			return 1;
+		return NearNpc && IsInLevel(NearNpc) && GetStateName(NearNpc)==DoingBumpLine;
+	}
 
 	void TalkTo( APlayerPawn* Harry, AActor* Npc )
 	{

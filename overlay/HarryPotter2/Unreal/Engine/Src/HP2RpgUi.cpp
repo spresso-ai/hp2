@@ -486,6 +486,10 @@ UBOOL FRpgUi::PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zo
 		return 0;
 	Actor->DrawScale = Scale;
 	Actor->Location = Target - Centre;
+	if( PreviewLogsLeft>0 )
+		DiagLines.AddItem( FString::Printf( TEXT("preview place %s mesh=%s size=(%.1f %.1f %.1f) scale=%.3f target=(%.0f %.0f %.0f) cam=(%.0f %.0f %.0f) fwd=(%.2f %.2f %.2f) rect=(%.0f %.0f %.0f %.0f) frame=%ix%i rprojz=%.4f"),
+			Actor->GetName(), Actor->Mesh->GetName(), Size.X, Size.Y, Size.Z, Scale, Target.X, Target.Y, Target.Z,
+			F->Coords.Origin.X, F->Coords.Origin.Y, F->Coords.Origin.Z, Fwd.X, Fwd.Y, Fwd.Z, R.X, R.Y, R.W, R.H, F->X, F->Y, F->RProj.Z ) );
 	return 1;
 }
 
@@ -511,6 +515,15 @@ void FRpgUi::DrawActorInRect( AActor* Actor, UBOOL bClearZ )
 		Viewport->RenDev->ClearZ( F );
 	const UBOOL OldHidden = Actor->bHidden;
 	Actor->bHidden = 0;
+	if( PreviewLogsLeft>0 )
+	{
+		PreviewLogsLeft--;
+		const FCoords Box = Actor->GetRenderBoundingBox( 1 );
+		DiagLines.AddItem( FString::Printf( TEXT("preview draw %s loc=(%.0f %.0f %.0f) scale=%.3f box=(%.0f %.0f %.0f) axes=%.1f/%.1f/%.1f drawtype=%i style=%i physics=%i role=%i render=%s"),
+			Actor->GetName(), Actor->Location.X, Actor->Location.Y, Actor->Location.Z, Actor->DrawScale,
+			Box.Origin.X, Box.Origin.Y, Box.Origin.Z, Box.XAxis.Size(), Box.YAxis.Size(), Box.ZAxis.Size(),
+			Actor->DrawType, Actor->Style, Actor->Physics, Actor->Role, C->Render->GetClass()->GetName() ) );
+	}
 	C->Render->DrawActor( F, Actor );
 	Actor->bHidden = OldHidden;
 }

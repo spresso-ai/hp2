@@ -48,6 +48,8 @@ public:
 	UBOOL bClickUsed;
 	INT WheelDelta;
 	INT PreviewNonce;
+	INT PreviewLogsLeft;     // diagnostics: log the first previews
+	TArray<FString> DiagLines; // flushed into HP2Rpg.log by the mod
 	const void* HoverId;     // widget hovered last frame, for rollover sounds
 
 	// Assets.
