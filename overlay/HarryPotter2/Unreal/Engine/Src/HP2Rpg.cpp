@@ -868,8 +868,9 @@ public:
 			RpgLog( TEXT("could not write %s"), *Tmp );
 			return;
 		}
+		const FString Bak = Path + TEXT(".bak");
 		if( GFileManager->FileSize(*Path)>0 )
-			GFileManager->Move( *(Path + TEXT(".bak")), *Path, 1 );
+			GFileManager->Move( *Bak, *Path, 1 );
 		if( !GFileManager->Move( *Path, *Tmp, 1 ) )
 			RpgLog( TEXT("could not replace %s"), *Path );
 	}
@@ -939,7 +940,8 @@ public:
 		{
 			// A save made before the mod (or a lost sidecar): try the backup.
 			FString Bak;
-			if( appLoadFileToString( Bak, *(Path + TEXT(".bak")) ) )
+			const FString BakPath = Path + TEXT(".bak");
+			if( appLoadFileToString( Bak, *BakPath ) )
 				RpgLog( TEXT("sidecar missing for slot %i; a backup exists at %s.bak"), Slot, *Path );
 		}
 		// Letters already in the inbox count as delivered.
