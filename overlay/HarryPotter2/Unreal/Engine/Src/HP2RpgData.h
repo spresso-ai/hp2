@@ -615,7 +615,7 @@ static const INT GNumQuests = (INT)ARRAY_COUNT(GQuests);
 #define MAX_PAGES 64
 
 // Difficulty: damage Harry takes and the XP bonus for braving it.
-enum EDifficulty { DIFF_Normal, DIFF_Easy, DIFF_Hard, DIFF_Expert, DIFF_MAX };
+enum ERpgDifficulty { DIFF_Normal, DIFF_Easy, DIFF_Hard, DIFF_Expert, DIFF_MAX };
 static const TCHAR* GDifficultyNames[DIFF_MAX] = { TEXT("Normal"), TEXT("Easy"), TEXT("Hard"), TEXT("Expert") };
 static const INT GDifficultyDamage[DIFF_MAX] = { 100, 50, 150, 200 };
 static const INT GDifficultyXp[DIFF_MAX] = { 0, -10, 15, 30 };

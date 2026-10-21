@@ -426,7 +426,7 @@ struct FRpgState
 	INT Delivered[2];       // bit per letter id ever delivered (gifts are one-time)
 	INT DayPlaySeconds;     // play time since the school day began
 	INT DayTaskDone;        // a house task was completed today
-	INT Difficulty;         // EDifficulty
+	INT Difficulty;         // ERpgDifficulty
 	INT Pages[MAX_PAGES/32];       // Field Guide pages found
 	INT QuestState[MAX_QUESTS];    // EQuestState
 	INT QuestBase[MAX_QUESTS];     // counter baseline or items collected
