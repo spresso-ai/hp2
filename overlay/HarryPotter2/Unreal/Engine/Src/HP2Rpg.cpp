@@ -2697,6 +2697,131 @@ public:
 		return 1;
 	}
 
+
+	/*-------------------------------------------------------------------------
+		Wardrobe: the pet as a companion that walks or flies along.
+	-------------------------------------------------------------------------*/
+
+	struct FPetStyle { const TCHAR* Mesh; UBOOL bFly; const TCHAR* Move; const TCHAR* Idle; FLOAT Scale; };
+
+	static const FPetStyle& PetStyle( const TCHAR* MeshPath )
+	{
+		static const FPetStyle Styles[] =
+		{
+			{ TEXT("owlbarn"),       1, TEXT("Fly"),       TEXT("Fly"),     0.55f },
+			{ TEXT("Fawkes"),        1, TEXT("Fly"),       TEXT("hover"),   0.45f },
+			{ TEXT("cornishpixie"),  1, TEXT("Fly"),       TEXT("Fly"),     0.9f  },
+			{ TEXT("Snitch"),        1, TEXT("flap"),      TEXT("flap"),    0.6f  },
+			{ TEXT("gnome"),         0, TEXT("runnormal"), TEXT("breath"),  0.55f },
+			{ TEXT("MrsNorris"),     0, TEXT("Walk"),      TEXT("Breathe"), 0.75f },
+			{ TEXT("SpiderSmall"),   0, TEXT("Walk"),      TEXT("Idle"),    1.2f  },
+			{ NULL,                  0, TEXT("Walk"),      TEXT("Idle"),    0.6f  },
+		};
+		INT i = 0;
+		while( Styles[i].Mesh && !(MeshPath && appStrstr(MeshPath,Styles[i].Mesh)) )
+			i++;
+		return Styles[i];
+	}
+
+	FLOAT PetAngle;      // flyers circle Harry
+	FLOAT FrameDelta;
+	FLOAT PetFloor;      // height of the mesh's feet below its origin
+	FLOAT PetIdle;       // seconds standing still
+	AActor* PetLinked;   // actor whose animation set is linked
+
+	void PlayPetAnim( AActor* Pet, const TCHAR* Seq, FLOAT Rate )
+	{
+		const FName N( Seq, FNAME_Find );
+		if( N==NAME_None || !Pet->SkelAnim || !Pet->SkelAnim->GetAnimSeq(N) )
+			return;
+		if( Pet->AnimSequence!=N || !Pet->bAnimLoop )
+			Pet->PlayAnim( N, true, Rate, 0.2f );
+	}
+
+	UBOOL UpdateCompanion( UGameEngine* Engine, APlayerPawn* Harry, AActor* Pet, const FCosmetic& Spec, FLOAT DeltaSeconds )
+	{
+		const FPetStyle& St = PetStyle( Spec.Mesh );
+		if( PetLinked!=Pet )
+		{
+			// Link the pet's own animation set ("...Mesh" -> "...Anims").
+			FString Path = Spec.Mesh;
+			const INT Cut = Path.InStr( TEXT("Mesh"), 1 );
+			if( Cut>0 )
+				Path = Path.Left( Cut ) + TEXT("Anims");
+			UAnimation* Anim = (UAnimation*)FRpgUi::LoadRooted( UAnimation::StaticClass(), *Path );
+			if( Anim )
+				Pet->SkelAnim = Anim;
+			Pet->DrawScale = St.Scale;
+			Pet->Location = FVector( 0, 0, 0 );
+			const FCoords Box = Pet->GetRenderBoundingBox( 1 );
+			PetFloor = -Min( Box.Origin.Z, Box.Origin.Z + Box.ZAxis.Z );
+			PetLinked = Pet;
+			Engine->GLevel->FarMoveActor( Pet, Harry->Location, 0, 1 );
+			RpgLog( TEXT("companion %s: anims %s, floor %.1f"), Spec.Name, Anim ? Anim->GetName() : TEXT("none"), PetFloor );
+		}
+		Pet->DrawScale = St.Scale*Harry->DrawScale/Max(0.01f,BaseDrawScale);
+
+		// Where it wants to be: flyers circle above Harry's shoulder,
+		// walkers trot a little behind and to the side.
+		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
+		const FVector Fwd( (FLOAT)appCos(HarryYaw), (FLOAT)appSin(HarryYaw), 0.f );
+		const FVector Right( -Fwd.Y, Fwd.X, 0.f );
+		FVector Want;
+		if( St.bFly )
+		{
+			PetAngle += DeltaSeconds*0.9f;
+			Want = Harry->Location + FVector( (FLOAT)appCos(PetAngle)*75.f, (FLOAT)appSin(PetAngle)*75.f, Harry->CollisionHeight*0.9f + (FLOAT)appSin(PetAngle*2.3f)*12.f );
+		}
+		else
+			Want = Harry->Location - Fwd*55.f + Right*45.f;
+
+		const FVector Old = Pet->Location;
+		FVector Delta = Want - Old;
+		const FLOAT Dist = Delta.Size();
+		// Lost (teleports, doors, falling): pop back next to Harry.
+		if( Dist>700.f || (Dist>200.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
+		{
+			Engine->GLevel->FarMoveActor( Pet, Want, 0, 1 );
+			return 1;
+		}
+		FVector New = Old + Delta*Min( 1.f, DeltaSeconds*(St.bFly ? 3.f : 4.f) );
+		if( !St.bFly )
+		{
+			// Stand on the floor under the new spot.
+			FCheckResult Hit;
+			const FVector Top = New + FVector( 0, 0, 60.f );
+			if( !Engine->GLevel->SingleLineCheck( Hit, Pet, Top - FVector(0,0,260.f), Top, TRACE_World, FVector(0,0,0) ) )
+				New.Z = Hit.Location.Z + PetFloor;
+			else
+				New.Z = Harry->Location.Z - Harry->CollisionHeight + PetFloor;
+		}
+		Engine->GLevel->FarMoveActor( Pet, New, 0, 1 );
+
+		// Face where it goes; when idle, face Harry.
+		FVector Move = New - Old;
+		Move.Z = 0.f;
+		const FLOAT Speed = Move.Size()/Max( DeltaSeconds, 0.001f );
+		FVector Face = Speed>15.f ? Move : (Harry->Location - New);
+		Face.Z = 0.f;
+		if( Face.SizeSquared()>1.f )
+		{
+			const INT WantYaw = Face.Rotation().Yaw;
+			const INT Diff = ((WantYaw - Pet->Rotation.Yaw + 32768) & 65535) - 32768;
+			Pet->Rotation = FRotator( 0, Pet->Rotation.Yaw + appRound(Diff*Min(1.f,DeltaSeconds*6.f)), 0 );
+		}
+		if( Speed>15.f )
+		{
+			PetIdle = 0.f;
+			PlayPetAnim( Pet, St.Move, St.bFly ? 1.f : Clamp(Speed/150.f, 0.6f, 1.6f) );
+		}
+		else
+		{
+			PetIdle += DeltaSeconds;
+			PlayPetAnim( Pet, PetIdle>0.4f ? St.Idle : St.Move, 1.f );
+		}
+		return 1;
+	}
+
 	void UpdateAttachment( UGameEngine* Engine, APlayerPawn* Harry, INT Slot, AActor*& Actor, INT& Kind, UBOOL bVisible )
 	{
 		const INT Id = State.Equip[Slot];
@@ -2741,12 +2866,14 @@ public:
 				return;
 			}
 			Kind = Id;
+			if( Slot==RSLOT_Pet )
+				PetLinked = NULL;
 		}
 		UBOOL bPlaced = 1;
 		if( Slot==RSLOT_Hat )
 			bPlaced = PlaceHat( Harry, Actor, Spec, Engine->GLevel );
 		else if( Slot==RSLOT_Pet )
-			bPlaced = PlacePet( Harry, Actor, Spec, Engine->GLevel );
+			bPlaced = UpdateCompanion( Engine, Harry, Actor, Spec, FrameDelta );
 		else
 			Engine->GLevel->FarMoveActor( Actor, Harry->Location + FVector(0,0,Spec.Up), 0, 1 );
 		Actor->bHidden = Harry->bHidden || !bPlaced;
@@ -2818,7 +2945,7 @@ public:
 		UpdateCostume( Harry );
 		const UBOOL bOurBody = Harry->Mesh==HarryMesh || (CostumeApplied && Harry->Mesh==CostumeApplied);
 		UpdateAttachment( Engine, Harry, RSLOT_Hat, HatActor, HatActorKind, bOurBody );
-		UpdateAttachment( Engine, Harry, RSLOT_Pet, PetActor, PetActorKind, bOurBody );
+		UpdateAttachment( Engine, Harry, RSLOT_Pet, PetActor, PetActorKind, 1 );
 		UpdateAttachment( Engine, Harry, RSLOT_Aura, AuraActor, AuraActorKind, 1 );
 		UpdateHeld( Harry );
 	}
@@ -2859,6 +2986,7 @@ public:
 
 	void Tick( UGameEngine* Engine, FLOAT DeltaSeconds )
 	{
+		FrameDelta = DeltaSeconds;
 		Init();
 		bLevelTransition = 0;
 		if( !bEnabled || !Engine->GLevel || Engine->Replay.Replaying() || Engine->Replay.Recording() )
@@ -2965,6 +3093,7 @@ public:
 		Deferred.Empty();
 		bBaselineValid = 0;
 		HatActor = PetActor = AuraActor = NULL;
+		PetLinked = NULL;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
 		HeldWeapon = NULL;
@@ -3066,6 +3195,7 @@ public:
 		LastHarry = NULL;
 		HarryAnim = NULL;
 		HatActor = PetActor = AuraActor = NULL;
+		PetLinked = NULL;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
 		HeldWeapon = NULL;
