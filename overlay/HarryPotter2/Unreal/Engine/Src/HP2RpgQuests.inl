@@ -454,7 +454,7 @@
 
 	void DrawJournalTab( APlayerPawn* Harry, const FRpgRect& Area )
 	{
-		const FLOAT S = Ui.S;
+		const FLOAT S = Ui.P(2.f);
 		static const TCHAR* Sections[3] = { TEXT("Quests"), TEXT("Field Guide"), TEXT("Duelling") };
 		const INT Clicked = DrawTabs( FRpgRect(Area.X, Area.Y, Area.W*0.8f, Ui.TextHeight(Ui.FontItem)+6*S), Sections, NULL, 3, JournalSection );
 		if( Clicked>=0 && Clicked!=JournalSection )
