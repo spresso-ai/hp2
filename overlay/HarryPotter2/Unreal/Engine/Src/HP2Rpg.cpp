@@ -2462,15 +2462,61 @@ public:
 		Wardrobe: attachments (hat, pet, aura) and held item.
 	-------------------------------------------------------------------------*/
 
-	AActor* SpawnRenderActor( UGameEngine* Engine, UClass* Class, FVector Location )
+	// Plain actors for hats, pets, owls and menu previews. The first class
+	// that spawns cleanly in this game is remembered; each refusal is logged
+	// once with its reason.
+	UClass* RenderClass;
+	UBOOL bRenderClassLogged;
+
+	AActor* TrySpawn( UGameEngine* Engine, UClass* Class, FVector Location, UBOOL bLog )
 	{
 		if( !Class )
-			Class = FindClass( TEXT("Effects") );
-		if( !Class || (Class->ClassFlags & CLASS_Abstract) )
 			return NULL;
+		AActor* Def = Class->GetDefaultActor();
+		if( (Class->ClassFlags & CLASS_Abstract) || !Def || Def->bStatic || Def->bNoDelete )
+		{
+			if( bLog )
+				RpgLog( TEXT("render class %s refused: abstract=%i static=%i nodelete=%i"), Class->GetName(),
+					(Class->ClassFlags & CLASS_Abstract)!=0, Def ? Def->bStatic : -1, Def ? Def->bNoDelete : -1 );
+			return NULL;
+		}
 		AActor* A = Engine->GLevel->SpawnActor( Class, NAME_None, NULL, NULL, Location, FRotator(0,0,0), NULL, 1 );
+		if( (!A || A->bDeleteMe) && bLog )
+			RpgLog( TEXT("render class %s refused: spawn returned %s"), Class->GetName(), A ? TEXT("deleted actor") : TEXT("nothing") );
+		return A && !A->bDeleteMe ? A : NULL;
+	}
+
+	AActor* SpawnRenderActor( UGameEngine* Engine, UClass* Class, FVector Location )
+	{
+		AActor* A = NULL;
+		if( Class )
+			A = TrySpawn( Engine, Class, Location, 0 );
+		else if( RenderClass )
+			A = TrySpawn( Engine, RenderClass, Location, 0 );
+		else
+		{
+			static const TCHAR* Candidates[] = { TEXT("Effects"), TEXT("ScaledSprite"), TEXT("Fragment"), TEXT("Projectile"), TEXT("Decoration"), TEXT("TimedCue") };
+			const UBOOL bLog = !bRenderClassLogged;
+			bRenderClassLogged = 1;
+			for( INT c=0; c<ARRAY_COUNT(Candidates) && !A; c++ )
+			{
+				UClass* Cand = FindClass( Candidates[c] );
+				if( !Cand && bLog )
+					RpgLog( TEXT("render class %s not found"), Candidates[c] );
+				A = TrySpawn( Engine, Cand, Location, bLog );
+				if( A )
+				{
+					RenderClass = Cand;
+					RpgLog( TEXT("render class: %s"), Cand->GetName() );
+				}
+			}
+		}
 		if( !A )
 			return NULL;
+		A->bHidden = 0;
+		A->LifeSpan = 0.f;
+		A->Velocity = FVector( 0, 0, 0 );
+		A->Acceleration = FVector( 0, 0, 0 );
 		A->SetCollision( 0, 0, 0 );
 		A->bCollideWorld = 0;
 		A->Physics = PHYS_None;
