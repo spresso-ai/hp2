@@ -227,6 +227,9 @@
 		}
 		SpellCooldown[i] = D.Cooldown;
 		LastCastClock = RpgClock;
+		State.Counters[CNT_WheelCasts]++;
+		if( i==SP2_Leviosa ) State.Counters[CNT_Levitations]++;
+		if( i==SP2_Transfig ) State.Counters[CNT_Transfigs]++;
 		PlayCastAnim( Harry );
 		RpgLog( TEXT("cast %s"), D.Name );
 	}
@@ -334,6 +337,7 @@
 			static const TCHAR* Fx[4] = { TEXT("secretdust"), TEXT("QuestionFX"), TEXT("GoldSparkle01"), TEXT("Goldstar01") };
 			SpawnFx( Engine, Fx[Kind], A->Location, 8.f );
 		}
+		RevealPages( Engine, Harry );
 		RevealLeft = 8.f;
 		PlaySfx( TEXT("HPSounds.Magic_sfx.Lumos_pass_through") );
 		AddFeed( TEXT("Revelio"), Spell2(SP2_Revelio).Color, TOAST_Info, *FString::Printf(TEXT("%i hidden thing%s revealed"), Reveals.Num(), Reveals.Num()==1 ? TEXT("") : TEXT("s")) );
@@ -1155,7 +1159,7 @@
 			static UTexture* Star = NULL;
 			if( !Star )
 				Star = LoadTex( TEXT("HP2_Menu.Icons.HP2StarCounter") );
-			static const TCHAR* Labels[4] = { TEXT("Secret"), TEXT("Treasure"), TEXT("Card"), TEXT("Item") };
+			static const TCHAR* Labels[5] = { TEXT("Secret"), TEXT("Treasure"), TEXT("Card"), TEXT("Item"), TEXT("Page") };
 			for( INT r=0; r<Reveals.Num(); r++ )
 			{
 				const FRevealEntry& E = Reveals(r);

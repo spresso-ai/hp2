@@ -574,8 +574,12 @@
 
 		Ui.Begin( Engine, Viewport, C, Menu!=MENU_None );
 		const UBOOL bGameplay = IsFreeGameplay( Engine, Harry );
-		if( Menu==MENU_None )
+		if( bPhoto )
+			DrawPhoto();
+		else if( Menu==MENU_None )
 		{
+			if( bGameplay )
+				DrawQuestHud( Harry );
 			if( bGameplay || HouseHudTimer>0.f )
 				DrawStatusHud( Harry, bGameplay );
 			if( bGameplay )
@@ -1127,6 +1131,7 @@
 			case BOOK_Spells:     DrawSpellsTab( Harry, Body ); break;
 			case BOOK_Wardrobe:   DrawWardrobeTab( Engine, Harry, Body ); break;
 			case BOOK_Collection: DrawCollectionTab( Engine, Harry, Body ); break;
+			case BOOK_Journal:    DrawJournalTab( Harry, Body ); break;
 			case BOOK_Trophies:   DrawTrophiesTab( Harry, Body ); break;
 			case BOOK_HouseCup:   DrawHouseCupTab( Harry, Body ); break;
 			case BOOK_Letters:    DrawLettersTab( Harry, Body ); break;
@@ -1651,6 +1656,27 @@
 			: FString::Printf( TEXT("%i / 100. Hexing students or getting caught adds trouble; it fades over time."), State.Trouble );
 		Ui.TextWrapped( Ui.FontBody, FRpgRect(Area.X, Y, Area.W, LineH*2), RpgMuted, *TroubleText );
 		Y += LineH*2 + 4*S;
+		// Difficulty.
+		{
+			Ui.Text( Ui.FontBody, Area.X, Y, RpgParchment, TEXT("Difficulty") );
+			const FLOAT BW = (Area.W*0.62f)/DIFF_MAX;
+			for( INT d=0; d<DIFF_MAX; d++ )
+			{
+				static const INT Order[DIFF_MAX] = { DIFF_Easy, DIFF_Normal, DIFF_Hard, DIFF_Expert };
+				const INT Df = Order[d];
+				const FRpgRect B( Area.X+Area.W*0.38f + d*BW, Y-2*S, BW-4*S, LineH+4*S );
+				Ui.Tile( B, State.Difficulty==Df, Ui.Hovered(B,&GDifficultyNames[Df]), FColor(46,56,96,255) );
+				Ui.Text( Ui.FontModern, B.X+B.W*0.5f, B.Y+(B.H-Ui.TextHeight(Ui.FontModern))*0.5f, State.Difficulty==Df ? RpgGoldBright : RpgParchment, GDifficultyNames[Df], RALIGN_Center, 0 );
+				if( Ui.Clicked( B, &GDifficultyNames[Df] ) )
+				{
+					State.Difficulty = Df;
+					Ui.Play( RSND_Click, Harry );
+				}
+			}
+			Y += LineH + 6*S;
+			Ui.Text( Ui.FontSmall, Area.X, Y, RpgMuted, *FString::Printf(TEXT("Damage taken %i%%, XP %+i%%"), GDifficultyDamage[State.Difficulty], GDifficultyXp[State.Difficulty]) );
+			Y += Ui.TextHeight( Ui.FontSmall ) + 6*S;
+		}
 		FString Extra = FString::Printf( TEXT("School day %i"), State.Day );
 		if( State.FelixSeconds>0 )
 			Extra += FString::Printf( TEXT("   Felix Felicis %i:%02i"), State.FelixSeconds/60, State.FelixSeconds%60 );
@@ -1698,8 +1724,12 @@
 		if( !Npc || RpgClock-LastTalkTime < 1.f )
 			return;
 		LastTalkTime = RpgClock;
-		FRpgArg JustTalk = FRpgArg::I( 1 );
-		CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
+		// Quest givers speak about their quest instead of a random line.
+		if( !QuestTalk( Harry, Npc ) )
+		{
+			FRpgArg JustTalk = FRpgArg::I( 1 );
+			CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
+		}
 		const FString Key = (LastLevel ? LastLevel->URL.Map : FString()) + TEXT(":") + Npc->GetName();
 		if( TalkedToday.FindItemIndex(Key)==INDEX_NONE )
 		{
@@ -1731,8 +1761,15 @@
 		{
 			if( !Harry || Harry!=LastHarry )
 				return 0;
+			if( PhotoInput( Engine, Harry, Key, Action, Delta ) )
+				return 1;
 			if( AimInput( Engine, Harry, Key, Action ) )
 				return 1;
+			if( Key==IK_P && Action==IST_Press && IsFreeGameplay(Engine,Harry) )
+			{
+				SetPhoto( Engine, Harry, 1 );
+				return 1;
+			}
 			if( Action!=IST_Press )
 				return 0;
 			if( Key==IK_K && IsFreeGameplay(Engine,Harry) )
@@ -1833,6 +1870,7 @@
 		{
 			if( BookTab==BOOK_Wardrobe ) WardrobeSlot = (WardrobeSlot+1) % RSLOT_MAX;
 			if( BookTab==BOOK_Collection ) CollectionTab = (CollectionTab+1) % 2;
+			if( BookTab==BOOK_Journal ) JournalSection = (JournalSection+1) % 2;
 			Sel = Scroll = 0;
 			Ui.Play( RSND_Tab, Harry );
 			return 1;

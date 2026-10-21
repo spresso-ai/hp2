@@ -178,6 +178,7 @@
 			const UBOOL bRedHanded = RpgClock < T->RedHandedUntil;
 			const INT Points = bRedHanded ? 15 : 5;
 			T->LessonUntil = RpgClock + 150.f;
+			State.Counters[CNT_Lessons]++;
 			T->RedHandedUntil = 0.f;
 			T->NextMischief = RpgClock + 150.f + RpgRand(60);
 			AddHousePoints( Harry, HOUSE_Gryffindor, Points );

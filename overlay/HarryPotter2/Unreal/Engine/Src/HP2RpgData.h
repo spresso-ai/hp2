@@ -396,7 +396,9 @@ enum ECounter
 {
 	CNT_Creatures, CNT_Gnomes, CNT_Students, CNT_Secrets, CNT_Potions, CNT_Mastered,
 	CNT_Duels, CNT_Quidditch, CNT_Beans, CNT_Bought, CNT_HousePoints, CNT_Detentions,
-	CNT_Level, CNT_Cards, CNT_Cosmetics, CNT_Perks, CNT_Talks, CNT_MAX
+	CNT_Level, CNT_Cards, CNT_Cosmetics, CNT_Perks, CNT_Talks,
+	// Appended (saves store counters by position).
+	CNT_Lessons, CNT_Levitations, CNT_Transfigs, CNT_WheelCasts, CNT_Pages, CNT_Quests, CNT_MAX
 };
 
 struct FTrophyDef
@@ -500,5 +502,122 @@ static const FLetterDef GLetters[] =
 };
 static const INT GNumLetters = (INT)ARRAY_COUNT(GLetters);
 enum { MAX_INBOX = 12 };
+
+
+
+
+/*-----------------------------------------------------------------------------
+	Field Guide pages: lore parchments hidden in the hubs (Revelio shows them).
+	Append only: found pages are saved as bits by position.
+-----------------------------------------------------------------------------*/
+
+struct FFieldPage
+{
+	const TCHAR* Map;     // substring of the hub map name
+	const TCHAR* Place;
+	const TCHAR* Title;
+	const TCHAR* Text;
+};
+
+static const FFieldPage GFieldPages[] =
+{
+	{ TEXT("Entryhall"), TEXT("Entrance Hall"), TEXT("The House Hourglasses"), TEXT("Four giant hourglasses keep the House Cup score. Rubies for Gryffindor, emeralds for Slytherin, sapphires for Ravenclaw and yellow diamonds for Hufflepuff. Teachers add and remove stones with a word.") },
+	{ TEXT("Entryhall"), TEXT("Entrance Hall"), TEXT("Moving Portraits"), TEXT("Every portrait in the castle is a little piece of the person painted. They visit each other's frames, gossip and sleep - and some will only let you pass with the right password.") },
+	{ TEXT("Entryhall"), TEXT("Entrance Hall"), TEXT("The Great Doors"), TEXT("The oak doors of the Entrance Hall only open fully for the start of term. First-years cross the lake by boat and walk up the stone steps to meet Professor McGonagall here.") },
+	{ TEXT("Entryhall"), TEXT("Entrance Hall"), TEXT("Peeves"), TEXT("A poltergeist who has haunted Hogwarts since long before anyone remembers. Only the Bloody Baron can really keep him in line, and Filch has never stopped trying to get him expelled.") },
+	{ TEXT("Entryhall"), TEXT("Entrance Hall"), TEXT("Duelling Club"), TEXT("Founded and refounded more times than anyone can count, the Duelling Club teaches defensive magic. Bow, take your positions, and on three - cast to disarm, not to harm.") },
+	{ TEXT("Grandstaircase"), TEXT("Grand Staircase"), TEXT("The Moving Staircases"), TEXT("There are a hundred and forty-two staircases at Hogwarts. Some lead somewhere different on a Friday, and some have a vanishing step you must remember to jump.") },
+	{ TEXT("Grandstaircase"), TEXT("Grand Staircase"), TEXT("The Fat Lady"), TEXT("The portrait guarding Gryffindor Tower asks for the password and enjoys her own singing far more than anyone else does. Do not knock on her frame at night.") },
+	{ TEXT("Grandstaircase"), TEXT("Grand Staircase"), TEXT("Moaning Myrtle"), TEXT("A ghost who haunts the first-floor girls' bathroom. She died there fifty years ago, and she will tell you all about it whether you ask or not.") },
+	{ TEXT("Grandstaircase"), TEXT("Grand Staircase"), TEXT("The Hospital Wing"), TEXT("Madam Pomfrey can mend bones in seconds and regrow them overnight. She is far less forgiving about students who end up in her beds through their own foolishness.") },
+	{ TEXT("Grandstaircase"), TEXT("Grand Staircase"), TEXT("Suits of Armour"), TEXT("The castle's suits of armour are enchanted to patrol and, once a year, to sing carols - badly. Never trust an empty helmet.") },
+	{ TEXT("Grounds"), TEXT("Grounds"), TEXT("The Whomping Willow"), TEXT("Planted the year a certain werewolf arrived at school, the willow attacks anything that comes too close. Its branches have broken more wands than any duel.") },
+	{ TEXT("Grounds"), TEXT("Grounds"), TEXT("Hagrid's Hut"), TEXT("A wooden hut at the edge of the Forbidden Forest, home to the Keeper of Keys and Grounds, his boarhound Fang, and whatever creature he has fallen in love with this week.") },
+	{ TEXT("Grounds"), TEXT("Grounds"), TEXT("The Greenhouses"), TEXT("Professor Sprout's greenhouses grow everything from Mandrakes to Venomous Tentacula. Greenhouse Three is for older students: earmuffs required.") },
+	{ TEXT("Grounds"), TEXT("Grounds"), TEXT("The Quidditch Pitch"), TEXT("Three golden hoops at each end, towers for every house, and a broom shed that smells of polish. Gryffindor's team trains here at dawn whether it rains or not.") },
+	{ TEXT("Grounds"), TEXT("Grounds"), TEXT("Garden Gnomes"), TEXT("Gnomes are not dangerous, just annoying. Swing them round until they are dizzy and throw them over the hedge - they always come back.") },
+	{ TEXT("GreatHall"), TEXT("Great Hall"), TEXT("The Enchanted Ceiling"), TEXT("The ceiling of the Great Hall is bewitched to look like the sky outside. On stormy nights the candles seem to float among the lightning.") },
+	{ TEXT("GreatHall"), TEXT("Great Hall"), TEXT("The House Tables"), TEXT("Four long tables, one for each house, with the staff table across the top. The plates fill themselves with food sent up from the kitchens below.") },
+	{ TEXT("GreatHall"), TEXT("Great Hall"), TEXT("The Sorting Hat"), TEXT("Once worn by Godric Gryffindor himself, the Hat looks into each first-year's head and chooses their house. It writes a new song every single year.") },
+	{ TEXT("GreatHall"), TEXT("Great Hall"), TEXT("House Elves"), TEXT("More house-elves work in the Hogwarts kitchens than anywhere else in Britain. They take great pride in never being seen.") },
+	{ TEXT("GreatHall"), TEXT("Great Hall"), TEXT("The Floating Candles"), TEXT("Thousands of candles hang in mid-air above the tables. Nobody has ever seen one drip wax on a student - which is its own kind of magic.") },
+};
+static const INT GNumFieldPages = (INT)ARRAY_COUNT(GFieldPages);
+
+/*-----------------------------------------------------------------------------
+	Side quests. Append only: quest progress is saved by position.
+-----------------------------------------------------------------------------*/
+
+enum EQuestType { QT_Collect, QT_Counter, QT_Kills };
+
+struct FQuestDef
+{
+	const TCHAR* Giver;      // class chain names of the quest giver
+	const TCHAR* GiverName;
+	INT MinLevel;
+	const TCHAR* Title;
+	const TCHAR* Intro;      // said when the quest is given
+	const TCHAR* Objective;  // "%i/%i" is appended
+	const TCHAR* Done;       // said when it is handed in
+	INT Type;
+	const TCHAR* Map;        // QT_Collect: where the items are
+	const TCHAR* Mesh;       // QT_Collect: item mesh
+	INT Counter;             // QT_Counter: ECounter; QT_Kills: ECreature or -1 for any
+	INT Count;
+	INT Beans, Xp, Points;
+};
+
+static const FQuestDef GQuests[] =
+{
+	{ TEXT("MoaningMyrtle"), TEXT("Moaning Myrtle"), 1, TEXT("Myrtle's Lost Diary"),
+		TEXT("Somebody threw my diary down the stairs! Everybody always throws things at me... Will you find it? It's somewhere on the Grand Staircase."),
+		TEXT("Find Myrtle's diary on the Grand Staircase"), TEXT("You found it! Nobody ever finds anything for me... thank you, Harry."),
+		QT_Collect, TEXT("Grandstaircase"), TEXT("HProps.skBooksSmallBookMesh"), 0, 1, 60, 80, 5 },
+	{ TEXT("Hagrid"), TEXT("Hagrid"), 2, TEXT("Flobberworm Round-up"),
+		TEXT("Blimey, me Flobberworm jars've gone an' rolled all over the grounds. Could yeh fetch 'em back? Five of 'em, I reckon."),
+		TEXT("Collect Flobberworm jars on the Grounds"), TEXT("Brilliant, Harry! They'd 'ave dried right out. Here, fer yer trouble."),
+		QT_Collect, TEXT("Grounds"), TEXT("HProps.skJarFlobberwormMucusMesh"), 0, 5, 90, 140, 10 },
+	{ TEXT("Percy"), TEXT("Percy Weasley"), 3, TEXT("Prefect's Patrol"),
+		TEXT("Some Slytherins are causing trouble in the corridors again. As a prefect I can't be everywhere. Teach three of them a lesson - within the rules, Harry!"),
+		TEXT("Teach troublemakers a lesson"), TEXT("Excellent work. I shall mention this to Professor McGonagall. Probably."),
+		QT_Counter, NULL, NULL, CNT_Lessons, 3, 80, 150, 20 },
+	{ TEXT("FredWeasley|GeorgeWeasley"), TEXT("Fred & George"), 6, TEXT("Field Test"),
+		TEXT("We need a volunteer to test our new levitation charm theory. Lift five things - anything - and tell us how it went. For science."),
+		TEXT("Levitate things with Wingardium Leviosa"), TEXT("Five out of five! The theory holds. Have some beans, you've earned them."),
+		QT_Counter, NULL, NULL, CNT_Levitations, 5, 120, 160, 10 },
+	{ TEXT("MadamePomfrey"), TEXT("Madam Pomfrey"), 2, TEXT("Supplies for the Hospital Wing"),
+		TEXT("I'm running low on Wiggentree bark, Potter. Bring me three pieces from the Grounds - and do try not to need them yourself."),
+		TEXT("Collect Wiggentree bark on the Grounds"), TEXT("Thank you. Now off you go, and no more broken bones this week."),
+		QT_Collect, TEXT("Grounds"), TEXT("HProps.skWiggentreeBarkMesh"), 0, 3, 70, 120, 10 },
+	{ TEXT("ProfSprout"), TEXT("Professor Sprout"), 4, TEXT("Pest Control"),
+		TEXT("Gnomes and spiders have got into my greenhouses again. Clear out eight creatures for me, would you, dear?"),
+		TEXT("Defeat creatures"), TEXT("Splendid! My Mandrakes can finally sleep. Five points to Gryffindor."),
+		QT_Kills, NULL, NULL, -1, 8, 90, 180, 5 },
+	{ TEXT("ProfFlitwick"), TEXT("Professor Flitwick"), 3, TEXT("Charms Revision"),
+		TEXT("Practice makes perfect, Mr Potter! Cast ten of your new spells - wand movements crisp, pronunciation clear."),
+		TEXT("Cast spells from the spell wheel"), TEXT("Wonderful, wonderful! Ten points to Gryffindor!"),
+		QT_Counter, NULL, NULL, CNT_WheelCasts, 10, 60, 160, 10 },
+	{ TEXT("ProfLockhart"), TEXT("Professor Lockhart"), 2, TEXT("Signed Portraits"),
+		TEXT("Harry! I've misplaced four signed portraits of myself in the Entrance Hall. Can't have my admirers going without, can we?"),
+		TEXT("Find Lockhart's portraits in the Entrance Hall"), TEXT("Marvellous! Keep one - no, keep two. You've earned it."),
+		QT_Collect, TEXT("Entryhall"), TEXT("HProps.skBooksFourStackedMesh"), 0, 4, 100, 120, 5 },
+	{ TEXT("ProfMcGonagall"), TEXT("Professor McGonagall"), 9, TEXT("Transfiguration Homework"),
+		TEXT("Your Transfiguration is coming along, Potter. Show me: transfigure three students - preferably ones who deserve it."),
+		TEXT("Transfigure students"), TEXT("Very good. Ten points to Gryffindor - and do change them back properly."),
+		QT_Counter, NULL, NULL, CNT_Transfigs, 3, 120, 220, 10 },
+	{ TEXT("ProfFlitwick|ProfMcGonagall|ProfSprout"), TEXT("Professor"), 3, TEXT("The Field Guide"),
+		TEXT("Hogwarts is full of secrets, Potter. Revelio will show you lost pages of lore. Find five of them."),
+		TEXT("Find Field Guide pages (Revelio)"), TEXT("A true scholar. Keep looking - there are many more."),
+		QT_Counter, NULL, NULL, CNT_Pages, 5, 100, 200, 10 },
+};
+static const INT GNumQuests = (INT)ARRAY_COUNT(GQuests);
+#define MAX_QUESTS 32
+#define MAX_PAGES 64
+
+// Difficulty: damage Harry takes and the XP bonus for braving it.
+enum EDifficulty { DIFF_Normal, DIFF_Easy, DIFF_Hard, DIFF_Expert, DIFF_MAX };
+static const TCHAR* GDifficultyNames[DIFF_MAX] = { TEXT("Normal"), TEXT("Easy"), TEXT("Hard"), TEXT("Expert") };
+static const INT GDifficultyDamage[DIFF_MAX] = { 100, 50, 150, 200 };
+static const INT GDifficultyXp[DIFF_MAX] = { 0, -10, 15, 30 };
 
 #endif

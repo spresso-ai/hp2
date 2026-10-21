@@ -426,6 +426,10 @@ struct FRpgState
 	INT Delivered[2];       // bit per letter id ever delivered (gifts are one-time)
 	INT DayPlaySeconds;     // play time since the school day began
 	INT DayTaskDone;        // a house task was completed today
+	INT Difficulty;         // EDifficulty
+	INT Pages[MAX_PAGES/32];       // Field Guide pages found
+	INT QuestState[MAX_QUESTS];    // EQuestState
+	INT QuestBase[MAX_QUESTS];     // counter baseline or items collected
 
 	void Reset()
 	{
@@ -489,8 +493,8 @@ enum EActorFlag
 };
 
 enum EMenu { MENU_None, MENU_Shop, MENU_Book };
-enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
-static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Trophies"), TEXT("House"), TEXT("Post"), TEXT("Status") };
+enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Journal, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
+static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Journal"), TEXT("Trophies"), TEXT("House"), TEXT("Post"), TEXT("Status") };
 
 enum EHouse { HOUSE_Gryffindor, HOUSE_Slytherin, HOUSE_Ravenclaw, HOUSE_Hufflepuff, HOUSE_MAX };
 static const TCHAR* GHouseNames[HOUSE_MAX] = { TEXT("Gryffindor"), TEXT("Slytherin"), TEXT("Ravenclaw"), TEXT("Hufflepuff") };
@@ -843,7 +847,10 @@ public:
 		Text += FString::Printf(TEXT("LetterDay=%i LettersRead=%i\r\n"), State.LetterDay, State.LettersRead);
 		Text += FString(TEXT("Inbox=")) + IntList(State.Inbox,MAX_INBOX) + TEXT("\r\n");
 		Text += FString(TEXT("Delivered=")) + IntList(State.Delivered,2) + TEXT("\r\n");
-		Text += FString::Printf(TEXT("DayPlay=%i DayTaskDone=%i\r\n"), State.DayPlaySeconds, State.DayTaskDone);
+		Text += FString::Printf(TEXT("DayPlay=%i DayTaskDone=%i Difficulty=%i\r\n"), State.DayPlaySeconds, State.DayTaskDone, State.Difficulty);
+		Text += FString(TEXT("Pages=")) + IntList(State.Pages,MAX_PAGES/32) + TEXT("\r\n");
+		Text += FString(TEXT("QuestState=")) + IntList(State.QuestState,MAX_QUESTS) + TEXT("\r\n");
+		Text += FString(TEXT("QuestBase=")) + IntList(State.QuestBase,MAX_QUESTS) + TEXT("\r\n");
 		// By name too, so new table entries never shift what a save owns.
 		FString Names;
 		for( INT i=0; i<GNumCosmetics; i++ )
@@ -932,6 +939,10 @@ public:
 				ParseIntList( S, TEXT("Delivered="), State.Delivered, 2 );
 				Parse( S, TEXT("DayPlay="), State.DayPlaySeconds );
 				Parse( S, TEXT("DayTaskDone="), State.DayTaskDone );
+				Parse( S, TEXT("Difficulty="), State.Difficulty );
+				ParseIntList( S, TEXT("Pages="), State.Pages, MAX_PAGES/32 );
+				ParseIntList( S, TEXT("QuestState="), State.QuestState, MAX_QUESTS );
+				ParseIntList( S, TEXT("QuestBase="), State.QuestBase, MAX_QUESTS );
 				if( Version>=3 )
 					LoadNames( S );
 			}
@@ -1013,6 +1024,12 @@ public:
 		for( INT i=GNumCosmetics; i<MAX_COSMETICS; i++ )
 			State.Owned[i>>5] &= ~(1<<(i&31));
 		State.DayPlaySeconds = Max( State.DayPlaySeconds, 0 );
+		State.Difficulty = Clamp( State.Difficulty, 0, DIFF_MAX-1 );
+		for( INT q=0; q<MAX_QUESTS; q++ )
+		{
+			State.QuestState[q] = q<GNumQuests ? Clamp( State.QuestState[q], 0, 3 ) : 0;
+			State.QuestBase[q] = Max( State.QuestBase[q], 0 );
+		}
 		for( INT t=0; t<TASKS_PER_DAY; t++ )
 			if( State.Tasks[t*3+1]<=0 )
 				State.TaskDay = 0; // goal 0 would complete instantly: re-roll
@@ -1205,7 +1222,7 @@ public:
 	{
 		if( Amount<=0 )
 			return;
-		Amount = Amount*(100 + GetStat(STAT_XpGain))/100;
+		Amount = Amount*(100 + GetStat(STAT_XpGain) + GDifficultyXp[Clamp(State.Difficulty,0,DIFF_MAX-1)])/100;
 		State.Xp += Amount;
 		AddXpToast( Amount, Reason );
 		while( State.Xp >= XpForNextLevel(State.Level) && State.Level<99 )
@@ -1890,6 +1907,9 @@ public:
 			const INT Pct = Min( 60, GetStat(STAT_DamageReduce) + CreatureDamageReduction(Caller) );
 			if( Pct>0 )
 				*Damage = Max( 1, appRound(*Damage*(100-Pct)/100.f) );
+			// Difficulty scales what reaches Harry.
+			if( DifficultyDamagePct()!=100 )
+				*Damage = Max( 1, appRound(*Damage*DifficultyDamagePct()/100.f) );
 			return;
 		}
 		if( Name==N_PickupItem )
@@ -3217,6 +3237,7 @@ public:
 				}
 				CheckCardRewards( Harry );
 				CheckTrophies( Harry );
+				CheckQuests( Harry );
 				if( bBaselineValid )
 					UpdateTasks( Harry );
 			}
@@ -3238,6 +3259,8 @@ public:
 		UpdateOwls( Engine, Harry, DeltaSeconds );
 		UpdateStudents( Engine, Harry, IsFreeGameplay(Engine,Harry), DeltaSeconds );
 		UpdateTroublemakers( Engine, Harry, IsFreeGameplay(Engine,Harry) );
+		UpdateQuests( Engine, Harry, DeltaSeconds );
+		UpdatePhoto( Harry );
 	}
 
 	void OnLevelChanged( UGameEngine* Engine )
@@ -3317,6 +3340,8 @@ public:
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 		EndAllSpells( Engine );
 		EndWorld();
+		EndPickups( Engine );
+		SetPhoto( Engine, GetHarry(Engine), 0 );
 		for( INT o=0; o<Owls.Num(); o++ )
 			DestroyActorSafe( Engine, Owls(o).Actor );
 		Owls.Empty();
@@ -3355,6 +3380,8 @@ public:
 		LastLevel = NULL;
 		LastHarry = NULL;
 		HarryAnim = NULL;
+		ForgetQuests();
+		bPhoto = 0;
 		HatActor = PetActor = AuraActor = NULL;
 		PetLinked = NULL;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
@@ -3379,6 +3406,7 @@ public:
 	#include "HP2RpgMenus.inl"
 	#include "HP2RpgSpells.inl"
 	#include "HP2RpgWorld.inl"
+	#include "HP2RpgQuests.inl"
 };
 
 static FHP2Rpg GRpg;
