@@ -395,6 +395,7 @@
 		AActor* Item = EnsurePreview( Engine, PreviewItem );
 		if( !Body )
 			return;
+		FRpgClipScope Clip( Ui, R );
 		SetCostume( Body, Outfit, 0 );
 		CopyAnim( Body, Harry );
 		ApplyLook( Outfit, Glasses );
@@ -447,6 +448,7 @@
 		UMesh* Mesh = LoadMesh( MeshPath );
 		if( !Item || !Mesh )
 			return;
+		FRpgClipScope Clip( Ui, R );
 		SetPreviewMesh( Item, Mesh );
 		if( Ui.PlaceInRect( Item, R, Yaw, 1.f ) )
 			Ui.DrawActorInRect( Item, 1 );
@@ -457,6 +459,7 @@
 		AActor* Body = EnsurePreview( Engine, PreviewNpc );
 		if( !Body || !Npc || !Npc->Mesh )
 			return;
+		FRpgClipScope Clip( Ui, R );
 		Body->Mesh = Npc->Mesh;
 		Body->Skin = Npc->Skin;
 		for( INT i=0; i<8; i++ )
@@ -552,6 +555,8 @@
 		{
 			if( bGameplay || HouseHudTimer>0.f )
 				DrawStatusHud( Harry, bGameplay );
+			if( bGameplay )
+				DrawTroublemakers( Harry );
 			if( bGameplay || ArrestoLeft>0.f || RevealLeft>0.f )
 				DrawSpellHud( Harry );
 			DrawFeed();
@@ -1635,7 +1640,11 @@
 
 		if( Menu==MENU_None )
 		{
-			if( Action!=IST_Press || !Harry || Harry!=LastHarry )
+			if( !Harry || Harry!=LastHarry )
+				return 0;
+			if( AimInput( Engine, Harry, Key, Action ) )
+				return 1;
+			if( Action!=IST_Press )
 				return 0;
 			if( Key==IK_K && IsFreeGameplay(Engine,Harry) )
 			{
@@ -1653,15 +1662,15 @@
 				}
 				return 1;
 			}
-			if( Key>=IK_4 && Key<=IK_9 )
+			// Number keys pick a spell (4-9, then 0); casting is aimed with the mouse.
+			if( (Key>=IK_4 && Key<=IK_9) || Key==IK_0 )
 			{
-				if( CanCastNow(Engine,Harry) )
+				const INT i = Key==IK_0 ? 6 : Key-IK_4;
+				if( i<SP2_MAX && CanCastNow(Engine,Harry) )
 				{
-					CastSpell2( Engine, Harry, Key-IK_4 );
+					SelectSpell( i );
 					return 1;
 				}
-				RpgLog( TEXT("spell key %i refused: harry state %s, pauser '%s', action %i"), Key-IK_4+4,
-					*GetStateName(Harry), *Engine->GLevel->GetLevelInfo()->Pauser, Engine->GLevel->GetLevelInfo()->LevelAction );
 				return 0;
 			}
 			if( Key==IK_E && NearNpc && IsInLevel(NearNpc) && IsFreeGameplay(Engine,Harry) )

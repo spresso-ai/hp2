@@ -104,6 +104,14 @@ public:
 	UBOOL PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zoom=1.f );
 	void FocusPoint( AActor* Actor, const FVector& World, FLOAT SX, FLOAT SY );
 	void DrawActorInRect( AActor* Actor, UBOOL bClearZ=1 );
+	// Restricts 3D drawing to R: a sub-frame whose viewport is R, so models
+	// never spill out of their tile. Coordinates stay in canvas pixels.
+	UBOOL BeginClip( const FRpgRect& R );
+	void EndClip();
+	FSceneNode* View() { return bClipping ? &ClipFrame : (C ? C->Frame : NULL); }
+	FSceneNode ClipFrame;
+	FRpgRect ClipRect;
+	UBOOL bClipping;
 
 	// Sound.
 	void Play( INT Sound, AActor* Listener );
@@ -113,5 +121,14 @@ public:
 	static UFont* MakeNativeFont( UFont* Fallback, const TCHAR* FaceName, INT Height );
 	static UTexture* LoadTexture( const TCHAR* Path ) { return (UTexture*)LoadRooted( UTexture::StaticClass(), Path ); }
 };
+
+// Clips 3D drawing to a rectangle for the lifetime of the scope.
+struct FRpgClipScope
+{
+	FRpgUi& Ui;
+	FRpgClipScope( FRpgUi& InUi, const FRpgRect& R ) : Ui(InUi) { Ui.BeginClip( R ); }
+	~FRpgClipScope() { Ui.EndClip(); }
+};
+
 
 #endif

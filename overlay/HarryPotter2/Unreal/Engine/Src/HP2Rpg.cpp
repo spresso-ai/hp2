@@ -350,9 +350,18 @@ static INT CallInt( UObject* Obj, const TCHAR* FuncName, INT Default=0 )
 	return Ret.Int;
 }
 
+// The package loader matches an export's class exactly, so a skeletal mesh
+// that is not loaded yet is only found when asked for as USkeletalMesh.
 static UMesh* LoadMesh( const TCHAR* Path )
 {
-	return Path ? (UMesh*)FRpgUi::LoadRooted( UMesh::StaticClass(), Path ) : NULL;
+	if( !Path )
+		return NULL;
+	UMesh* Mesh = (UMesh*)FRpgUi::LoadRooted( USkeletalMesh::StaticClass(), Path );
+	if( !Mesh )
+		Mesh = (UMesh*)FRpgUi::LoadRooted( ULodMesh::StaticClass(), Path );
+	if( !Mesh )
+		Mesh = (UMesh*)FRpgUi::LoadRooted( UMesh::StaticClass(), Path );
+	return Mesh;
 }
 
 static UTexture* LoadTex( const TCHAR* Path )
@@ -593,6 +602,11 @@ public:
 	TArray<UPalette*> CustomPalettes;
 	INT CustomPaletteKeys[64];
 	TArray<BYTE> GlassesBackup[8];
+	// Quidditch robes as a costume: hide the broom texture and face forward.
+	TArray<BYTE> BroomBackup[8];
+	DWORD BroomOldFlags;
+	UBOOL bQuidFix;
+	FRotator QuidOldRot;
 	UBOOL bGlassesHidden;
 	INT AppliedPalette[4];
 	AActor* HatActor;
@@ -1586,7 +1600,7 @@ public:
 	INT StudentHouse( AActor* Actor )
 	{
 		const TCHAR* N = Actor->GetClass()->GetName();
-		if( appStrstr(N,TEXT("Sly")) ) return HOUSE_Slytherin;
+		if( appStrstr(N,TEXT("Sly")) || ClassChainIsAny(Actor,TEXT("Draco|Crabbe|Goyle")) ) return HOUSE_Slytherin;
 		if( appStrstr(N,TEXT("Rav")) ) return HOUSE_Ravenclaw;
 		if( appStrstr(N,TEXT("Huf")) ) return HOUSE_Hufflepuff;
 		return HOUSE_Gryffindor;
@@ -1617,6 +1631,9 @@ public:
 		const INT V = VendorFor( Actor );
 		if( V>=0 && V<VEN_StudentGryffindor )
 			return GVendors[V].Name;
+		if( ClassChainIs(Actor,TEXT("Draco")) ) return TEXT("Draco Malfoy");
+		if( ClassChainIs(Actor,TEXT("Crabbe")) ) return TEXT("Crabbe");
+		if( ClassChainIs(Actor,TEXT("Goyle")) ) return TEXT("Goyle");
 		if( IsStudent(Actor) )
 			return FString::Printf( TEXT("%s student"), GHouseNames[StudentHouse(Actor)] );
 		return Actor->GetClass()->GetName();
@@ -1906,9 +1923,7 @@ public:
 		Student->setPhysics( PHYS_Falling );
 		Student->Velocity = Dir*(420.f*Boost) + FVector( 0.f, 0.f, 620.f*Boost );
 		State.Counters[CNT_Students]++;
-		AddHousePoints( Harry, HOUSE_Gryffindor, -5 );
-		AddTrouble( 12, TEXT("Hexing a student") );
-		AddRep( StudentHouse(Student), -8 );
+		StudentHitBySpell( Student, 12, -8, TEXT("Hexing a student") );
 		RpgLog( TEXT("launched student %s"), Student->GetName() );
 	}
 
@@ -1951,7 +1966,7 @@ public:
 			for( INT j=0; j<Level->Actors.Num(); j++ )
 			{
 				AActor* Other = Level->Actors(j);
-				if( !Other || Other->bDeleteMe || Other->bHidden || !IsStudent(Other) || IsHolding(Other) )
+				if( !Other || Other->bDeleteMe || Other->bHidden || !(IsStudent(Other) || IsTroublemaker(Other)) || IsHolding(Other) )
 					continue;
 				const FVector D = Other->Location - Spell->Location;
 				const FLOAT Reach = Other->CollisionRadius + 28.f;
@@ -2258,8 +2273,14 @@ public:
 			FColor& C = Palette->Colors(i);
 			if( TexIndex==3 )
 			{
-				if( i==1 && Variant>=12 && Variant<=15 )
-					C = FColor( Frames[Variant-10].R, Frames[Variant-10].G, Frames[Variant-10].B, C.A );
+				// Glasses texture: tint every colour (index 0 is see-through)
+				// by its brightness so the frame keeps its shading.
+				if( i>0 && Variant>=12 && Variant<=15 )
+				{
+					const FColor& F = Frames[Variant-10];
+					const FLOAT L = Clamp( 0.45f + 1.2f*(0.30f*C.R + 0.59f*C.G + 0.11f*C.B)/255.f, 0.f, 1.6f );
+					C = FColor( ToByte(F.R/255.f*L), ToByte(F.G/255.f*L), ToByte(F.B/255.f*L), C.A );
+				}
 				continue;
 			}
 			const FLOAT R = C.R/255.f, G = C.G/255.f, B = C.B/255.f;
@@ -2415,8 +2436,62 @@ public:
 		}
 	}
 
+	static UBOOL IsQuidMesh( UMesh* Mesh )
+	{
+		return Mesh && appStricmp( Mesh->GetName(), TEXT("skharryquidMesh") )==0;
+	}
+
+	void SetQuidFix( UBOOL bOn )
+	{
+		if( bOn==bQuidFix )
+			return;
+		UMesh* Quid = LoadMesh( TEXT("HPModels.skharryquidMesh") );
+		UTexture* Broom = LoadTex( TEXT("HPModels.Skins.skharryquidTex4") );
+		if( !Quid || !Broom || !HarryMesh )
+			return;
+		bQuidFix = bOn;
+		if( bOn )
+		{
+			QuidOldRot = Quid->RotOrigin;
+			RpgLog( TEXT("quidditch robes: rot %i/%i/%i -> harry %i/%i/%i"), Quid->RotOrigin.Pitch, Quid->RotOrigin.Yaw, Quid->RotOrigin.Roll,
+				HarryMesh->RotOrigin.Pitch, HarryMesh->RotOrigin.Yaw, HarryMesh->RotOrigin.Roll );
+			Quid->RotOrigin = HarryMesh->RotOrigin;
+			BroomOldFlags = Broom->PolyFlags;
+			Broom->PolyFlags |= PF_Masked;
+		}
+		else
+		{
+			Quid->RotOrigin = QuidOldRot;
+			Broom->PolyFlags = BroomOldFlags;
+		}
+		// Index 0 of a masked texture is see-through: blank the broom.
+		const INT NumMips = Min( Broom->Mips.Num(), (INT)ARRAY_COUNT(BroomBackup) );
+		for( INT m=0; m<NumMips; m++ )
+		{
+			FMipmap& Mip = Broom->Mips(m);
+			Mip.DataArray.Load();
+			if( Mip.DataArray.Num()<=0 )
+				continue;
+			if( bOn )
+			{
+				BroomBackup[m].Empty();
+				BroomBackup[m].Add( Mip.DataArray.Num() );
+				appMemcpy( &BroomBackup[m](0), &Mip.DataArray(0), Mip.DataArray.Num() );
+				appMemzero( &Mip.DataArray(0), Mip.DataArray.Num() );
+			}
+			else if( BroomBackup[m].Num()==Mip.DataArray.Num() )
+				appMemcpy( &Mip.DataArray(0), &BroomBackup[m](0), Mip.DataArray.Num() );
+		}
+		Broom->bRealtimeChanged = 1;
+	}
+
 	void UpdateCostume( APlayerPawn* Harry )
 	{
+		// Only while our costume is in use, never in the real Quidditch match.
+		{
+			const TCHAR* Map = LastLevel ? *LastLevel->URL.Map : TEXT("");
+			SetQuidFix( IsQuidMesh(LoadMesh(GCosmetics[State.Equip[RSLOT_Outfit]].Mesh)) && !appStrstr(Map,TEXT("uidditch")) );
+		}
 		// The game swaps Harry's mesh for cutscenes and Polyjuice; never fight it.
 		if( Harry->Mesh!=HarryMesh && (!CostumeApplied || Harry->Mesh!=CostumeApplied) )
 			return;
@@ -2448,6 +2523,7 @@ public:
 
 	void RestoreCostume( APlayerPawn* Harry )
 	{
+		SetQuidFix( 0 );
 		if( Harry && CostumeApplied && Harry->Mesh==CostumeApplied && HarryMesh )
 		{
 			Harry->Mesh = HarryMesh;
@@ -2861,6 +2937,7 @@ public:
 		UpdateSpells( Engine, Harry, DeltaSeconds );
 		UpdateOwls( Engine, Harry, DeltaSeconds );
 		UpdateStudents( Engine, Harry, IsFreeGameplay(Engine,Harry), DeltaSeconds );
+		UpdateTroublemakers( Engine, Harry, IsFreeGameplay(Engine,Harry) );
 	}
 
 	void OnLevelChanged( UGameEngine* Engine )

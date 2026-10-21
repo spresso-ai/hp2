@@ -326,6 +326,9 @@ enum ECreature
 	CR_Bowtruckle, CR_Ectoplasm, CR_Horklump, CR_SpikyPlant, CR_Tentacula, CR_Boss, CR_MAX
 };
 
+// Teachers, prefects and caretakers who catch rule-breakers (class chain names).
+static const TCHAR* GStaffClasses = TEXT("Percy|SlytherinPrefect|ProfSnape|Snape|ProfMcGonagall|ProfFlitwick|ProfSprout|ProfLockhart|ProfDumbleDore|Filch|MrsNorris|MadamePomfrey");
+
 struct FCreatureDef
 {
 	const TCHAR* Name;

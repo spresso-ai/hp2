@@ -1,5 +1,6 @@
 /*=============================================================================
-	HP2RpgSpells.inl: Extra spells of FHP2Rpg, cast from a hotbar (keys 4-9).
+	HP2RpgSpells.inl: Extra spells of FHP2Rpg. Pick one with the mouse wheel (or keys 4-0),
+	hold the right mouse button to aim and click the left button to cast.
 	Included inside the FHP2Rpg class body in HP2Rpg.cpp.
 
 	Accio, Revelio, Protego, Wingardium Leviosa, Glacius and Arresto Momentum
@@ -9,7 +10,7 @@
 	next tick).
 =============================================================================*/
 
-	enum ESpell2 { SP2_Accio, SP2_Revelio, SP2_Protego, SP2_Leviosa, SP2_Glacius, SP2_Arresto, SP2_MAX };
+	enum ESpell2 { SP2_Accio, SP2_Revelio, SP2_Protego, SP2_Leviosa, SP2_Glacius, SP2_Arresto, SP2_Transfig, SP2_MAX };
 
 	struct FSpell2Def
 	{
@@ -28,16 +29,17 @@
 			{ TEXT("Accio"), TEXT("Summon beans, cards, stars and ingredients nearby."), 2, 8.f, TEXT("SpellShapes.Shapes.SPSalohomora"), FColor(255,214,100,255) },
 			{ TEXT("Revelio"), TEXT("Reveal secrets, chests and collectibles for 8 seconds."), 3, 12.f, TEXT("SpellShapes.Shapes.SPSlumos"), FColor(150,220,255,255) },
 			{ TEXT("Protego"), TEXT("A shield that blocks all damage for 4 seconds."), 4, 25.f, TEXT("SpellShapes.Shapes.SPSexpelliarmus"), FColor(140,200,255,255) },
-			{ TEXT("Wingardium Leviosa"), TEXT("Lift a creature, student or vase into the air, then drop it."), 6, 10.f, TEXT("SpellShapes.Shapes.SPSspongify"), FColor(220,240,160,255) },
+			{ TEXT("Wingardium Leviosa"), TEXT("Lift a creature, student or vase and steer it with the mouse. Release to drop, click to throw."), 6, 10.f, TEXT("SpellShapes.Shapes.SPSspongify"), FColor(220,240,160,255) },
 			{ TEXT("Glacius"), TEXT("Freeze a creature solid for 5 seconds."), 8, 12.f, TEXT("SpellShapes.Shapes.SPSmimble"), FColor(170,230,255,255) },
 			{ TEXT("Arresto Momentum"), TEXT("Slow down every enemy and their attacks for 6 seconds."), 10, 40.f, TEXT("SpellShapes.Shapes.SPSskurge"), FColor(200,170,255,255) },
+			{ TEXT("Transfiguration"), TEXT("Turn a student into an animal for 20 seconds. Teach troublemakers a lesson!"), 9, 15.f, TEXT("SpellShapes.Shapes.SPSdiffindo"), FColor(255,170,220,255) },
 		};
 		return Defs[i];
 	}
 
 	struct FPullEntry   { AActor* Actor; BYTE OldPhysics; FLOAT Age; };
 	struct FRevealEntry { AActor* Actor; FVector Location; INT Kind; };
-	struct FLiftEntry   { AActor* Actor; BYTE OldRole; BYTE OldPhysics; FVector Base; FLOAT Age; UBOOL bDropped; UBOOL bProp; };
+	struct FLiftEntry   { AActor* Actor; BYTE OldRole; BYTE OldPhysics; FVector Base; FLOAT Age; UBOOL bDropped; UBOOL bProp; UBOOL bControlled; UBOOL bThrown; FLOAT HoldDist; };
 	struct FFreezeEntry { AActor* Actor; FLOAT Left; UBOOL OldEnviro; UTexture* OldTexture; BYTE OldFatness; FLOAT OldScaleGlow; };
 
 	FLOAT SpellCooldown[SP2_MAX];
@@ -51,6 +53,14 @@
 	AActor* ShieldFx;
 	INT SlowFrame;
 	INT SpellsKnownNotified;
+
+	// Mouse aiming.
+	INT SelSpell;            // spell picked with the wheel / number keys
+	FLOAT SelFlash;          // seconds the picked spell's name stays shown
+	UBOOL bAiming;           // right mouse held for our spell
+	AActor* AimTarget;
+	FVector CamPos, CamDir;  // last drawn camera
+	UBOOL bCamValid;
 
 	UBOOL SpellUnlocked( INT i )
 	{
@@ -155,7 +165,13 @@
 		Casting.
 	-------------------------------------------------------------------------*/
 
-	void CastSpell2( UGameEngine* Engine, APlayerPawn* Harry, INT i )
+	// Which spells need something to aim at.
+	static UBOOL SpellNeedsTarget( INT i )
+	{
+		return i==SP2_Leviosa || i==SP2_Glacius || i==SP2_Transfig;
+	}
+
+	void CastSpell2( UGameEngine* Engine, APlayerPawn* Harry, INT i, AActor* Target )
 	{
 		const FSpell2Def& D = Spell2( i );
 		if( !SpellUnlocked(i) )
@@ -168,15 +184,22 @@
 			AddFeed( FString::Printf(TEXT("%s is recharging"), D.Name), FColor(180,180,200,255), TOAST_Info, *FString::Printf(TEXT("Ready in %i s"), appCeil(SpellCooldown[i])) );
 			return;
 		}
+		if( SpellNeedsTarget(i) && !Target )
+		{
+			PlaySfx( TEXT("HPSounds.Magic_sfx.spell_dud") );
+			AddFeed( FString::Printf(TEXT("%s needs a target"), D.Name), FColor(180,180,200,255), TOAST_Info, TEXT("Aim until the spell sign appears") );
+			return;
+		}
 		UBOOL bCast = 0;
 		switch( i )
 		{
-			case SP2_Accio:   bCast = CastAccio( Engine, Harry ); break;
-			case SP2_Revelio: bCast = CastRevelio( Engine, Harry ); break;
-			case SP2_Protego: bCast = CastProtego( Engine, Harry ); break;
-			case SP2_Leviosa: bCast = CastLeviosa( Engine, Harry ); break;
-			case SP2_Glacius: bCast = CastGlacius( Engine, Harry ); break;
-			case SP2_Arresto: bCast = CastArresto( Engine, Harry ); break;
+			case SP2_Accio:    bCast = CastAccio( Engine, Harry ); break;
+			case SP2_Revelio:  bCast = CastRevelio( Engine, Harry ); break;
+			case SP2_Protego:  bCast = CastProtego( Engine, Harry ); break;
+			case SP2_Leviosa:  bCast = CastLeviosa( Engine, Harry, Target ); break;
+			case SP2_Glacius:  bCast = CastGlacius( Engine, Harry, Target ); break;
+			case SP2_Arresto:  bCast = CastArresto( Engine, Harry ); break;
+			case SP2_Transfig: bCast = CastTransfig( Engine, Harry, Target ); break;
 		}
 		if( !bCast )
 		{
@@ -309,16 +332,12 @@
 		return 1;
 	}
 
-	UBOOL CastLeviosa( UGameEngine* Engine, APlayerPawn* Harry )
+	UBOOL CastLeviosa( UGameEngine* Engine, APlayerPawn* Harry, AActor* T )
 	{
-		AActor* T = PickTarget( Engine, Harry, 1, 1, 650.f );
 		if( !T )
-		{
-			AddFeed( TEXT("Wingardium Leviosa"), Spell2(SP2_Leviosa).Color, TOAST_Info, TEXT("No target in front of you") );
 			return 0;
-		}
 		for( INT l=0; l<Lifts.Num(); l++ )
-			if( Lifts(l).Actor==T )
+			if( Lifts(l).Actor==T || Lifts(l).bControlled )
 				return 0;
 		FLiftEntry* E = new(Lifts) FLiftEntry;
 		E->Actor = T;
@@ -328,19 +347,50 @@
 		E->Age = 0.f;
 		E->bDropped = 0;
 		E->bProp = !T->IsA(APawn::StaticClass());
+		E->bControlled = 1;
+		E->bThrown = 0;
+		E->HoldDist = Clamp( (T->Location - Harry->Location).Size2D(), 160.f, 520.f );
+		SpawnFx( Engine, TEXT("Levitate_hold"), T->Location, 2.f );
 		T->Role = ROLE_DumbProxy;
 		T->setPhysics( PHYS_None );
 		T->Velocity = FVector( 0, 0, 0 );
 		SpawnFx( Engine, TEXT("Levitate_wand"), WandTip(Harry), 0.8f );
 		SpawnFx( Engine, TEXT("levitate_hit"), T->Location, 1.f );
-		SpawnFx( Engine, TEXT("Levitate_hold"), T->Location, 3.5f );
 		PlaySfx( TEXT("HPSounds.Magic_sfx.Spell_aim") );
 		if( IsStudent(T) )
-		{
-			AddTrouble( 5, TEXT("Levitating a student") );
-			AddRep( StudentHouse(T), -3 );
-		}
+			StudentHitBySpell( T, 5, -3, TEXT("Levitating a student") );
 		return 1;
+	}
+
+	FLiftEntry* ControlledLift()
+	{
+		for( INT l=0; l<Lifts.Num(); l++ )
+			if( Lifts(l).bControlled && IsInLevel(Lifts(l).Actor) )
+				return &Lifts(l);
+		return NULL;
+	}
+
+	// Lets go of the levitated target: a drop, or a throw along the aim.
+	void ReleaseLift( UGameEngine* Engine, FLiftEntry& E, UBOOL bThrow )
+	{
+		AActor* T = E.Actor;
+		E.bControlled = 0;
+		E.bDropped = 1;
+		E.Age = 0.f;
+		T->setPhysics( PHYS_Falling );
+		SpawnFx( Engine, TEXT("Wing_hit"), T->Location, 1.f );
+		if( bThrow && bCamValid )
+		{
+			E.bThrown = 1;
+			T->Velocity = CamDir*1100.f + FVector( 0, 0, 260.f );
+			PlaySfx( TEXT("HPSounds.Magic_sfx.Dueling_EXP_swoosh") );
+			RpgLog( TEXT("leviosa: threw %s"), T->GetName() );
+		}
+		else
+		{
+			T->Velocity = FVector( 0, 0, -100.f );
+			PlaySfx( TEXT("HPSounds.Magic_sfx.SPN_bounce_on") );
+		}
 	}
 
 	void UpdateLeviosa( UGameEngine* Engine, FLOAT DeltaSeconds )
@@ -355,6 +405,24 @@
 			}
 			AActor* T = E.Actor;
 			E.Age += DeltaSeconds;
+			if( E.bControlled )
+			{
+				APlayerPawn* Harry = CurrentHarry();
+				if( !Harry || !bAiming || !bCamValid || E.Age>15.f )
+				{
+					ReleaseLift( Engine, E, 0 );
+					continue;
+				}
+				// Float where Harry aims, at the held distance.
+				FVector Flat( CamDir.X, CamDir.Y, 0.f );
+				Flat = Flat.SafeNormal();
+				FVector Want = Harry->Location + Flat*E.HoldDist;
+				Want.Z = Clamp( Harry->Location.Z + 70.f + CamDir.Z*E.HoldDist + (FLOAT)appSin(E.Age*4.f)*6.f, Harry->Location.Z - 30.f, Harry->Location.Z + 420.f );
+				FCheckResult Hit;
+				Engine->GLevel->MoveActor( T, (Want - T->Location)*Min(1.f, DeltaSeconds*8.f), T->Rotation + FRotator(0,appRound(6000.f*DeltaSeconds),0), Hit );
+				T->Velocity = FVector( 0, 0, 0 );
+				continue;
+			}
 			if( !E.bDropped )
 			{
 				if( E.Age < 3.5f )
@@ -388,14 +456,10 @@
 		}
 	}
 
-	UBOOL CastGlacius( UGameEngine* Engine, APlayerPawn* Harry )
+	UBOOL CastGlacius( UGameEngine* Engine, APlayerPawn* Harry, AActor* T )
 	{
-		AActor* T = PickTarget( Engine, Harry, 0, 0, 700.f );
-		if( !T )
-		{
-			AddFeed( TEXT("Glacius"), Spell2(SP2_Glacius).Color, TOAST_Info, TEXT("No creature in front of you") );
+		if( !T || CreatureType(T)<0 )
 			return 0;
-		}
 		for( INT f=0; f<Freezes.Num(); f++ )
 			if( Freezes(f).Actor==T )
 			{
@@ -533,7 +597,9 @@
 				ShieldFx = NULL;
 		}
 		UpdateAccio( Engine, Harry, DeltaSeconds );
+		UpdateAim( Engine, Harry, DeltaSeconds );
 		UpdateLeviosa( Engine, DeltaSeconds );
+		UpdateTransfigs( Engine, DeltaSeconds );
 		for( INT f=Freezes.Num()-1; f>=0; f-- )
 		{
 			FFreezeEntry& E = Freezes(f);
@@ -553,12 +619,13 @@
 
 		// Announce spells unlocked by levelling up (SpellsKnownNotified is
 		// synced silently whenever a save is loaded).
-		const INT Known = CountKnownSpells();
+		// (SpellsKnownNotified holds the level that was last announced.)
 		if( SpellsKnownNotified<0 )
-			SpellsKnownNotified = Known;
-		for( INT i=SpellsKnownNotified; i<Known; i++ )
-			AddFeed( FString::Printf(TEXT("New spell: %s"), Spell2(i).Name), Spell2(i).Color, TOAST_Reward, *FString::Printf(TEXT("Press %i to cast"), i+4) );
-		SpellsKnownNotified = Known;
+			SpellsKnownNotified = State.Level;
+		for( INT i=0; i<SP2_MAX; i++ )
+			if( Spell2(i).UnlockLevel>SpellsKnownNotified && Spell2(i).UnlockLevel<=State.Level )
+				AddFeed( FString::Printf(TEXT("New spell: %s"), Spell2(i).Name), Spell2(i).Color, TOAST_Reward, TEXT("Scroll to it, hold right mouse to aim") );
+		SpellsKnownNotified = State.Level;
 	}
 
 	// Ends every running spell and restores the actors it changed (before a
@@ -578,6 +645,12 @@
 				T->setPhysics( (OldP==PHYS_Walking || OldP==PHYS_None) ? PHYS_Falling : OldP );
 			}
 		Lifts.Empty();
+		for( INT t=0; t<Transfigs.Num(); t++ )
+			if( IsInLevel(Transfigs(t).Actor) )
+				Untransfigure( Engine, Transfigs(t), 0 );
+		Transfigs.Empty();
+		bAiming = 0;
+		AimTarget = NULL;
 		for( INT p=0; p<Pulls.Num(); p++ )
 			if( IsInLevel(Pulls(p).Actor) )
 				Pulls(p).Actor->setPhysics( Pulls(p).OldPhysics );
@@ -591,10 +664,370 @@
 	{
 		Freezes.Empty();
 		Lifts.Empty();
+		Transfigs.Empty();
+		bAiming = 0;
+		AimTarget = NULL;
+		bCamValid = 0;
 		Pulls.Empty();
 		Reveals.Empty();
 		ShieldFx = NULL;
 		ArrestoLeft = RevealLeft = ShieldLeft = 0.f;
+	}
+
+
+	/*-------------------------------------------------------------------------
+		Transfiguration: a student becomes a cat or an owl for a while.
+	-------------------------------------------------------------------------*/
+
+	struct FTransfigEntry
+	{
+		AActor* Actor;
+		UMesh* OldMesh;
+		UTexture* OldSkin;
+		UTexture* OldMulti[8];
+		UAnimation* OldAnim;
+		FLOAT OldScale;
+		BYTE OldRole;
+		FLOAT Left;
+	};
+	TArray<FTransfigEntry> Transfigs;
+
+	UBOOL IsTransfigured( AActor* A )
+	{
+		for( INT t=0; t<Transfigs.Num(); t++ )
+			if( Transfigs(t).Actor==A )
+				return 1;
+		return 0;
+	}
+
+	UBOOL CastTransfig( UGameEngine* Engine, APlayerPawn* Harry, AActor* T )
+	{
+		if( !T || !(IsStudent(T) || IsTroublemaker(T)) || IsTransfigured(T) )
+			return 0;
+		// Mesh, animation set, idle sequence, height in units, name.
+		static const TCHAR* Forms[][5] =
+		{
+			{ TEXT("HPModels.skMrsNorrisMesh"),   TEXT("HPModels.skMrsNorrisAnims"),   TEXT("Idle"),    TEXT("40"), TEXT("a cat") },
+			{ TEXT("HProps.skChocolateFrogMesh"), TEXT("HProps.skChocolateFrogAnims"), TEXT("croak"),   TEXT("26"), TEXT("a frog") },
+			{ TEXT("HPModels.skPigMesh"),         TEXT("HPModels.skPigAnims"),         TEXT("Idle"),    TEXT("45"), TEXT("a pig") },
+			{ TEXT("HPModels.skowlbarnMesh"),     TEXT("HPModels.skowlbarnAnims"),     TEXT("Breathe"), TEXT("40"), TEXT("an owl") },
+		};
+		INT F = RpgRand( (INT)ARRAY_COUNT(Forms) );
+		UMesh* Mesh = LoadMesh( Forms[F][0] );
+		if( !Mesh && F==2 )
+			Mesh = LoadMesh( TEXT("HProps.skPigMesh") );
+		if( !Mesh )
+		{
+			RpgLog( TEXT("transfiguration: form %s missing, using a cat"), Forms[F][0] );
+			F = 0;
+			Mesh = LoadMesh( Forms[0][0] );
+		}
+		UAnimation* Anim = (UAnimation*)FRpgUi::LoadRooted( UAnimation::StaticClass(), Forms[F][1] );
+		if( !Anim && F==2 )
+			Anim = (UAnimation*)FRpgUi::LoadRooted( UAnimation::StaticClass(), TEXT("HProps.skPigAnims") );
+		if( !Mesh )
+		{
+			RpgLog( TEXT("transfiguration: form %s missing"), Forms[F][0] );
+			return 0;
+		}
+		FTransfigEntry* E = new(Transfigs) FTransfigEntry;
+		E->Actor = T;
+		E->OldMesh = T->Mesh;
+		E->OldSkin = T->Skin;
+		for( INT i=0; i<8; i++ )
+			E->OldMulti[i] = T->MultiSkins[i];
+		E->OldAnim = T->SkelAnim;
+		E->OldScale = T->DrawScale;
+		E->OldRole = T->Role;
+		E->Left = 20.f;
+		const FVector Feet = T->Location - FVector( 0, 0, T->CollisionHeight );
+		T->Mesh = Mesh;
+		T->Skin = NULL;
+		for( INT i=0; i<8; i++ )
+			T->MultiSkins[i] = NULL;
+		T->SkelAnim = Anim ? Anim : (Mesh->IsA(USkeletalMesh::StaticClass()) ? ((USkeletalMesh*)Mesh)->DefaultAnimation : NULL);
+		T->Role = ROLE_DumbProxy;
+		T->Velocity = FVector( 0, 0, 0 );
+		T->Acceleration = FVector( 0, 0, 0 );
+		// Animal sized: about 45 units tall.
+		T->DrawScale = 1.f;
+		{
+			const FCoords Box = T->GetRenderBoundingBox( 1 );
+			const FLOAT H = Max( Box.ZAxis.Size(), 1.f );
+			T->DrawScale = Clamp( appAtof(Forms[F][3])/H, 0.1f, 3.f );
+		}
+		if( T->SkelAnim )
+		{
+			FName Idle( Forms[F][2], FNAME_Find );
+			if( Idle==NAME_None || !T->SkelAnim->GetAnimSeq(Idle) )
+				Idle = T->SkelAnim->AnimSeqs.Num() ? T->SkelAnim->AnimSeqs(0).Name : NAME_None;
+			if( Idle!=NAME_None )
+				T->PlayAnim( Idle, true, 1.f, 0.f );
+		}
+		SpawnFx( Engine, TEXT("SmokeExplo_01"), T->Location, 1.5f );
+		SpawnFx( Engine, TEXT("WizCrackSparkle"), Feet, 1.5f );
+		AddFeed( TEXT("Transfiguration"), Spell2(SP2_Transfig).Color, TOAST_Info, *FString::Printf(TEXT("%s is now %s!"), *NpcName(T), Forms[F][4]) );
+		PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
+		RpgLog( TEXT("transfigured %s into %s"), T->GetName(), Mesh->GetName() );
+		StudentHitBySpell( T, 15, -10, TEXT("Transfiguring a student") );
+		return 1;
+	}
+
+	void Untransfigure( UGameEngine* Engine, FTransfigEntry& E, UBOOL bEffects )
+	{
+		AActor* T = E.Actor;
+		T->Mesh = E.OldMesh;
+		T->Skin = E.OldSkin;
+		for( INT i=0; i<8; i++ )
+			T->MultiSkins[i] = E.OldMulti[i];
+		T->SkelAnim = E.OldAnim;
+		T->DrawScale = E.OldScale;
+		T->Role = E.OldRole;
+		T->AnimSequence = NAME_None;
+		if( bEffects )
+		{
+			SpawnFx( Engine, TEXT("SmokeExplo_02"), T->Location, 1.5f );
+			PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
+		}
+	}
+
+	void UpdateTransfigs( UGameEngine* Engine, FLOAT DeltaSeconds )
+	{
+		for( INT t=Transfigs.Num()-1; t>=0; t-- )
+		{
+			FTransfigEntry& E = Transfigs(t);
+			if( !IsInLevel(E.Actor) )
+			{
+				Transfigs.Remove( t );
+				continue;
+			}
+			E.Left -= DeltaSeconds;
+			E.Actor->Velocity = FVector( 0, 0, 0 );
+			if( E.Left<=0.f )
+			{
+				Untransfigure( Engine, E, 1 );
+				Transfigs.Remove( t );
+			}
+		}
+	}
+
+	/*-------------------------------------------------------------------------
+		Mouse aiming.
+	-------------------------------------------------------------------------*/
+
+	UBOOL IsPickup( AActor* A )
+	{
+		static FName PickupProp( TEXT("PickupProp") );
+		return ClassChainIsAny( A, TEXT("Jellybean|WizardCardIcon|ChallengeStar|PotionIngredients|WiggenWell") ) && !A->Owner && GetStateName(A)!=PickupProp;
+	}
+
+	// What the spell can be aimed at.
+	UBOOL AimAccepts( INT Spell, AActor* A )
+	{
+		const INT Type = CreatureTypeCached( A );
+		const UBOOL bCreature = Type>=0 && Type!=CR_Boss && !IsGrabbingHarry(A);
+		const UBOOL bStudent = (IsStudent(A) || IsTroublemaker(A)) && !IsHolding(A);
+		switch( Spell )
+		{
+			case SP2_Leviosa:  return bCreature || (bStudent && !IsTransfigured(A)) || ClassChainIsAny( A, TEXT("HFlipendo|chestbronze|bronzecauldron|GenericSpawner") );
+			case SP2_Glacius:  return bCreature;
+			case SP2_Transfig: return bStudent && !IsTransfigured(A);
+			default:           return 0;
+		}
+	}
+
+	// The actor closest to the centre of the aim (the camera's view line).
+	AActor* PickAimTarget( UGameEngine* Engine, APlayerPawn* Harry, INT Spell )
+	{
+		if( !bCamValid || !SpellNeedsTarget(Spell) )
+			return NULL;
+		AActor* Best = NULL;
+		FLOAT BestScore = 1e9f;
+		AActor* Carry = (AActor*)GetObjProp( Harry, TEXT("CarryingActor") );
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AActor* A = Engine->GLevel->Actors(i);
+			if( !A || A==Harry || A==Carry || A->bDeleteMe || A->bHidden || A->bStatic || !A->bMovable )
+				continue;
+			const FLOAT HarryDist = (A->Location - Harry->Location).Size();
+			if( HarryDist>950.f || !AimAccepts(Spell,A) )
+				continue;
+			const FVector V = A->Location - CamPos;
+			const FLOAT Along = V | CamDir;
+			if( Along<40.f )
+				continue;
+			const FLOAT Off = (V - CamDir*Along).Size();
+			const FLOAT Allow = Max( Along*0.17f, A->CollisionRadius + 30.f );
+			if( Off>Allow )
+				continue;
+			if( !Harry->LineOfSightTo(A) )
+				continue;
+			const FLOAT Score = Off/Along + HarryDist*0.0002f;
+			if( Score<BestScore )
+			{
+				BestScore = Score;
+				Best = A;
+			}
+		}
+		return Best;
+	}
+
+	void SelectSpell( INT i )
+	{
+		SelSpell = Clamp( i, 0, SP2_MAX-1 );
+		SelFlash = 1.6f;
+		AimTarget = NULL;
+		if( !SpellUnlocked(SelSpell) )
+			AddFeed( FString::Printf(TEXT("%s is locked"), Spell2(SelSpell).Name), FColor(180,180,200,255), TOAST_Info, *FString::Printf(TEXT("Learn it at level %i"), Spell2(SelSpell).UnlockLevel) );
+		else
+			Ui.Play( RSND_Tab, CurrentHarry() );
+	}
+
+	// Next/previous unlocked spell.
+	void CycleSpell( INT Dir )
+	{
+		for( INT Step=1; Step<=SP2_MAX; Step++ )
+		{
+			const INT i = (SelSpell + Dir*Step + SP2_MAX*4) % SP2_MAX;
+			if( SpellUnlocked(i) )
+			{
+				SelectSpell( i );
+				return;
+			}
+		}
+	}
+
+	void StopAiming( UGameEngine* Engine )
+	{
+		bAiming = 0;
+		AimTarget = NULL;
+		FLiftEntry* L = ControlledLift();
+		if( L )
+			ReleaseLift( Engine, *L, 0 );
+	}
+
+	// Mouse input during gameplay: returns 1 when the event was ours.
+	UBOOL AimInput( UGameEngine* Engine, APlayerPawn* Harry, EInputKey Key, EInputAction Action )
+	{
+		if( Key==IK_RightMouse )
+		{
+			if( Action==IST_Press && !bAiming && SpellUnlocked(SelSpell) && CanCastNow(Engine,Harry) && !GetBoolProp(Harry,TEXT("bInDuelingMode")) )
+			{
+				bAiming = 1;
+				AimTarget = PickAimTarget( Engine, Harry, SelSpell );
+				return 1;
+			}
+			if( Action==IST_Release && bAiming )
+			{
+				StopAiming( Engine );
+				return 1;
+			}
+			return 0;
+		}
+		if( Key==IK_LeftMouse && bAiming )
+		{
+			if( Action==IST_Press )
+			{
+				FLiftEntry* L = ControlledLift();
+				if( L )
+					ReleaseLift( Engine, *L, 1 );
+				else
+					CastSpell2( Engine, Harry, SelSpell, AimTarget );
+			}
+			return 1;
+		}
+		if( (Key==IK_MouseWheelUp || Key==IK_MouseWheelDown) && Action==IST_Press && CanCastNow(Engine,Harry) )
+		{
+			const INT Dir = Key==IK_MouseWheelUp ? -1 : 1;
+			FLiftEntry* L = ControlledLift();
+			if( L )
+				L->HoldDist = Clamp( L->HoldDist - Dir*45.f, 120.f, 700.f );
+			else
+				CycleSpell( Dir );
+			return 1;
+		}
+		if( (Key==IK_MouseWheelUp || Key==IK_MouseWheelDown) && Action==IST_Release )
+			return 0;
+		return 0;
+	}
+
+	void UpdateAim( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
+	{
+		SelFlash = Max( 0.f, SelFlash-DeltaSeconds );
+		if( !bAiming )
+			return;
+		if( !CanCastNow(Engine,Harry) )
+		{
+			StopAiming( Engine );
+			return;
+		}
+		if( !ControlledLift() )
+			AimTarget = PickAimTarget( Engine, Harry, SelSpell );
+	}
+
+	FString AimLabel( AActor* A )
+	{
+		if( IsTroublemaker(A) )
+			return FString::Printf( TEXT("%s (troublemaker)"), *NpcName(A) );
+		const INT Type = CreatureTypeCached( A );
+		if( Type>=0 )
+			return GCreatures[Type].Name;
+		if( IsStudent(A) )
+			return NpcName( A );
+		return TEXT("");
+	}
+
+	void DrawAim( APlayerPawn* Harry )
+	{
+		UCanvas* C = Ui.C;
+		const FLOAT S = Ui.S;
+		const FSpell2Def& D = Spell2( SelSpell );
+		UTexture* Icon = LoadTex( D.Icon );
+		const FLOAT Pulse = 0.75f + 0.25f*(FLOAT)appSin( RpgClock*7.f );
+		FLiftEntry* L = ControlledLift();
+		if( L )
+		{
+			FLOAT SX, SY;
+			if( Icon && WorldToScreen(L->Actor->Location, SX, SY) )
+			{
+				const FLOAT Sz = 34*S;
+				Ui.Icon( Icon, FRpgRect(SX-Sz*0.5f, SY-Sz*0.5f, Sz, Sz), Pulse );
+			}
+			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, C->ClipY*0.70f, D.Color, TEXT("Move the mouse to steer"), RALIGN_Center );
+			Ui.Text( Ui.FontModern, C->ClipX*0.5f, C->ClipY*0.70f + Ui.TextHeight(Ui.FontModernBold), FColor(220,224,240,255), TEXT("Wheel: closer / further    Left click: throw    Release right: drop"), RALIGN_Center );
+			return;
+		}
+		if( !SpellNeedsTarget(SelSpell) )
+		{
+			if( Icon )
+			{
+				const FLOAT Sz = 30*S;
+				Ui.Icon( Icon, FRpgRect(C->ClipX*0.5f-Sz*0.5f, C->ClipY*0.42f-Sz*0.5f, Sz, Sz), Pulse );
+			}
+			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, C->ClipY*0.42f + 20*S, D.Color, *FString::Printf(TEXT("Click to cast %s"), D.Name), RALIGN_Center );
+			return;
+		}
+		FLOAT SX, SY;
+		if( AimTarget && IsInLevel(AimTarget) && WorldToScreen(AimTarget->Location + FVector(0,0,AimTarget->CollisionHeight*0.4f), SX, SY) )
+		{
+			const FLOAT Sz = 40*S;
+			if( Icon )
+				Ui.Icon( Icon, FRpgRect(SX-Sz*0.5f, SY-Sz*0.5f, Sz, Sz), Pulse );
+			Ui.Border( FRpgRect(SX-Sz*0.6f, SY-Sz*0.6f, Sz*1.2f, Sz*1.2f), Max(1.f,S*1.5f), D.Color );
+			const FString Label = AimLabel( AimTarget );
+			if( Label.Len() )
+				Ui.Text( Ui.FontModernBold, SX, SY+Sz*0.65f, FColor(240,240,248,255), *Label, RALIGN_Center );
+			Ui.Text( Ui.FontModern, SX, SY+Sz*0.65f+Ui.TextHeight(Ui.FontModernBold), D.Color, TEXT("Left click to cast"), RALIGN_Center );
+		}
+		else
+		{
+			// Plain reticle at the view centre.
+			const FLOAT Sz = 10*S;
+			const FColor Dim( 200, 200, 220, 255 );
+			Ui.Rect( FRpgRect(C->ClipX*0.5f-Sz, C->ClipY*0.42f-1*S, Sz*2, 2*S), Dim );
+			Ui.Rect( FRpgRect(C->ClipX*0.5f-1*S, C->ClipY*0.42f-Sz, 2*S, Sz*2), Dim );
+			Ui.Text( Ui.FontModern, C->ClipX*0.5f, C->ClipY*0.42f+Sz+4*S, Dim, *FString::Printf(TEXT("%s: aim at a target"), D.Name), RALIGN_Center );
+		}
 	}
 
 	/*-------------------------------------------------------------------------
@@ -619,6 +1052,14 @@
 	{
 		UCanvas* C = Ui.C;
 		const FLOAT S = Ui.S;
+		if( C->Frame )
+		{
+			CamPos = C->Frame->Coords.Origin;
+			CamDir = C->Frame->Coords.ZAxis;
+			bCamValid = 1;
+		}
+		if( bAiming )
+			DrawAim( Harry );
 
 		// Arresto: blue wash over the world.
 		if( ArrestoLeft>0.f && Ui.White )
@@ -660,8 +1101,9 @@
 			const FSpell2Def& D = Spell2( i );
 			const FRpgRect R( X0 + i*(Slot+Gap), Y0, Slot, Slot );
 			const UBOOL bOn = SpellUnlocked( i );
-			Ui.Rect( R, FColor(12,16,36,255) );
-			Ui.Border( R, Max(1.f,S), bOn ? (SpellCooldown[i]>0.f ? FColor(80,84,110,255) : D.Color) : FColor(50,52,70,255) );
+			const UBOOL bSel = i==SelSpell && bOn;
+			Ui.Rect( R, bSel ? FColor(34,40,78,255) : FColor(12,16,36,255) );
+			Ui.Border( R, bSel ? Max(2.f,S*2.5f) : Max(1.f,S), bSel ? RpgGoldBright : (bOn ? (SpellCooldown[i]>0.f ? FColor(80,84,110,255) : D.Color) : FColor(50,52,70,255)) );
 			UTexture* Icon = LoadTex( D.Icon );
 			if( Icon )
 				Ui.Icon( Icon, R.Inset(5*S), bOn ? (SpellCooldown[i]>0.f ? 0.35f : 1.f) : 0.15f );
@@ -671,9 +1113,18 @@
 				Ui.Rect( FRpgRect(R.X+2*S, R.Y+R.H-2*S-(R.H-4*S)*Pct, R.W-4*S, (R.H-4*S)*Pct), FColor(30,34,60,255) );
 				Ui.Text( Ui.FontModernBold, R.X+R.W*0.5f, R.Y+(R.H-Ui.TextHeight(Ui.FontModernBold))*0.5f, FColor(230,230,240,255), *FString::Printf(TEXT("%i"), appCeil(SpellCooldown[i])), RALIGN_Center );
 			}
-			Ui.Text( Ui.FontModern, R.X+3*S, R.Y+1*S, bOn ? FColor(230,230,240,255) : RpgMuted, *FString::Printf(TEXT("%i"), i+4), RALIGN_Left );
+			Ui.Text( Ui.FontModern, R.X+3*S, R.Y+1*S, bOn ? FColor(230,230,240,255) : RpgMuted, *FString::Printf(TEXT("%i"), (i+4)%10), RALIGN_Left );
 			if( !bOn )
 				Ui.Text( Ui.FontModern, R.X+R.W*0.5f, R.Y+R.H-Ui.TextHeight(Ui.FontModern)-1*S, RpgMuted, *FString::Printf(TEXT("Lv%i"), D.UnlockLevel), RALIGN_Center );
+		}
+		// Picked spell: name after a change, a short hint otherwise.
+		if( SpellUnlocked(SelSpell) && !bAiming && ShieldLeft<=0.f && ArrestoLeft<=0.f )
+		{
+			const FLOAT HY = Y0-Ui.TextHeight(Ui.FontModernBold)-4*S;
+			if( SelFlash>0.f )
+				Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, HY, Spell2(SelSpell).Color, Spell2(SelSpell).Name, RALIGN_Center );
+			else
+				Ui.Text( Ui.FontModern, C->ClipX*0.5f, Y0-Ui.TextHeight(Ui.FontModern)-4*S, FColor(170,176,200,255), TEXT("Scroll: pick spell    Hold right mouse: aim    Left click: cast"), RALIGN_Center );
 		}
 		if( ShieldLeft>0.f )
 			Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, Y0-Ui.TextHeight(Ui.FontModernBold)-4*S, Spell2(SP2_Protego).Color, *FString::Printf(TEXT("Protego %.1f"), ShieldLeft), RALIGN_Center );

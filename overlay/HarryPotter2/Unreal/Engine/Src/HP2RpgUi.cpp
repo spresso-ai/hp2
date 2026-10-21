@@ -432,9 +432,14 @@ static const FLOAT GPreviewDepth = 120.f;
 
 UBOOL FRpgUi::ScreenToWorld( FLOAT SX, FLOAT SY, FLOAT Depth, FVector& Out )
 {
-	FSceneNode* F = C ? C->Frame : NULL;
+	FSceneNode* F = View();
 	if( !F || F->RProj.Z==0.f )
 		return 0;
+	if( bClipping )
+	{
+		SX -= ClipRect.X;
+		SY -= ClipRect.Y;
+	}
 	Out = F->Coords.Origin
 		+ F->Coords.ZAxis*Depth
 		+ F->Coords.XAxis*((SX - F->FX2)*Depth*F->RProj.Z)
@@ -461,7 +466,7 @@ static void ActorBounds( AActor* Actor, FVector& Lo, FVector& Hi )
 
 UBOOL FRpgUi::PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zoom )
 {
-	FSceneNode* F = C ? C->Frame : NULL;
+	FSceneNode* F = View();
 	if( !Actor || !Actor->Mesh || !F )
 		return 0;
 	// Face the camera.
@@ -497,7 +502,7 @@ UBOOL FRpgUi::PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zo
 // screen point (SX,SY).
 void FRpgUi::FocusPoint( AActor* Actor, const FVector& World, FLOAT SX, FLOAT SY )
 {
-	FSceneNode* F = C ? C->Frame : NULL;
+	FSceneNode* F = View();
 	if( !F || !Actor )
 		return;
 	const FLOAT Depth = (World - F->Coords.Origin) | F->Coords.ZAxis;
@@ -506,9 +511,35 @@ void FRpgUi::FocusPoint( AActor* Actor, const FVector& World, FLOAT SX, FLOAT SY
 		Actor->Location += Target - World;
 }
 
-void FRpgUi::DrawActorInRect( AActor* Actor, UBOOL bClearZ )
+UBOOL FRpgUi::BeginClip( const FRpgRect& R )
 {
 	FSceneNode* F = C ? C->Frame : NULL;
+	if( !F || !Viewport || !Viewport->RenDev || R.W<4.f || R.H<4.f )
+		return 0;
+	ClipFrame = *F;
+	ClipFrame.XB = F->XB + appRound( R.X );
+	ClipFrame.YB = F->YB + appRound( R.Y );
+	ClipFrame.X = appRound( R.W );
+	ClipFrame.Y = appRound( R.H );
+	ClipFrame.ComputeRenderSize();
+	ClipRect = R;
+	bClipping = 1;
+	Viewport->RenDev->SetSceneNode( &ClipFrame );
+	return 1;
+}
+
+void FRpgUi::EndClip()
+{
+	if( !bClipping )
+		return;
+	bClipping = 0;
+	if( C && C->Frame && Viewport && Viewport->RenDev )
+		Viewport->RenDev->SetSceneNode( C->Frame );
+}
+
+void FRpgUi::DrawActorInRect( AActor* Actor, UBOOL bClearZ )
+{
+	FSceneNode* F = View();
 	if( !F || !C->Render || !Actor || !Actor->Mesh || !Viewport || !Viewport->RenDev )
 		return;
 	if( bClearZ )
