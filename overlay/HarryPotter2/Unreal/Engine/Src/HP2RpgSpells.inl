@@ -26,7 +26,7 @@
 		static const FSpell2Def Defs[SP2_MAX] =
 		{
 			{ TEXT("Accio"), TEXT("Summon beans, cards, stars and ingredients nearby."), 2, 8.f, TEXT("SpellShapes.Shapes.SPSalohomora"), FColor(255,214,100,255) },
-			{ TEXT("Revelio"), TEXT("Reveal secrets, chests and collectibles for 8 seconds."), 3, 20.f, TEXT("SpellShapes.Shapes.SPSlumos"), FColor(150,220,255,255) },
+			{ TEXT("Revelio"), TEXT("Reveal secrets, chests and collectibles for 8 seconds."), 3, 12.f, TEXT("SpellShapes.Shapes.SPSlumos"), FColor(150,220,255,255) },
 			{ TEXT("Protego"), TEXT("A shield that blocks all damage for 4 seconds."), 4, 25.f, TEXT("SpellShapes.Shapes.SPSexpelliarmus"), FColor(140,200,255,255) },
 			{ TEXT("Wingardium Leviosa"), TEXT("Lift a creature, student or vase into the air, then drop it."), 6, 10.f, TEXT("SpellShapes.Shapes.SPSspongify"), FColor(220,240,160,255) },
 			{ TEXT("Glacius"), TEXT("Freeze a creature solid for 5 seconds."), 8, 12.f, TEXT("SpellShapes.Shapes.SPSmimble"), FColor(170,230,255,255) },
@@ -164,7 +164,10 @@
 			return;
 		}
 		if( SpellCooldown[i]>0.f )
+		{
+			AddFeed( FString::Printf(TEXT("%s is recharging"), D.Name), FColor(180,180,200,255), TOAST_Info, *FString::Printf(TEXT("Ready in %i s"), appCeil(SpellCooldown[i])) );
 			return;
+		}
 		UBOOL bCast = 0;
 		switch( i )
 		{
@@ -178,6 +181,8 @@
 		if( !bCast )
 		{
 			PlaySfx( TEXT("HPSounds.Magic_sfx.spell_dud") );
+			AddFeed( FString::Printf(TEXT("%s found no target"), D.Name), FColor(180,180,200,255), TOAST_Info, TEXT("Get closer and try again") );
+			RpgLog( TEXT("cast %s: no target"), D.Name );
 			return;
 		}
 		SpellCooldown[i] = D.Cooldown;

@@ -1577,6 +1577,29 @@
 		return NearNpc && IsInLevel(NearNpc) && GetStateName(NearNpc)==DoingBumpLine;
 	}
 
+	UBOOL CanCastNow( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		if( IsFreeGameplay(Engine,Harry) )
+			return 1;
+		if( !Harry || Harry->Health<=0 )
+			return 0;
+		ALevelInfo* Info = Engine->GLevel->GetLevelInfo();
+		if( Info->Pauser.Len() || Info->LevelAction!=LEVACT_None )
+			return 0;
+		AActor* Hud = Harry->myHUD;
+		if( Hud && (GetBoolProp(Hud,TEXT("bCutSceneMode")) || GetBoolProp(Hud,TEXT("bCutPopupMode"))) )
+			return 0;
+		if( GetBoolProp(Harry,TEXT("bIsCaptured")) || GetObjProp(Harry,TEXT("CurrVendorManager")) )
+			return 0;
+		UObject* Console = Harry->Player ? Harry->Player->Console : NULL;
+		UObject* Book = GetObjProp( Console, TEXT("menuBook") );
+		if( (Book && GetBoolProp(Book,TEXT("bIsOpen"))) || (Console && GetBoolProp(Console,TEXT("bTyping"))) )
+			return 0;
+		// Any other walking-type state (casting, sneaking, ...) is fine.
+		const FString S = FString( *GetStateName( Harry ) ).Caps();
+		return appStrstr( *S, TEXT("PLAYER") ) || appStrstr( *S, TEXT("CAST") ) || appStrstr( *S, TEXT("WALK") );
+	}
+
 	void TalkTo( APlayerPawn* Harry, AActor* Npc )
 	{
 		if( !Npc || RpgClock-LastTalkTime < 1.f )
@@ -1629,10 +1652,16 @@
 				}
 				return 1;
 			}
-			if( Key>=IK_4 && Key<=IK_9 && IsFreeGameplay(Engine,Harry) )
+			if( Key>=IK_4 && Key<=IK_9 )
 			{
-				CastSpell2( Engine, Harry, Key-IK_4 );
-				return 1;
+				if( CanCastNow(Engine,Harry) )
+				{
+					CastSpell2( Engine, Harry, Key-IK_4 );
+					return 1;
+				}
+				RpgLog( TEXT("spell key %i refused: harry state %s, pauser '%s', action %i"), Key-IK_4+4,
+					*GetStateName(Harry), *Engine->GLevel->GetLevelInfo()->Pauser, Engine->GLevel->GetLevelInfo()->LevelAction );
+				return 0;
 			}
 			if( Key==IK_E && NearNpc && IsInLevel(NearNpc) && IsFreeGameplay(Engine,Harry) )
 			{
