@@ -704,7 +704,8 @@
 		if( BannerText.Len() && BannerAge<3.5f )
 		{
 			const FLOAT Grow = Min( 1.f, BannerAge/0.25f );
-			const FLOAT BW = C->ClipX*0.42f*Grow, BH = 64*S;
+			const FLOAT BigH = Ui.TextHeight( Ui.FontModernBig );
+			const FLOAT BW = C->ClipX*0.42f*Grow, BH = 6*S + BigH + 2*S + SubH + 8*S;
 			const FRpgRect B( (C->ClipX-BW)*0.5f, C->ClipY*0.18f, BW, BH );
 			Ui.Rect( B, FColor(12,16,36,255) );
 			Ui.Rect( FRpgRect(B.X, B.Y, B.W, 2*S), RpgGoldBright );
@@ -712,7 +713,7 @@
 			if( Grow>=1.f )
 			{
 				Ui.Text( Ui.FontModernBig, C->ClipX*0.5f, B.Y+6*S, RpgGoldBright, *BannerText, RALIGN_Center );
-				Ui.Text( Ui.FontModern, C->ClipX*0.5f, B.Y+B.H-SubH-8*S, FColor(220,224,240,255), *BannerSub, RALIGN_Center, 0 );
+				Ui.Text( Ui.FontModern, C->ClipX*0.5f, B.Y+6*S+BigH+2*S, FColor(220,224,240,255), *BannerSub, RALIGN_Center, 0 );
 			}
 		}
 	}

@@ -518,6 +518,7 @@ public:
 	// Level tracking.
 	ULevel* LastLevel;
 	APlayerPawn* LastHarry;
+	UAnimation* HarryAnim;   // Harry's own animation set, kept for costumes
 	FLOAT HarrySince;
 	UBOOL bLoadedFromSlot;
 	UBOOL bLevelTransition;
@@ -2387,8 +2388,8 @@ public:
 			{
 				// A fresh pawn has no animation linked yet; the costume mesh would
 				// link its own default set (without Harry's moves) and T-pose.
-				if( !Body->SkelAnim && HarryMesh && HarryMesh->IsA(USkeletalMesh::StaticClass()) )
-					Body->SkelAnim = ((USkeletalMesh*)HarryMesh)->DefaultAnimation;
+				if( !Body->SkelAnim )
+					Body->SkelAnim = HarryAnimSet();
 				if( !Body->SkelAnim )
 					return;
 				Body->Mesh = Mesh;
@@ -2422,7 +2423,27 @@ public:
 		// Let a new pawn settle (and link its animation) first.
 		if( RpgClock-HarrySince < 1.f )
 			return;
+		if( Harry->Mesh==HarryMesh && Harry->SkelAnim )
+			HarryAnim = Harry->SkelAnim;
 		SetCostume( Harry, State.Equip[RSLOT_Outfit], 1 );
+		// Keep Harry's own moves on the costume: if the linked set lacks the
+		// sequence being played the mesh falls back to its bind (T) pose.
+		if( CostumeApplied && Harry->Mesh==CostumeApplied && Harry->AnimSequence!=NAME_None )
+		{
+			UAnimation* Own = HarryAnimSet();
+			if( Own && Harry->SkelAnim!=Own && (!Harry->SkelAnim || !Harry->SkelAnim->GetAnimSeq(Harry->AnimSequence)) && Own->GetAnimSeq(Harry->AnimSequence) )
+			{
+				RpgLog( TEXT("costume: relinked Harry's animations (%s)"), *Harry->AnimSequence );
+				Harry->SkelAnim = Own;
+			}
+		}
+	}
+
+	UAnimation* HarryAnimSet()
+	{
+		if( HarryAnim )
+			return HarryAnim;
+		return HarryMesh && HarryMesh->IsA(USkeletalMesh::StaticClass()) ? ((USkeletalMesh*)HarryMesh)->DefaultAnimation : NULL;
 	}
 
 	void RestoreCostume( APlayerPawn* Harry )
@@ -2902,6 +2923,7 @@ public:
 	{
 		LastLevel = NULL;
 		LastHarry = NULL;
+		HarryAnim = NULL;
 		HatActor = PetActor = AuraActor = NULL;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
 		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
