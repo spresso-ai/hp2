@@ -362,7 +362,7 @@ void FRpgUi::Text( UFont* Font, FLOAT X, FLOAT Y, FColor Color, const TCHAR* Str
 
 void FRpgUi::TextWrapped( UFont* Font, const FRpgRect& R, FColor Color, const TCHAR* Str )
 {
-	if( !Font || !Str || !*Str )
+	if( !Font || !Str || !*Str || R.W<=0.f || R.H<TextHeight(Font) )
 		return;
 	// Word wrap by hand so it works with both bitmap and native text.
 	FString Line, Word;
@@ -377,8 +377,9 @@ void FRpgUi::TextWrapped( UFont* Font, const FRpgRect& R, FColor Color, const TC
 			FString Candidate = Line.Len() ? Line + TEXT(" ") + Word : Word;
 			if( Line.Len() && TextWidth(Font,*Candidate) > R.W )
 			{
-				Text( Font, R.X, Y, Color, *Line );
+				Text( Font, R.X, Y, Color, *FitText(Font,*Line,R.W), RALIGN_Left, 0 );
 				Y += LineH;
+				if( Y+LineH>R.Y+R.H ) return;
 				Line = Word;
 			}
 			else
@@ -386,11 +387,11 @@ void FRpgUi::TextWrapped( UFont* Font, const FRpgRect& R, FColor Color, const TC
 			Word = TEXT("");
 			if( *P=='\n' )
 			{
-				Text( Font, R.X, Y, Color, *Line );
+				Text( Font, R.X, Y, Color, *FitText(Font,*Line,R.W), RALIGN_Left, 0 );
 				Y += LineH;
 				Line = TEXT("");
 			}
-			if( bEnd || Y > R.Y+R.H-LineH*0.5f )
+			if( bEnd || Y > R.Y+R.H-LineH )
 				break;
 		}
 		else
@@ -400,8 +401,8 @@ void FRpgUi::TextWrapped( UFont* Font, const FRpgRect& R, FColor Color, const TC
 		}
 		P++;
 	}
-	if( Line.Len() && Y <= R.Y+R.H-LineH*0.5f )
-		Text( Font, R.X, Y, Color, *Line );
+	if( Line.Len() && Y <= R.Y+R.H-LineH )
+		Text( Font, R.X, Y, Color, *FitText(Font,*Line,R.W), RALIGN_Left, 0 );
 }
 
 /*-----------------------------------------------------------------------------
@@ -425,7 +426,7 @@ FRpgRect FRpgUi::Screen( FRpgRect& Left, FRpgRect& Right )
 
 void FRpgUi::Footer( const TCHAR* Hint )
 {
-	Text( FontSmall, C->ClipX*0.5f, C->ClipY - TextHeight(FontSmall) - 6*S, RpgMuted, Hint, RALIGN_Center );
+	Text( FontSmall, C->ClipX*0.5f, C->ClipY - TextHeight(FontSmall) - P(12.f), RpgMuted, *FitText(FontSmall,Hint,C->ClipX-P(48.f)), RALIGN_Center, 0 );
 }
 
 FString FRpgUi::FitText( UFont* Font, const TCHAR* Str, FLOAT MaxW )
@@ -480,7 +481,7 @@ UBOOL FRpgUi::Button( const FRpgRect& R, const TCHAR* Label, UBOOL bEnabled, con
 	const UBOOL bHover = bEnabled && Hovered( R, Id );
 	Rect( R, bHover ? FColor(70,56,20,255) : FColor(34,30,22,255) );
 	Border( R, Max(1.f,S), bEnabled ? (bHover ? RpgGoldBright : RpgGold) : FColor(90,84,70,255) );
-	Text( FontBody, R.X+R.W*0.5f, R.Y+(R.H-TextHeight(FontBody))*0.5f, bEnabled ? RpgGoldBright : RpgMuted, Label, RALIGN_Center );
+	Text( FontBody, R.X+R.W*0.5f, R.Y+(R.H-TextHeight(FontBody))*0.5f, bEnabled ? RpgGoldBright : RpgMuted, *FitText(FontBody,Label,Max(1.f,R.W-P(16.f))), RALIGN_Center, 0 );
 	return bEnabled && Clicked( R, Id );
 }
 
@@ -499,15 +500,12 @@ UBOOL FRpgUi::Tab( const FRpgRect& R, const TCHAR* Label, UBOOL bActive, const v
 	return Clicked( R, Id );
 }
 
-// Flat tile: rarity/accent as a strip on top, gold border and corner
-// brackets when selected.
+// Flat tile: one selection outline and a small rarity marker.
 void FRpgUi::Tile( const FRpgRect& R, UBOOL bSelected, UBOOL bHover, FColor Accent )
 {
-	Rect( R, bSelected ? FColor(32,42,82,255) : (bHover ? FColor(26,34,66,255) : FColor(20,27,54,255)) );
-	Border( R, bSelected ? Max(1.f,P(2.f)) : Max(1.f,P(1.f)), bSelected ? FColor(255,222,130,255) : (bHover ? FColor(201,162,74,255) : FColor(46,56,96,255)) );
-	Rect( FRpgRect(R.X+P(2.f), R.Y+P(2.f), R.W-P(4.f), Max(1.f,P(3.f))), Accent );
-	if( bSelected )
-		Brackets( FRpgRect(R.X-P(4.f), R.Y-P(4.f), R.W+P(8.f), R.H+P(8.f)), P(10.f), Max(1.f,P(2.f)), FColor(255,222,130,255) );
+	Rect(R,bSelected ? FColor(41,53,63,255) : bHover ? FColor(34,45,55,255) : FColor(24,33,42,255));
+	Border(R,Max(1.f,P(1.f)),bSelected ? RpgGoldBright : FColor(56,65,74,255));
+	Rect(FRpgRect(R.X+P(6.f),R.Y+P(6.f),P(16.f),Max(1.f,P(2.f))),Accent);
 }
 
 void FRpgUi::TileLabel( const FRpgRect& R, const TCHAR* Label, FColor Color )

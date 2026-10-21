@@ -621,12 +621,12 @@
 	// Book tab: buy, place and pick up furniture.
 	void DrawRoomTab( UGameEngine* Engine, APlayerPawn* Harry, const FRpgRect& Area )
 	{
-		const FLOAT S = Ui.S;
-		Ui.TextWrapped( Ui.FontBody, FRpgRect(Area.X, Area.Y, Area.W, Ui.TextHeight(Ui.FontBody)*2), RpgMuted,
-			TEXT("Buy furniture, place it anywhere in a hub and move it with Wingardium Leviosa. It stays where you leave it. A Brewing Cauldron brews a potion every school day (E).") );
-		const FLOAT Top = Area.Y + Ui.TextHeight(Ui.FontBody)*2 + 10*S;
+		const FLOAT S = Ui.P(2.f);
+		Ui.TextWrapped( Ui.FontBody, FRpgRect(Area.X, Area.Y, Area.W, Ui.TextHeight(Ui.FontBody)*3), RpgMuted,
+			TEXT("Place furniture in a hub; move it with Wingardium Leviosa. Brewing Cauldron: one potion per school day (E).") );
+		const FLOAT Top = Area.Y + Ui.TextHeight(Ui.FontBody)*3 + 10*S;
 		const FLOAT RowH = Ui.TextHeight(Ui.FontBody) + 10*S;
-		const INT Visible = Max( 1, appFloor((Area.Y+Area.H-Top-RowH*1.5f)/RowH) );
+		const INT Visible = Max( 1, appFloor((Area.Y+Area.H-Top-RowH*2.f)/RowH) );
 		Sel = Clamp( Sel, 0, NUM_DECOR-1 );
 		ApplyWheel( NUM_DECOR, 1, Visible );
 		ClampSelection( NUM_DECOR, 1, Visible );
