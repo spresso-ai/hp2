@@ -651,6 +651,8 @@
 
 	void DrawStatusHud( APlayerPawn* Harry, UBOOL bGameplay )
 	{
+		if( IsTalking() )
+			return;
 		UCanvas* C = Ui.C;
 		const FColor Text1( 240,238,230,255 ), Text2( 182,186,206,255 ), Line( 46,56,96,255 );
 		const FColor GoldHi( 255,222,130,255 ), Gold( 201,162,74,255 ), XpCol( 120,190,255,255 );
@@ -698,7 +700,7 @@
 
 		// Player plate, bottom left: only after XP, with skill points to
 		// spend, a status effect, or on Tab.
-		if( XpShowTimer>0.f || XpFloatAge<1.6f || State.SkillPoints>0 || State.DetentionSeconds>0 || State.FelixSeconds>0 || bShowAllHud )
+		if( XpShowTimer>0.f || (XpFloat && XpFloatAge<1.6f) || State.DetentionSeconds>0 || State.FelixSeconds>0 || bShowAllHud )
 		{
 			const FLOAT B = Ui.TextHeight( Ui.FontNum ) + Ui.P(18.f);
 			const FRpgRect Badge( Ui.P(48.f), C->ClipY-Ui.P(48.f)-B, B, B );
@@ -777,12 +779,18 @@
 	// Notification cards on the right (max 3) and the centre banner.
 	void DrawFeed()
 	{
+		// Dialogue and scripted scenes own the screen. Tick keeps queued
+		// notifications alive until they can be read again.
+		if( Menu==MENU_None && (IsTalking() || !IsFreeGameplay(Ui.Engine,CurrentHarry())) )
+			return;
 		UCanvas* C = Ui.C;
 		UFont* Title = Ui.FontModernBold;
 		UFont* Sub = Ui.FontCaption;
 		const FLOAT TitleH = Ui.TextHeight( Title ), SubH = Ui.TextHeight( Sub );
 		const FLOAT W = Min( Ui.P(360.f), C->ClipX*0.3f );
 		FLOAT Y = Ui.P(260.f);
+		if( Menu==MENU_None && (TrackerTimer>0.f || bShowAllHud) )
+			Y = Max( Y, Ui.P(120.f) + 2.f*(Ui.TextHeight(Ui.FontModernBold)+Ui.TextHeight(Ui.FontCaption)+Ui.P(8.f)) + Ui.TextHeight(Ui.FontCaption)+Ui.P(24.f) );
 		for( INT i=Feed.Num()-1; i>=0; i-- )
 		{
 			const FRpgFeed& Entry = Feed(i);
@@ -834,8 +842,8 @@
 		{
 			const FLOAT Grow = Min( 1.f, BannerAge/0.2f );
 			const FLOAT BigH = Ui.TextHeight( Ui.FontTitle );
-			const FLOAT BW = Ui.P(760.f)*Grow, BH = Ui.P(20.f) + BigH + Ui.P(12.f) + SubH + Ui.P(20.f);
-			const FRpgRect B( (C->ClipX-BW)*0.5f, Ui.P(176.f), BW, BH );
+			const FLOAT BW = Min(Ui.P(620.f),C->ClipX*0.48f)*Grow, BH = Ui.P(12.f) + BigH + Ui.P(8.f) + SubH + Ui.P(12.f);
+			const FRpgRect B( Ui.P(24.f), Max(Ui.P(260.f),C->ClipY*0.25f), BW, BH );
 			Ui.Glass( B );
 			const FLOAT T = Max( 1.f, Ui.P(2.f) );
 			// Gold hairlines that fade towards the ends.
@@ -848,10 +856,8 @@
 			}
 			if( Grow>=1.f )
 			{
-				if( Ui.GlowGold )
-					Ui.Glow( Ui.GlowGold, FRpgRect(C->ClipX*0.5f-B.W*0.3f, B.Y, B.W*0.6f, B.H), 0.25f );
-				Ui.Text( Ui.FontTitle, C->ClipX*0.5f, B.Y+Ui.P(20.f), FColor(255,222,130,255), *BannerText, RALIGN_Center );
-				Ui.Text( Ui.FontModern, C->ClipX*0.5f, B.Y+Ui.P(20.f)+BigH+Ui.P(12.f), FColor(240,238,230,255), *BannerSub, RALIGN_Center, 0 );
+				Ui.Text( Ui.FontTitle, B.X+Ui.P(16.f), B.Y+Ui.P(12.f), RpgGoldBright, *Ui.FitText(Ui.FontTitle,*BannerText,B.W-Ui.P(32.f)), RALIGN_Left, 0 );
+				Ui.Text( Ui.FontModern, B.X+Ui.P(16.f), B.Y+Ui.P(20.f)+BigH, RpgParchment, *Ui.FitText(Ui.FontModern,*BannerSub,B.W-Ui.P(32.f)), RALIGN_Left, 0 );
 			}
 		}
 	}
@@ -1763,6 +1769,8 @@
 	// True while an NPC speaks a line (the game shows its subtitle then).
 	UBOOL IsTalking()
 	{
+		if( DialogLeft>0.f && DialogText.Len() )
+			return 1;
 		static FName DoingBumpLine( TEXT("DoingBumpLine") );
 		if( RpgClock-LastTalkTime < 4.f )
 			return 1;

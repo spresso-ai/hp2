@@ -405,23 +405,33 @@
 			Ui.Brackets( FRpgRect(SX-Ui.P(10.f), SY-Ui.P(10.f), Ui.P(20.f), Ui.P(20.f)), Ui.P(6.f), Max(1.f,Ui.P(2.f)), GoldHi );
 		}
 		// Tracker: active quests, shown after a change or with Tab.
-		if( TrackerTimer>0.f || bShowAllHud )
+		if( (TrackerTimer>0.f || bShowAllHud) && !IsTalking() && LessonKind<0 )
 		{
 			FLOAT Y = Ui.P(120.f);
 			const FLOAT X = C->ClipX - Ui.P(48.f);
+			const FLOAT W = Min(Ui.P(340.f),C->ClipX*0.34f);
+			INT Shown = 0, More = 0;
 			for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 			{
 				if( State.QuestState[q]!=QS_Active && State.QuestState[q]!=QS_Ready )
 					continue;
+				if( Shown>=2 )
+				{
+					More++;
+					continue;
+				}
+				Shown++;
 				const FQuestDef& Q = GQuests[q];
-				Ui.Text( Ui.FontModernBold, X, Y, GoldHi, Q.Title, RALIGN_Right );
+				Ui.Text( Ui.FontModernBold, X, Y, GoldHi, *Ui.FitText(Ui.FontModernBold,Q.Title,W), RALIGN_Right );
 				Y += Ui.TextHeight( Ui.FontModernBold );
 				const FString Line = State.QuestState[q]==QS_Ready
 					? FString::Printf( TEXT("Return to %s"), Q.GiverName )
 					: FString::Printf( TEXT("%s  %i/%i"), Q.Objective, QuestProgress(Harry,q), Q.Count );
-				Ui.Text( Ui.FontCaption, X, Y, State.QuestState[q]==QS_Ready ? FColor(120,220,140,255) : Text2, *Line, RALIGN_Right );
+				Ui.Text( Ui.FontCaption, X, Y, State.QuestState[q]==QS_Ready ? FColor(120,220,140,255) : Text2, *Ui.FitText(Ui.FontCaption,*Line,W), RALIGN_Right );
 				Y += Ui.TextHeight( Ui.FontCaption ) + Ui.P(8.f);
 			}
+			if( More>0 )
+				Ui.Text( Ui.FontCaption, X, Y, Text2, *FString::Printf(TEXT("+%i in Journal [K]"),More), RALIGN_Right );
 		}
 		// Quest dialogue: a parchment-toned panel above the hotbar.
 		if( DialogLeft>0.f && DialogText.Len() )
