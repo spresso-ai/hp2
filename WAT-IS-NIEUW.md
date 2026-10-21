@@ -1,5 +1,14 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v5.1 – Levend kasteel, opslaan, terug naar de hub
+- **De magische look is terug**: nachtlucht, gouden kaders en hoekjes, titels in de sierletters van het spel – met de nieuwe, ruimere indeling.
+- **Levend kasteel**: leraren en bekende gezichten die volgens het verhaal niet in een hub staan, lopen er nu rond: Anderling, Smalhart, Haast Onthoofde Henk en Percy (Hal), Banning en Foppe (trappenhuis), Stronk, Oliver Plank en Hagrid (terrein). Ze blijven staan als je dichtbij komt; praat met ze (E) voor missies, lessen of een praatje. Staat iemand er al volgens het verhaal, dan komt er geen dubbele bij; tijdens filmpjes verdwijnen ze even.
+- **Opslaan**: knop **Save game** in het boek, of **F5**.
+- **Leave challenge**: in een uitdaging staat in het boek een knop om terug te gaan naar de hub (via de normale uitgang van het level; klik twee keer).
+- **Revelio** is nu een verkenningsspreuk: alleen in het kasteel en op het terrein, laadt in 4 seconden op, en toont geen geopende kisten of versiering meer als 'Treasure'.
+- **Veldgids-pagina's** zijn nu echte losse (gouden) pagina's.
+- Kledingkast-vakjes: grotere previews; de naamkleur toont de status (goud = aan, groen = in bezit).
+
 ## v5.0 – Nieuw boek, rustige HUD, betere winkel (Codex + Claude)
 **Boek (K)**
 - Alle tien onderdelen in een vaste kolom links; de inhoud krijgt de rest van het scherm.
@@ -19,7 +28,6 @@
 **Opslaan**
 - Ontbreekt het RPG-bestand, dan wordt de reservekopie nu echt ingeladen.
 
-## v4.5 – Lessen
 ## v4.5 – Lessen & Kamer van Hoge Nood
 - **Lessen**: elke schooldag één les. De leraar van vandaag heeft een blauw label ("Charms class"). Praat met hem/haar (E) om te beginnen; bovenin loopt de tijd. Cijfer O / E / A / P / T geeft huispunten, XP en beans.
   - **Bezweringen (Banning)**: til 3 voorwerpen met Leviosa in de gouden cirkel.

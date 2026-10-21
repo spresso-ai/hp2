@@ -106,12 +106,15 @@ public:
 	FLOAT Unit;              // pixels per design pixel, from the body text height
 	void Scrim( const FRpgRect& R, FLOAT Keep );              // darken what is behind
 	void Glass( const FRpgRect& R, UBOOL bAccent=0 );          // scrim + tint + hairline
+	void Panel( const FRpgRect& R );                          // framed menu section
 	void Chamfer( const FRpgRect& R, FLOAT Cut, FColor Color ); // "rounded" filled rect
 	void Brackets( const FRpgRect& R, FLOAT Len, FLOAT Thick, FColor Color );
 	FLOAT Keycap( FLOAT X, FLOAT Y, const TCHAR* Key, UBOOL bDraw=1 ); // returns width
 	// "[Key] Verb   [Key] Verb" in one glass pill centred on CX; returns its rect.
 	FRpgRect Prompt( FLOAT CX, FLOAT Y, const TCHAR* const* Keys, const TCHAR* const* Verbs, INT Count, const TCHAR* Lead=NULL );
 	UFont* FontCaption;     // Avenir Next Medium, small
+	UFont* FontInk;         // the game's ink lettering: page titles
+	UFont* FontInkMed;      // ink lettering: item names and headings
 	UFont* FontNum;         // Avenir Next Bold, numbers
 
 	// 3D.

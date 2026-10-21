@@ -22,6 +22,7 @@
 	void OpenMenu( UGameEngine* Engine, INT NewMenu )
 	{
 		Menu = NewMenu;
+		bConfirmLeave = 0;
 		Sel = 0;
 		Scroll = 0;
 		ConfirmIndex = -1;
@@ -440,13 +441,6 @@
 		FRpgClipScope Clip( Ui, R );
 		SetCostume( Body, Outfit, 0 );
 		CopyAnim( Body, Harry );
-		FName Pose = FindSeq(Body->SkelAnim,TEXT("Idle"));
-		if( Pose==NAME_None ) Pose = FindSeq(Body->SkelAnim,TEXT("Breathe"));
-		if( Pose!=NAME_None )
-		{
-			Body->AnimSequence = Pose;
-			Body->AnimFrame = 0.f;
-		}
 		ApplyLook( Outfit, Glasses );
 		if( Body->Mesh==HarryMesh )
 			Body->MultiSkins[3] = GCosmetics[Glasses].Skin0 ? LoadTex( GCosmetics[Glasses].Skin0 ) : NULL;
@@ -1029,13 +1023,14 @@
 		const FLOAT S = Ui.S;
 		FRpgRect Left, Right;
 		Ui.Screen( Left, Right );
-		// Same calm, flat backdrop as the book.
-		Ui.Rect( FRpgRect(0, 0, Ui.C->ClipX, Ui.C->ClipY), FColor(17,24,32,255) );
+		// Night sky (drawn by Screen), framed sections like the book.
+		Ui.Panel( FRpgRect(Left.X-Ui.P(10.f), Left.Y-Ui.P(10.f), Left.W+Ui.P(20.f), Left.H+Ui.P(20.f)) );
+		Ui.Panel( FRpgRect(Right.X-Ui.P(10.f), Right.Y-Ui.P(10.f), Right.W+Ui.P(20.f), Right.H+Ui.P(20.f)) );
 		const FVendorDef& V = GVendors[ShopVendorDef];
 
 		// Left: the vendor in 3D, their name and what they say.
 		const FRpgRect Stage( Left.X, Left.Y, Left.W, Left.H*0.66f );
-		Ui.Rect( Stage, FColor(29,39,48,255) );
+		Ui.Rect( Stage, FColor(22,30,66,255) );
 		if( ShopVendor && !IsInLevel(ShopVendor) )
 			ShopVendor = NULL;
 		// Try-on: a selected outfit, hat or pair of glasses is shown on Harry.
@@ -1056,13 +1051,13 @@
 		Ui.Text( Ui.FontTitle, Left.X+Left.W*0.5f, Y, RpgGoldBright, *VendorName, RALIGN_Center );
 		Y += Ui.TextHeight( Ui.FontTitle ) + 6*S;
 		const FRpgRect Bubble( Left.X, Y, Left.W, Left.Y+Left.H - Y - 36*S );
-		Ui.Rect( Bubble, FColor(24,33,42,255) );
+		Ui.Rect( Bubble, FColor(18,24,54,255) );
 		Ui.TextWrapped( Ui.FontBody, Bubble.Inset(8*S), RpgParchment, VendorRefuses() ? TEXT("You're in detention, Potter. No trading until it's over.") : *Speech );
 		DrawBeansLine( Harry, Left.X, Left.Y+Left.H-24*S );
 
 		// Right: title, tabs, grid.
 		FLOAT RY = Right.Y;
-		Ui.Text( Ui.FontTitle, Right.X, RY, RpgGoldBright, TEXT("Shop") );
+		Ui.Text( Ui.FontInk ? Ui.FontInk : Ui.FontTitle, Right.X, RY, RpgGoldBright, TEXT("Shop") );
 		if( Discount()>0 )
 			Ui.Text( Ui.FontBody, Right.X+Right.W, RY+6*S, RpgGreen, *FString::Printf(TEXT("-%i%% discount"), Discount()), RALIGN_Right );
 		RY += Ui.TextHeight( Ui.FontTitle ) + 6*S;
@@ -1223,21 +1218,26 @@
 	{
 		const FLOAT Pad = Ui.P(24.f), Gap = Ui.P(20.f);
 		const FLOAT LineH = Ui.TextHeight(Ui.FontBody);
-		const FLOAT HeaderH = Ui.TextHeight(Ui.FontTitle)+LineH+Ui.P(24.f);
+		UFont* TitleFont = Ui.FontInk ? Ui.FontInk : Ui.FontTitle;
+		const FLOAT TitleH = Ui.TextHeight(TitleFont);
+		const FLOAT HeaderH = TitleH+LineH+Ui.P(24.f);
 		const FLOAT FooterH = LineH*2.f+Ui.P(32.f);
-		Ui.Rect(FRpgRect(0,0,Ui.C->ClipX,Ui.C->ClipY),FColor(17,24,32,255));
+		Ui.Sky(FRpgRect(0,0,Ui.C->ClipX,Ui.C->ClipY));
 		FLOAT NavW = 0.f;
 		for( INT t=0; t<BOOK_MAX; t++ )
 			NavW = Max(NavW,Ui.TextWidth(Ui.FontBody,GBookTabNames[t]));
 		NavW += Ui.P(32.f);
 		const FLOAT Top = Pad+HeaderH;
 		const FLOAT RowH = Ui.TextHeight(Ui.FontBody)+Ui.P(12.f);
+		// Framed navigation and content sections on the night sky.
+		Ui.Panel(FRpgRect(Pad-Ui.P(8.f),Top-Ui.P(8.f),NavW+Ui.P(16.f),BOOK_MAX*RowH+Ui.P(16.f)));
+		Ui.Panel(FRpgRect(Pad+NavW+Gap-Ui.P(12.f),Top-Ui.P(12.f),Ui.C->ClipX-Pad*2-NavW-Gap+Ui.P(24.f),Ui.C->ClipY-Top-Pad-FooterH+Ui.P(24.f)));
 		for( INT t=0; t<BOOK_MAX; t++ )
 		{
 			const FRpgRect R(Pad,Top+t*RowH,NavW,RowH);
 			const UBOOL bHover = Ui.Hovered(R,&GBookTabNames[t]);
 			if( BookTab==t || bHover )
-				Ui.Rect(R,BookTab==t ? FColor(41,53,63,255) : FColor(29,39,48,255));
+				Ui.Rect(R,BookTab==t ? FColor(34,44,96,255) : FColor(22,30,66,255));
 			if( BookTab==t )
 				Ui.Rect(FRpgRect(R.X,R.Y,Ui.P(2.f),R.H),RpgGold);
 			Ui.Text(Ui.FontBody,R.X+Ui.P(12.f),R.Y+Ui.P(6.f),BookTab==t ? RpgGoldBright : RpgMuted,GBookTabNames[t],RALIGN_Left,0);
@@ -1251,10 +1251,10 @@
 			}
 		}
 		const FRpgRect Body(Pad+NavW+Gap,Top,Max(Ui.P(80.f),Ui.C->ClipX-Pad*2-NavW-Gap),Max(Ui.P(80.f),Ui.C->ClipY-Top-Pad-FooterH));
-		Ui.Text(Ui.FontTitle,Body.X,Pad,RpgParchment,GBookTabNames[BookTab],RALIGN_Left,0);
-		Ui.Text(Ui.FontBody,Body.X,Pad+Ui.TextHeight(Ui.FontTitle)+Ui.P(8.f),RpgMuted,
+		Ui.Text(TitleFont,Body.X,Pad-Ui.P(6.f),RpgGoldBright,GBookTabNames[BookTab],RALIGN_Left);
+		Ui.Text(Ui.FontBody,Body.X,Pad+TitleH,RpgMuted,
 			*Ui.FitText(Ui.FontBody,*FString::Printf(TEXT("Level %i   |   %i skill points   |   School day %i"),State.Level,State.SkillPoints,State.Day),Body.W),RALIGN_Left,0);
-		Ui.Rect(FRpgRect(Body.X,Top-Ui.P(10.f),Body.W,Max(1.f,Ui.P(1.f))),FColor(56,65,74,255));
+		Ui.Rect(FRpgRect(Body.X,Top-Ui.P(10.f),Body.W,Max(1.f,Ui.P(1.f))),FColor(70,62,40,255));
 
 		switch( BookTab )
 		{
@@ -1267,7 +1267,7 @@
 				// Resolve the current selection before drawing its large preview.
 				DrawWardrobeTab(Engine,Harry,Items);
 				const FRpgRect Stage(Body.X,Body.Y,StageW,Body.H-LineH*2-Ui.P(12.f));
-				Ui.Rect(Stage,FColor(29,39,48,255));
+				Ui.Rect(Stage,FColor(22,30,66,255));
 				if( TryOn>=0 && TryOn<GNumCosmetics )
 					DrawCosmeticPreview(Engine,Stage.Inset(Ui.P(12.f)),TryOn,0.f);
 				Ui.Text(Ui.FontBody,Body.X,Stage.Y+Stage.H+Ui.P(8.f),RpgMuted,TEXT("Preview"),RALIGN_Left,0);
@@ -1289,6 +1289,33 @@
 			Ui.Text(Ui.FontBody,Body.X,BottomY,RpgGoldBright,*Ui.FitText(Ui.FontBody,*Notice,Body.W-ButtonW-Gap),RALIGN_Left,0);
 		if( Ui.Button(FRpgRect(Ui.C->ClipX-Pad-ButtonW,BottomY,ButtonW,ButtonH),TEXT("Close"),1,&Menu) )
 			CloseMenu(Engine);
+		{
+			// Save (F5) and, inside a challenge, the way back to the hub.
+			const FLOAT SaveW = Ui.TextWidth(Ui.FontBody,TEXT("Save game"))+Ui.P(40.f);
+			FLOAT BX = Ui.C->ClipX-Pad-ButtonW-Ui.P(12.f)-SaveW;
+			if( Ui.Button(FRpgRect(BX,BottomY,SaveW,ButtonH),TEXT("Save game"),1,&State.Day) )
+			{
+				CloseMenu(Engine);
+				ManualSave(Engine,Harry);
+				return;
+			}
+			if( HubExit(Engine) )
+			{
+				const TCHAR* Leave = bConfirmLeave ? TEXT("Click again to leave") : TEXT("Leave challenge");
+				const FLOAT LeaveW = Ui.TextWidth(Ui.FontBody,Leave)+Ui.P(40.f);
+				BX -= Ui.P(12.f)+LeaveW;
+				if( Ui.Button(FRpgRect(BX,BottomY,LeaveW,ButtonH),Leave,1,&State.LessonDay) )
+				{
+					if( bConfirmLeave )
+					{
+						bConfirmLeave = 0;
+						LeaveChallenge(Engine,Harry);
+						return;
+					}
+					bConfirmLeave = 1;
+				}
+			}
+		}
 		Ui.Footer(TEXT("Q/E: section    Tab: category    Arrows / wheel: choose    Enter: act    K/Esc: close"));
 	}
 
@@ -1296,7 +1323,7 @@
 	{
 		const UBOOL bHover = Ui.Hovered( Row, Id );
 		if( Index==Sel || bHover )
-			Ui.Rect( Row, Index==Sel ? FColor(41,53,63,255) : FColor(29,39,48,255) );
+			Ui.Rect( Row, Index==Sel ? FColor(34,44,96,255) : FColor(22,30,66,255) );
 		if( Ui.Clicked(Row,Id) )
 		{
 			Sel = Index;
@@ -1314,7 +1341,7 @@
 		{
 			const FRpgRect Row(Area.X,Area.Y+i*RowH,Area.W,RowH-Ui.P(6.f));
 			const UBOOL bHover = Ui.Hovered(Row,&GSkillNames[i]);
-			Ui.Rect(Row,i==Sel ? FColor(41,53,63,255) : FColor(29,39,48,255));
+			Ui.Rect(Row,i==Sel ? FColor(34,44,96,255) : FColor(22,30,66,255));
 			if( Ui.Clicked(Row,&GSkillNames[i]) )
 			{
 				Sel = i;
@@ -1376,11 +1403,11 @@
 			const UBOOL bHover = Ui.Hovered( Cell, &GSpellNames[sp] );
 			if( sp==Sel )
 			{
-				Ui.Rect( Cell, FColor(41,53,63,255) );
+				Ui.Rect( Cell, FColor(34,44,96,255) );
 				Ui.Border( Cell, Max(1.f,S), RpgGoldBright );
 			}
 			else if( bHover )
-				Ui.Rect( Cell, FColor(29,39,48,255) );
+				Ui.Rect( Cell, FColor(22,30,66,255) );
 			UTexture* Icon = LoadTex( GSpellIcons[sp] );
 			if( Icon )
 				Ui.Icon( Icon, FRpgRect(Cell.X+(Cell.W-IconS)*0.5f, Cell.Y+4*S, IconS, IconS), sp==Sel ? 1.f : 0.6f );
@@ -1410,7 +1437,7 @@
 			const FColor Edge = bLearned ? RpgGreen : (bNext ? RpgGoldBright : FColor(70,74,104,255));
 			const FRpgRect Node( Area.X + 18*S, Y, Area.W - 18*S, NodeH );
 			const UBOOL bHover = bNext && Ui.Hovered( Node, &GPerks[Chain[n]] );
-			Ui.Rect( Node, bHover ? FColor(36,46,98,255) : (bNext ? FColor(28,36,80,255) : FColor(24,33,42,255)) );
+			Ui.Rect( Node, bHover ? FColor(36,46,98,255) : (bNext ? FColor(28,36,80,255) : FColor(18,24,54,255)) );
 			Ui.Border( Node, Max(1.f,S*(bNext?1.5f:1.f)), Edge );
 
 			// Connector dot and line on the left.
@@ -1470,7 +1497,7 @@
 			}
 			const FRpgRect R(TX,TY,TW,TabH);
 			if( WardrobeSlot==t || Ui.Hovered(R,&GSlotNames[t]) )
-				Ui.Rect(R,FColor(41,53,63,255));
+				Ui.Rect(R,FColor(34,44,96,255));
 			Ui.Text(Ui.FontBody,TX+Ui.P(12.f),TY+Ui.P(6.f),WardrobeSlot==t ? RpgGoldBright : RpgMuted,GSlotNames[t],RALIGN_Left,0);
 			if( Ui.Clicked(R,&GSlotNames[t]) && WardrobeSlot!=t )
 			{
@@ -1512,13 +1539,14 @@
 			const FCosmetic& Cos = GCosmetics[Id];
 			const FRpgRect Cell = GridCell(GridArea,Cols,Rows,v);
 			Ui.Tile(Cell,Index==Sel,Ui.Hovered(Cell,&GCosmetics[Id]),GRarityColors[Cos.Rarity]);
-			const FLOAT LabelH = LineH*2+Ui.P(12.f);
-			const FRpgRect Pic(Cell.X+Gap,Cell.Y+Gap,Cell.W-Gap*2,Max(LineH,Cell.H-LabelH-Gap*2));
+			// One label line; its colour tells the status (gold worn, green owned).
+			const FLOAT LabelH = LineH+Ui.P(10.f);
+			const FRpgRect Pic(Cell.X+Gap,Cell.Y+Gap,Cell.W-Gap*2,Max(LineH,Cell.H-LabelH-Gap));
 			DrawCosmeticPreview(Engine,Pic,Id,0.f);
 			const FLOAT LY = Cell.Y+Cell.H-LabelH;
-			Ui.Text(Ui.FontBody,Cell.X+Gap,LY,RpgParchment,*Ui.FitText(Ui.FontBody,Cos.Name,Cell.W-Gap*2),RALIGN_Left,0);
-			const TCHAR* Status = State.Equip[WardrobeSlot]==Id ? TEXT("Equipped") : IsOwned(Id) ? TEXT("Owned") : TEXT("Find at a vendor");
-			Ui.Text(Ui.FontBody,Cell.X+Gap,LY+LineH,IsOwned(Id) ? RpgGreen : RpgMuted,*Ui.FitText(Ui.FontBody,Status,Cell.W-Gap*2),RALIGN_Left,0);
+			Ui.Rect(FRpgRect(Cell.X+1,LY,Cell.W-2,LabelH-1),FColor(12,16,40,255));
+			const FColor NameCol = State.Equip[WardrobeSlot]==Id ? RpgGoldBright : IsOwned(Id) ? RpgGreen : RpgMuted;
+			Ui.Text(Ui.FontBody,Cell.X+Cell.W*0.5f,LY+Ui.P(5.f),NameCol,*Ui.FitText(Ui.FontBody,Cos.Name,Cell.W-Gap*2),RALIGN_Center,0);
 		}
 		DrawScrollHints(GridArea,Count,Cols,Rows);
 		const INT Id = Items[Sel];
@@ -1709,7 +1737,7 @@
 			const UBOOL bDone = (State.TasksDone & (1<<t))!=0;
 			const INT Have = bDone ? Goal : Clamp( CounterValue(Harry,T.Counter) - State.Tasks[t*3+2], 0, Goal );
 			const FRpgRect Row( Area.X, Y, Area.W, TaskH-4*S );
-			Ui.Rect( Row, bDone ? FColor(20,46,32,255) : FColor(24,33,42,255) );
+			Ui.Rect( Row, bDone ? FColor(20,46,32,255) : FColor(18,24,54,255) );
 			Ui.Border( Row, Max(1.f,S), bDone ? RpgGreen : FColor(60,66,104,255) );
 			Ui.Text( Ui.FontBody, Row.X+8*S, Row.Y+4*S, bDone ? RpgGreen : RpgParchment, *Ui.FitText(Ui.FontBody,*FString::Printf(T.Desc,Goal),Row.W*0.62f) );
 			Ui.Text( Ui.FontSmall, Row.X+Row.W-8*S, Row.Y+5*S, RpgGoldBright, *FString::Printf(TEXT("+%i pts  +%i beans"), T.Points, T.Beans), RALIGN_Right );
@@ -1898,6 +1926,11 @@
 		// Teachers start today's class; quest givers speak about their quest.
 		if( !LessonTalk( Ui.Engine, Harry, Npc ) && !QuestTalk( Harry, Npc ) )
 		{
+			if( FStandIn* S = FindStandIn(Npc) )
+			{
+				Say( StandInDef(S->Def).Name, StandInDef(S->Def).Hello );
+				return;
+			}
 			FRpgArg JustTalk = FRpgArg::I( 1 );
 			CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
 		}
@@ -1941,6 +1974,11 @@
 				return 1;
 			if( Key==IK_E && Action==IST_Press && !NearNpc && IsFreeGameplay(Engine,Harry) && BrewInput( Engine, Harry ) )
 				return 1;
+			if( Key==IK_F5 && Action==IST_Press )
+			{
+				ManualSave( Engine, Harry );
+				return 1;
+			}
 			if( Key==IK_P && Action==IST_Press && IsFreeGameplay(Engine,Harry) )
 			{
 				SetPhoto( Engine, Harry, 1 );

@@ -27,7 +27,7 @@
 		static const FSpell2Def Defs[SP2_MAX] =
 		{
 			{ TEXT("Accio"), TEXT("Summon beans, cards, stars and ingredients nearby."), 2, 8.f, TEXT("SpellShapes.Shapes.SPSalohomora"), FColor(255,214,100,255) },
-			{ TEXT("Revelio"), TEXT("Reveal secrets, chests and collectibles for 8 seconds."), 3, 12.f, TEXT("SpellShapes.Shapes.SPSlumos"), FColor(150,220,255,255) },
+			{ TEXT("Revelio"), TEXT("While exploring the castle: reveal secrets, chests, collectibles and lost pages."), 3, 4.f, TEXT("SpellShapes.Shapes.SPSlumos"), FColor(150,220,255,255) },
 			{ TEXT("Protego"), TEXT("A shield that blocks all damage for 4 seconds."), 4, 25.f, TEXT("SpellShapes.Shapes.SPSexpelliarmus"), FColor(140,200,255,255) },
 			{ TEXT("Wingardium Leviosa"), TEXT("Lift a creature, student or vase and steer it with the mouse. Release to drop, click to throw."), 6, 10.f, TEXT("SpellShapes.Shapes.SPSspongify"), FColor(220,240,160,255) },
 			{ TEXT("Glacius"), TEXT("Freeze a creature solid for 5 seconds."), 8, 12.f, TEXT("SpellShapes.Shapes.SPSmimble"), FColor(170,230,255,255) },
@@ -201,6 +201,12 @@
 			AddFeed( FString::Printf(TEXT("%s is recharging"), D.Name), FColor(180,180,200,255), TOAST_Info, *FString::Printf(TEXT("Ready in %i s"), appCeil(SpellCooldown[i])) );
 			return;
 		}
+		// Revelio is an exploring spell: the hubs only, not story levels.
+		if( i==SP2_Revelio && !(LastLevel && appStrstr(*LastLevel->URL.Map, TEXT("_hub"))) && !(LastLevel && appStrstr(*LastLevel->URL.Map, TEXT("GreatHall"))) )
+		{
+			AddFeed( TEXT("Revelio"), D.Color, TOAST_Info, TEXT("Works while exploring the castle grounds and halls") );
+			return;
+		}
 		if( SpellNeedsTarget(i) && !Target )
 		{
 			PlaySfx( TEXT("HPSounds.Magic_sfx.spell_dud") );
@@ -321,9 +327,8 @@
 			const FName S = GetStateName( A );
 			if( ClassChainIs(A,TEXT("SecretAreaMarker")) && !GetBoolProp(A,TEXT("bFound")) )
 				Kind = 0;
-			else if( ClassChainIsAny(A,TEXT("chestbronze|bronzecauldron")) && !GetBoolProp(A,TEXT("bOpened")) )
-				Kind = 1;
-			else if( ClassChainIs(A,TEXT("HFlipendo")) && S==FName(TEXT("waitforspell")) )
+			// Only chests and cauldrons still waiting for their spell.
+			else if( ClassChainIsAny(A,TEXT("chestbronze|bronzecauldron")) && !GetBoolProp(A,TEXT("bOpened")) && S==FName(TEXT("waitforspell")) )
 				Kind = 1;
 			else if( ClassChainIs(A,TEXT("WizardCardIcon")) && !A->Owner && !A->bHidden && S!=FName(TEXT("PickupProp")) )
 				Kind = 2;
@@ -1212,6 +1217,8 @@
 				FRpgRect R( X, Y0 - (bSel ? Ui.P(6.f) : 0.f), Slot, Slot );
 				Ui.Chamfer( R, Ui.P(3.f), bSel ? FColor(44,56,104,255) : FColor(28,36,70,255) );
 				Ui.Border( R, bSel ? Max(1.f,Ui.P(2.f)) : Max(1.f,Ui.P(1.f)), bSel ? GoldHi : Line );
+				if( bSel )
+					Ui.Brackets( FRpgRect(R.X-Ui.P(3.f), R.Y-Ui.P(3.f), R.W+Ui.P(6.f), R.H+Ui.P(6.f)), Ui.P(7.f), Max(1.f,Ui.P(2.f)), GoldHi );
 				UTexture* Icon = LoadTex( bWand ? TEXT("SpellShapes.Shapes.SPSflipendo") : Spell2(i).Icon );
 				const FLOAT Cool = bWand ? 0.f : SpellCooldown[i];
 				if( Icon )

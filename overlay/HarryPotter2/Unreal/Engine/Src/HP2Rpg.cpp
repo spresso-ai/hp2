@@ -599,6 +599,7 @@ public:
 	INT BookTab;
 	INT Sel;
 	INT TryOn;          // cosmetic shown on Harry in the stage (-1: none)
+	UBOOL bConfirmLeave;
 	INT Scroll;
 	INT ShopTab;
 	INT WardrobeSlot;
@@ -1814,6 +1815,10 @@ public:
 
 	FString NpcName( AActor* Actor )
 	{
+		if( FStandIn* S = FindStandIn(Actor) )
+			return StandInDef(S->Def).Name;
+		if( IsStaff(Actor) )
+			return StaffName( Actor );
 		const INT V = VendorFor( Actor );
 		if( V>=0 && V<VEN_StudentGryffindor )
 			return GVendors[V].Name;
@@ -1864,7 +1869,7 @@ public:
 			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden || !Actor->IsA(HChar) )
 				continue;
 			const INT Vendor = VendorFor( Actor );
-			if( Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) )
+			if( Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) && !IsStoryNpc(Actor) )
 				continue;
 			const FLOAT Dist = (Actor->Location - Harry->Location).Size();
 			if( Dist < Nearest )
@@ -1874,6 +1879,27 @@ public:
 				NearVendor = Vendor;
 			}
 		}
+		// Stand-ins walking the castle.
+		AActor* Stand = NearestStandIn( Harry, Nearest );
+		if( Stand )
+		{
+			NearNpc = Stand;
+			NearVendor = -1;
+		}
+	}
+
+	// Quest givers and teachers can always be talked to.
+	UBOOL IsStoryNpc( AActor* A )
+	{
+		if( IsHolding(A) )
+			return 0;
+		for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
+			if( ClassChainIsAny(A,GQuests[q].Giver) )
+				return 1;
+		for( INT k=0; k<LES_MAX; k++ )
+			if( ClassChainIsAny(A,Lesson(k).Teacher) )
+				return 1;
+		return 0;
 	}
 
 	/*-------------------------------------------------------------------------
@@ -3385,6 +3411,7 @@ public:
 		UpdateQuests( Engine, Harry, DeltaSeconds );
 		UpdateLesson( Engine, Harry, DeltaSeconds );
 		UpdateDecor( Engine, Harry, DeltaSeconds );
+		UpdateStandIns( Engine, Harry, DeltaSeconds );
 		UpdatePhoto( Harry );
 	}
 
@@ -3471,6 +3498,7 @@ public:
 		EndWorld();
 		EndPickups( Engine );
 		EndDecor( Engine );
+		EndStandIns( Engine );
 		ClearLessonItems( Engine );
 		LessonKind = -1;
 		SetPhoto( Engine, GetHarry(Engine), 0 );
@@ -3514,6 +3542,7 @@ public:
 		HarryAnim = NULL;
 		ForgetQuests();
 		ForgetDecor();
+		ForgetStandIns();
 		LessonItems.Empty();
 		LessonItemShown.Empty();
 		LessonCounted.Empty();
@@ -3548,6 +3577,7 @@ public:
 	#include "HP2RpgWorld.inl"
 	#include "HP2RpgQuests.inl"
 	#include "HP2RpgSchool.inl"
+	#include "HP2RpgCastle.inl"
 };
 
 static FHP2Rpg GRpg;

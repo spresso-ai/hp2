@@ -7,10 +7,10 @@
 #include "UnSkeletalMesh.h"
 #include "HP2RpgUi.h"
 
-const FColor RpgGold( 200, 172, 107, 255 );
-const FColor RpgGoldBright( 226, 202, 148, 255 );
-const FColor RpgParchment( 238, 232, 217, 255 );
-const FColor RpgMuted( 181, 181, 173, 255 );
+const FColor RpgGold( 201, 162, 74, 255 );
+const FColor RpgGoldBright( 255, 222, 130, 255 );
+const FColor RpgParchment( 240, 232, 210, 255 );
+const FColor RpgMuted( 168, 172, 200, 255 );
 const FColor RpgRed( 230, 80, 72, 255 );
 const FColor RpgGreen( 120, 220, 140, 255 );
 const FColor RpgTileFill( 16, 24, 58, 255 );
@@ -103,6 +103,8 @@ void FRpgUi::Resolve()
 	UFont* InkSmall = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.SmallInkFont") );
 	UFont* InkTiny = (UFont*)LoadRooted( UFont::StaticClass(), TEXT("HGame.TinyInkFont") );
 	FontTitle = MakeNativeFont( InkBig, TEXT("AvenirNext-DemiBold"), 15 );
+	FontInk = InkBig;
+	FontInkMed = InkMed;
 	FontItem = MakeNativeFont( InkMed, TEXT("AvenirNext-DemiBold"), 10 );
 	FontBody = MakeNativeFont( InkSmall, TEXT("AvenirNext-Medium"), 9 );
 	FontSmall = MakeNativeFont( InkTiny, TEXT("AvenirNext-Medium"), 8 );
@@ -175,17 +177,25 @@ void FRpgUi::Scrim( const FRpgRect& R, FLOAT Keep )
 {
 	// This renderer cannot reliably darken the existing framebuffer.
 	// Retain the API for gauges and photo borders, but use an opaque fill.
-	Rect( R, FColor(17,24,32,255) );
+	Rect( R, FColor(12,16,40,255) );
 }
 
 // Flat dark panel (the renderer's blend modes can't darken cleanly).
 void FRpgUi::Glass( const FRpgRect& R, UBOOL bAccent )
 {
-	Rect( R, FColor(17,24,32,255) );
+	Rect( R, FColor(12,16,40,255) );
 	const FLOAT T = Max( 1.f, P(1.f) );
-	Border( R, T, FColor(56,65,74,255) );
+	Border( R, T, FColor(96,82,44,255) );
 	if( bAccent )
 		Rect( FRpgRect(R.X, R.Y, R.W, Max(1.f,P(2.f))), RpgGold );
+}
+
+// A menu section: night-blue panel, gold hairline and gold corners.
+void FRpgUi::Panel( const FRpgRect& R )
+{
+	Rect( R, FColor(12,16,40,255) );
+	Border( R, Max(1.f,P(1.f)), FColor(96,82,44,255) );
+	Brackets( R, P(14.f), Max(1.f,P(2.f)), RpgGold );
 }
 
 void FRpgUi::Chamfer( const FRpgRect& R, FLOAT Cut, FColor Color )
@@ -503,9 +513,11 @@ UBOOL FRpgUi::Tab( const FRpgRect& R, const TCHAR* Label, UBOOL bActive, const v
 // Flat tile: one selection outline and a small rarity marker.
 void FRpgUi::Tile( const FRpgRect& R, UBOOL bSelected, UBOOL bHover, FColor Accent )
 {
-	Rect(R,bSelected ? FColor(41,53,63,255) : bHover ? FColor(34,45,55,255) : FColor(24,33,42,255));
-	Border(R,Max(1.f,P(1.f)),bSelected ? RpgGoldBright : FColor(56,65,74,255));
+	Rect(R,bSelected ? FColor(34,44,96,255) : bHover ? FColor(26,34,74,255) : FColor(18,24,54,255));
+	Border(R,Max(1.f,P(1.f)),bSelected ? RpgGoldBright : (bHover ? RpgGold : FColor(70,62,40,255)));
 	Rect(FRpgRect(R.X+P(6.f),R.Y+P(6.f),P(16.f),Max(1.f,P(2.f))),Accent);
+	if( bSelected )
+		Brackets( FRpgRect(R.X-P(3.f), R.Y-P(3.f), R.W+P(6.f), R.H+P(6.f)), P(10.f), Max(1.f,P(2.f)), RpgGoldBright );
 }
 
 void FRpgUi::TileLabel( const FRpgRect& R, const TCHAR* Label, FColor Color )

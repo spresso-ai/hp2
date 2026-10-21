@@ -74,7 +74,7 @@
 
 	UBOOL LessonAvailableFrom( AActor* Npc )
 	{
-		return LessonKind<0 && State.LessonDay!=State.Day && Npc && ClassChainIsAny( Npc, Lesson(TodaysLesson()).Teacher );
+		return LessonKind<0 && State.LessonDay!=State.Day && Npc && NpcIs( Npc, Lesson(TodaysLesson()).Teacher );
 	}
 
 	void ClearLessonItems( UGameEngine* Engine )

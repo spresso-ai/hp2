@@ -52,7 +52,7 @@
 
 	UBOOL IsGiverOf( AActor* A, INT q )
 	{
-		return A && ClassChainIsAny( A, GQuests[q].Giver );
+		return A && NpcIs( A, GQuests[q].Giver );
 	}
 
 	// The quest this NPC has for Harry right now: ready ones first.
@@ -224,7 +224,11 @@
 			FVector Where;
 			if( !PickSpot( Engine, (DWORD)(g*977 + 31), Where ) )
 				continue;
-			AActor* A = SpawnPickup( Engine, TEXT("HProps.skBooksSmallBookMesh"), Where, 0.8f );
+			// A loose golden page floating a little above the floor.
+			Where.Z += 26.f;
+			AActor* A = SpawnPickup( Engine, TEXT("HProps.skSheetTest1Mesh"), Where, 1.4f );
+			if( !A )
+				A = SpawnPickup( Engine, TEXT("HProps.skBooksBigFlitwickBookMesh"), Where, 0.5f );
 			if( !A )
 				continue;
 			A->bHidden = 1;
@@ -350,12 +354,26 @@
 			GiverScanTimer = 2.f;
 			Givers.Empty();
 			TodaysTeacher = NULL;
+			for( INT si=0; si<StandIns.Num(); si++ )
+			{
+				AActor* A = StandIns(si).Actor;
+				if( !A || A->bDeleteMe )
+					continue;
+				if( !TodaysTeacher && NpcIs(A, Lesson(TodaysLesson()).Teacher) )
+					TodaysTeacher = A;
+				for( INT g=0; g<GNumQuests && g<MAX_QUESTS; g++ )
+					if( IsGiverOf(A,g) )
+					{
+						Givers.AddItem( A );
+						break;
+					}
+			}
 			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 			{
 				AActor* A = Engine->GLevel->Actors(i);
 				if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || !A->IsA(APawn::StaticClass()) )
 					continue;
-				if( !TodaysTeacher && ClassChainIsAny(A, Lesson(TodaysLesson()).Teacher) )
+				if( !TodaysTeacher && NpcIs(A, Lesson(TodaysLesson()).Teacher) )
 					TodaysTeacher = A;
 				for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 					if( IsGiverOf(A,q) )
