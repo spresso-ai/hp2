@@ -2790,7 +2790,7 @@ public:
 			// Stand on the floor under the new spot.
 			FCheckResult Hit;
 			const FVector Top = New + FVector( 0, 0, 60.f );
-			if( !Engine->GLevel->SingleLineCheck( Hit, Pet, Top - FVector(0,0,260.f), Top, TRACE_World, FVector(0,0,0) ) )
+			if( !Engine->GLevel->SingleLineCheck( Hit, Pet, Top - FVector(0,0,260.f), Top, TRACE_VisBlocking, FVector(0,0,0) ) )
 				New.Z = Hit.Location.Z + PetFloor;
 			else
 				New.Z = Harry->Location.Z - Harry->CollisionHeight + PetFloor;
