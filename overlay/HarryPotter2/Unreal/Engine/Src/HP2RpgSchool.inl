@@ -515,7 +515,7 @@
 			}
 		if( Best<0 )
 		{
-			Notice = TEXT("Stand next to a piece of your furniture to pick it up.");
+			SetNotice( TEXT("Stand next to a piece of your furniture to pick it up.") );
 			return;
 		}
 		SpawnFx( Engine, TEXT("SmokeExplo_02"), Placed(Best).Actor->Location, 1.f );
@@ -628,8 +628,8 @@
 		const FLOAT RowH = Ui.TextHeight(Ui.FontBody) + 10*S;
 		const INT Visible = Max( 1, appFloor((Area.Y+Area.H-Top-RowH*1.5f)/RowH) );
 		Sel = Clamp( Sel, 0, NUM_DECOR-1 );
-		if( Sel<Scroll ) Scroll = Sel;
-		if( Sel>=Scroll+Visible ) Scroll = Sel-Visible+1;
+		ApplyWheel( NUM_DECOR, 1, Visible );
+		ClampSelection( NUM_DECOR, 1, Visible );
 		const INT Beans = GetBeans( Harry );
 		for( INT v=0; v<Visible && Scroll+v<NUM_DECOR; v++ )
 		{
@@ -654,7 +654,7 @@
 			GiveBeans( Harry, -Dd.Price );
 			State.DecorOwned[Sel]++;
 			Ui.Play( RSND_Buy, Harry );
-			Notice = FString::Printf( TEXT("%s bought - place it in a hub."), Dd.Name );
+			SetNotice( FString::Printf(TEXT("%s bought - place it in a hub."), Dd.Name) );
 		}
 		if( Ui.Button( FRpgRect(Area.X+BW+9*S, BY, BW, RowH-2*S), TEXT("Place here"), bHub && State.DecorOwned[Sel]>0, &State.DecorOwned[0] ) )
 		{
@@ -667,3 +667,4 @@
 		if( !bHub )
 			Ui.Text( Ui.FontSmall, Area.X, BY-Ui.TextHeight(Ui.FontSmall)-2*S, RpgMuted, TEXT("Furniture can only be placed in the hubs.") );
 	}
+
