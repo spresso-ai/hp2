@@ -193,7 +193,7 @@
 				S.Wait = 4.f + RpgRand(8);
 				continue;
 			}
-			const FVector Dir = D/Dist;
+			FVector Dir = D/Dist;
 			FVector New = A->Location + Dir*Min( Dist, Def.Speed*DeltaSeconds );
 			FCheckResult Hit;
 			const FVector Top = New + FVector( 0, 0, 60.f );
