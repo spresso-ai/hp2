@@ -1934,6 +1934,10 @@ public:
 			return StandInDef(S->Def).Name;
 		if( MateIndex(Actor)>=0 )
 			return MateDef( MateIndex(Actor) ).Name;
+		if( Actor && Actor==FriendActor )
+			return GCosmetics[State.Equip[RSLOT_Friend]].Name;
+		if( Actor && Actor==PetActor )
+			return GCosmetics[State.Equip[RSLOT_Pet]].Name;
 		if( IsStaff(Actor) )
 			return StaffName( Actor );
 		const INT V = VendorFor( Actor );
@@ -2004,12 +2008,21 @@ public:
 			NearNpc = Stand;
 			NearVendor = -1;
 		}
-		// Schoolmates of the school rhythm.
-		for( INT m=0; m<MATE_MAX; m++ )
+		// Schoolmates of the school rhythm, and Harry's own companions.
+		for( INT m=0; m<MATE_MAX+2; m++ )
 		{
-			AActor* A = Mates[m].Actor;
+			AActor* A = m<MATE_MAX ? Mates[m].Actor : (m==MATE_MAX ? FriendActor : PetActor);
 			if( !A || A->bHidden || A->bDeleteMe )
 				continue;
+			// A companion is always close by: only when Harry turns to it.
+			if( m>=MATE_MAX )
+			{
+				FVector D = A->Location - Harry->Location;
+				D.Z = 0.f;
+				const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
+				if( D.SizeSquared() > 160.f*160.f || (D.SafeNormal() | FVector((FLOAT)appCos(HarryYaw),(FLOAT)appSin(HarryYaw),0.f)) < 0.6f )
+					continue;
+			}
 			const FLOAT Dist = (A->Location - Harry->Location).Size();
 			if( Dist < Nearest )
 			{
@@ -3259,6 +3272,8 @@ public:
 			RpgLog( TEXT("companion %s: anims %s, floor %.1f"), Spec.Name, Anim ? Anim->GetName() : TEXT("none"), PetFloor );
 		}
 		Pet->DrawScale = St.Scale*Harry->DrawScale/Max(0.01f,BaseDrawScale);
+		if( HoldCompanion( Engine, Pet, PetLift, PetLiftZ, DeltaSeconds ) )
+			return 1;
 
 		// It walks (or flies) after Harry and waits a few steps away.
 		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
@@ -3401,6 +3416,8 @@ public:
 			Engine->GLevel->FarMoveActor( F, Harry->Location, 0, 1 );
 			RpgLog( TEXT("friend %s: anims %s, floor %.1f"), Spec.Name, Anim ? Anim->GetName() : TEXT("none"), FriendFloor );
 		}
+		if( HoldCompanion( Engine, F, FriendLift, FriendLiftZ, DeltaSeconds ) )
+			return 1;
 		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
 		const FVector Fwd( (FLOAT)appCos(HarryYaw), (FLOAT)appSin(HarryYaw), 0.f );
 		const FVector Right( -Fwd.Y, Fwd.X, 0.f );
@@ -3453,6 +3470,118 @@ public:
 		}
 		if( Want2!=NAME_None && (F->AnimSequence!=Want2 || !F->bAnimLoop) )
 			F->PlayAnim( Want2, true, Rate, 0.2f );
+		return 1;
+	}
+
+	/*-------------------------------------------------------------------------
+		Companions: talking (E) and spells cast on them.
+	-------------------------------------------------------------------------*/
+
+	FLOAT FriendLift, PetLift;      // seconds of Wingardium Leviosa left
+	FLOAT FriendLiftZ, PetLiftZ;    // floor height when lifted
+	INT FriendLineIndex;
+
+	// Retail voice lines a friend says when Harry talks to them, or when he
+	// casts a spell on them.
+	static const TCHAR* CompanionLines( const TCHAR* Mesh, UBOOL bReact )
+	{
+		if( !Mesh )
+			return NULL;
+		if( MapHas(Mesh,TEXT("skronMesh")) )
+			return bReact ? TEXT("PC_Ron_FlyingCar_44|PC_Ron_DiaryStolen_04|PC_Ron_FlyingCar_41|PC_Ron_FlyingCar_35")
+				: TEXT("PC_Ron_GoToDADA_00|PC_Ron_DiaryStolen_01|PC_Ron_CrimeScene_57|PC_Ron_FinishQuidditch_02|PC_Ron_BitOfGoyle_32");
+		if( MapHas(Mesh,TEXT("skhermioneMesh")) )
+			return bReact ? TEXT("PC_Her_Trans2Goyle_21|PC_Her_FollowVoice_54|PC_Her_Password_05")
+				: TEXT("PC_HER_BUMPLINES_600|PC_Her_DuelOpen_09|PC_HER_BUMPLINES_1014|PC_Her_GoToDADA_02|PC_Her_FinishQuidditch_05");
+		if( MapHas(Mesh,TEXT("skGinnyMesh")) )
+			return bReact ? TEXT("PC_GFG_BUMPLINES_526|PC_GFG_BUMPLINES_252")
+				: TEXT("PC_GFG_BUMPLINES_838|PC_GFG_BUMPLINES_383|PC_GFG_BUMPLINES_690|PC_GFG_BUMPLINES_781");
+		if( MapHas(Mesh,TEXT("skFredWeasleyMesh")) )
+			return bReact ? TEXT("PC_Frd_Vendor_14") : TEXT("PC_Frd_Vendor_26|PC_Frd_Password_15|PC_Frd_Vendor_68");
+		if( MapHas(Mesh,TEXT("skGeorgeWeasleyMesh")) )
+			return bReact ? TEXT("PC_Grg_Vendor_15") : TEXT("PC_Grg_Password_19|PC_Grg_Vendor_27|PC_Grg_Password_26");
+		if( MapHas(Mesh,TEXT("skHagridMesh")) )
+			return bReact ? TEXT("PC_Hdw_HagArrest_24|PC_Hdw_HagArrest_31")
+				: TEXT("PC_HDW_BUMPLINES_349|PC_HDW_BUMPLINES_352|PC_HDW_BUMPLINES_355|PC_HDW_BUMPLINES_646|PC_HDW_BUMPLINES_350");
+		if( MapHas(Mesh,TEXT("skdobbyMesh")) )
+			return bReact ? TEXT("PC_Dob_PrivetIntro_61") : TEXT("PC_Dob_PrivetIntro_62|PC_Dob_PrivetIntro_63|PC_Dob_PrivetIntro_61");
+		return NULL;
+	}
+
+	// An animal's own sound, if the game has one.
+	static const TCHAR* PetSound( const TCHAR* Mesh )
+	{
+		if( !Mesh )
+			return NULL;
+		if( MapHas(Mesh,TEXT("owl")) )
+			return RpgRand(2) ? TEXT("HPSounds.Critters_sfx.owl_hoot01") : TEXT("HPSounds.Critters_sfx.owl_hoot02");
+		if( MapHas(Mesh,TEXT("Pig")) )
+			return TEXT("HPSounds.Critters_sfx.Pig_snort01");
+		if( MapHas(Mesh,TEXT("Frog")) || MapHas(Mesh,TEXT("Toad")) )
+			return TEXT("HPSounds.Critters_sfx.frog_ribbit");
+		return NULL;
+	}
+
+	UBOOL IsCompanion( AActor* A )
+	{
+		return A && (A==FriendActor || A==PetActor);
+	}
+
+	// Friend or pet reacts: a voice line (friends) or its own sound (pets).
+	void CompanionReact( AActor* A, UBOOL bSpell )
+	{
+		UGameEngine* Engine = Ui.Engine;
+		if( A==FriendActor )
+		{
+			const FCosmetic& Spec = GCosmetics[State.Equip[RSLOT_Friend]];
+			if( RpgClock>=MateVoiceFree && SpeakLine( A, CompanionLines(Spec.Mesh,bSpell), FriendLineIndex )>0.f )
+				return;
+			if( !bSpell )
+				Say( Spec.Name, Spec.Desc );
+		}
+		else if( A==PetActor )
+		{
+			const FCosmetic& Spec = GCosmetics[State.Equip[RSLOT_Pet]];
+			if( const TCHAR* Snd = PetSound(Spec.Mesh) )
+				PlaySfx( Snd );
+			if( Engine )
+				SpawnFx( Engine, TEXT("GoldSparkle01"), A->Location + FVector(0,0,30.f), 1.f );
+		}
+	}
+
+	// Wingardium Leviosa on a companion: up it goes for a few seconds.
+	UBOOL LiftCompanion( AActor* A )
+	{
+		if( A==FriendActor && FriendLift<=0.f )
+		{
+			FriendLift = 3.5f;
+			FriendLiftZ = A->Location.Z;
+		}
+		else if( A==PetActor && PetLift<=0.f )
+		{
+			PetLift = 3.5f;
+			PetLiftZ = A->Location.Z;
+		}
+		else
+			return 0;
+		if( Ui.Engine )
+			SpawnFx( Ui.Engine, TEXT("Levitate_hold"), A->Location, 2.f );
+		CompanionReact( A, 1 );
+		return 1;
+	}
+
+	// While lifted (or transfigured) a companion floats or waits in place.
+	UBOOL HoldCompanion( UGameEngine* Engine, AActor* A, FLOAT& Lift, FLOAT BaseZ, FLOAT DeltaSeconds )
+	{
+		if( IsTransfigured(A) )
+			return 1;
+		if( Lift<=0.f )
+			return 0;
+		Lift = Max( 0.f, Lift-DeltaSeconds );
+		const FLOAT T = 3.5f - Lift;
+		const FLOAT Up = Min( 1.f, T/0.5f )*Min( 1.f, Lift/0.5f )*90.f + (FLOAT)appSin(T*4.f)*6.f;
+		Engine->GLevel->FarMoveActor( A, FVector(A->Location.X, A->Location.Y, BaseZ + Up), 0, 1 );
+		A->Rotation.Yaw += appRound( 9000.f*DeltaSeconds );
 		return 1;
 	}
 

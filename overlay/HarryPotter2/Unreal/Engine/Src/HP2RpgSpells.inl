@@ -219,7 +219,7 @@
 			case SP2_Accio:    bCast = CastAccio( Engine, Harry ); break;
 			case SP2_Revelio:  bCast = CastRevelio( Engine, Harry ); break;
 			case SP2_Protego:  bCast = CastProtego( Engine, Harry ); break;
-			case SP2_Leviosa:  bCast = CastLeviosa( Engine, Harry, Target ); break;
+			case SP2_Leviosa:  bCast = IsCompanion(Target) ? LiftCompanion( Target ) : CastLeviosa( Engine, Harry, Target ); break;
 			case SP2_Glacius:  bCast = CastGlacius( Engine, Harry, Target ); break;
 			case SP2_Arresto:  bCast = CastArresto( Engine, Harry ); break;
 			case SP2_Transfig: bCast = CastTransfig( Engine, Harry, Target ); break;
@@ -823,8 +823,9 @@
 
 	UBOOL CastTransfig( UGameEngine* Engine, APlayerPawn* Harry, AActor* T )
 	{
-		if( !T || !(IsStudent(T) || IsTroublemaker(T)) || IsTransfigured(T) )
+		if( !T || !(IsStudent(T) || IsTroublemaker(T) || T==FriendActor) || IsTransfigured(T) )
 			return 0;
+		const UBOOL bFriend = T==FriendActor;
 		// Mesh, animation set, idle sequence, height in units, name.
 		static const TCHAR* Forms[][5] =
 		{
@@ -891,7 +892,10 @@
 		AddFeed( TEXT("Transfiguration"), Spell2(SP2_Transfig).Color, TOAST_Info, *FString::Printf(TEXT("%s is now %s!"), *NpcName(T), Forms[F][4]) );
 		PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
 		RpgLog( TEXT("transfigured %s into %s"), T->GetName(), Mesh->GetName() );
-		StudentHitBySpell( T, 15, -10, TEXT("Transfiguring a student") );
+		if( bFriend )
+			CompanionReact( T, 1 );
+		else
+			StudentHitBySpell( T, 15, -10, TEXT("Transfiguring a student") );
 		return 1;
 	}
 
@@ -970,6 +974,12 @@
 			return 0;
 		if( A->Event!=NAME_None || GetBoolProp(A,TEXT("bPersistent")) || GetByteProp(A,TEXT("eVulnerableToSpell"),0)!=0 )
 			return 0;
+		// Banners, flags and tapestries belong on their poles and walls.
+		{
+			const TCHAR* M = A->Mesh->GetName();
+			if( MapHas(M,TEXT("Banner")) || MapHas(M,TEXT("Flag")) || MapHas(M,TEXT("Tapestr")) || ClassChainIsAny(A,TEXT("Banner")) || MapHas(A->GetClass()->GetName(),TEXT("Banner")) )
+				return 0;
+		}
 		if( ClassChainIsAny( A, TEXT("Pig|GNOME|HProp") ) )
 			return HasPerk(PERK_StrongLift) ? (A->CollisionRadius<=110.f && A->CollisionHeight<=140.f) : (A->CollisionRadius<=60.f && A->CollisionHeight<=90.f);
 		return 0;
@@ -983,9 +993,9 @@
 		const UBOOL bStudent = (IsStudent(A) || IsTroublemaker(A)) && !IsHolding(A);
 		switch( Spell )
 		{
-			case SP2_Leviosa:  return bCreature || (bStudent && !IsTransfigured(A)) || IsLevitatable(A);
+			case SP2_Leviosa:  return bCreature || (bStudent && !IsTransfigured(A)) || IsLevitatable(A) || (IsCompanion(A) && !IsTransfigured(A));
 			case SP2_Glacius:  return bCreature;
-			case SP2_Transfig: return bStudent && !IsTransfigured(A);
+			case SP2_Transfig: return (bStudent || A==FriendActor) && !IsTransfigured(A);
 			default:           return 0;
 		}
 	}

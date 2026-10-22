@@ -1,5 +1,12 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v5.6 – Praten met je maatjes, zichtbare relschoppers
+- **Praat met je vriend of huisdier**: kijk ze aan en druk op **E**. Vrienden zeggen een echte zin uit het spel (Ron, Hermelien, Ginny, Fred, George, Hagrid, Dobby); uilen, varkens en kikkers maken hun eigen geluid.
+- **Spreuken op je maatjes**: met **Wingardium Leviosa** til je ze een paar seconden op, met **Transfiguratie** verander je je vriend even in een dier. Ze reageren met een stemregel uit het spel. Daar krijg je geen straf voor.
+- **Relschoppers** halen nu zichtbaar kattenkwaad uit: ze draaien zich naar een leerling, vuren een spreuk af (je ziet de straal) en de leerling schrikt of krimpt ineen. Dat gebeurt minder vaak dan eerst, maar één tegelijk, en alleen waar jij het kunt zien.
+- **Geen meldingen en vraagtekens meer van onbereikbare plekken**: personages die het verhaal ergens verstopt heeft (voor filmpjes), halen geen kattenkwaad meer uit en krijgen geen missie-markering. Missie-markeringen schijnen niet meer van ver door muren.
+- **Spandoeken en vlaggen** kun je niet meer optillen met Leviosa (het blauwe vlak op het terrein was een afdelingsspandoek dat eerder was weggegooid).
+
 ## v5.5 – Levendiger kasteel, sterkere spreuken
 - **Verdwijnende figuren opgelost**: alles wat de mod neerzet (huisdieren, vrienden, leraren, pagina's) verdween na een paar seconden zodra je er niet naar keek, en kwam dan opnieuw. Dat gebeurt niet meer.
 - **Dobby** gebruikt nu zijn eigen model en bewegingen (geen vervormd lijf meer). Huiselfen lopen niet mee: Dobby blijft staan, en als je verder loopt verdwijnt hij met een *plop* en verschijnt naast je (met zijn eigen geluid uit het spel). Af en toe praat hij of slaat hij zichzelf tegen het hoofd.

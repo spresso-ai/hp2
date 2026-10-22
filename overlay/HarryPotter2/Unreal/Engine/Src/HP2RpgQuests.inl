@@ -156,15 +156,37 @@
 
 	// HP2 hubs have no PathNodes: NPCs walk between PatrolPoints. The
 	// points in the hidden people rooms (cutscene storage) don't count.
+	static UBOOL NearPeopleRoom( const FVector& L )
+	{
+		static const FVector PeopleRooms[3] = { FVector(-1050.f,410.f,-291.f), FVector(-280.f,-240.f,298.f), FVector(-3590.f,-1400.f,35.f) };
+		for( INT r=0; r<3; r++ )
+			if( (L-PeopleRooms[r]).SizeSquared() < 500.f*500.f )
+				return 1;
+		return 0;
+	}
+
 	static UBOOL IsWalkPoint( AActor* A )
 	{
 		if( !A || A->bDeleteMe || !(A->IsA(APathNode::StaticClass()) || ClassChainIs(A,TEXT("PatrolPoint"))) )
 			return 0;
-		static const FVector PeopleRooms[3] = { FVector(-1050.f,410.f,-291.f), FVector(-280.f,-240.f,298.f), FVector(-3590.f,-1400.f,35.f) };
-		for( INT r=0; r<3; r++ )
-			if( (A->Location-PeopleRooms[r]).SizeSquared() < 500.f*500.f )
-				return 0;
-		return 1;
+		return !NearPeopleRoom( A->Location );
+	}
+
+	// A character out in the open: not parked for a cutscene, and standing
+	// in sight of a point NPCs walk to (so Harry can get there too).
+	UBOOL IsOutAndAbout( UGameEngine* Engine, AActor* A )
+	{
+		if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || NearPeopleRoom(A->Location) )
+			return 0;
+		const FVector Eye = A->Location + FVector( 0, 0, 30.f );
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AActor* N = Engine->GLevel->Actors(i);
+			if( IsWalkPoint(N) && (N->Location-A->Location).SizeSquared() < 600.f*600.f
+				&& Engine->GLevel->Model->FastLineCheck( N->Location + FVector(0,0,30.f), Eye ) )
+				return 1;
+		}
+		return 0;
 	}
 
 	// A spot on the floor near a navigation point, picked by a stable hash.
@@ -392,12 +414,14 @@
 				AActor* A = Engine->GLevel->Actors(i);
 				if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || !A->IsA(APawn::StaticClass()) )
 					continue;
-				if( !TodaysTeacher && NpcIs(A, Lesson(TodaysLesson()).Teacher) )
+				if( !TodaysTeacher && NpcIs(A, Lesson(TodaysLesson()).Teacher) && IsOutAndAbout(Engine,A) )
 					TodaysTeacher = A;
 				for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 					if( IsGiverOf(A,q) )
 					{
-						Givers.AddItem( A );
+						// Not one the story parked out of reach.
+						if( IsOutAndAbout(Engine,A) )
+							Givers.AddItem( A );
 						break;
 					}
 			}
@@ -416,7 +440,11 @@
 		for( INT g=0; g<Givers.Num(); g++ )
 		{
 			AActor* A = Givers(g);
-			if( !IsInLevel(A) || (A->Location-Harry->Location).SizeSquared() > 3000.f*3000.f )
+			if( !IsInLevel(A) || A->bHidden || (A->Location-Harry->Location).SizeSquared() > 3000.f*3000.f )
+				continue;
+			// Through walls only when close by.
+			if( (A->Location-Harry->Location).SizeSquared() > 900.f*900.f && LastLevel
+				&& !LastLevel->Model->FastLineCheck( Harry->Location + FVector(0,0,40.f), A->Location + FVector(0,0,A->CollisionHeight) ) )
 				continue;
 			const INT q = QuestFor( A, 0 );
 			if( q<0 )

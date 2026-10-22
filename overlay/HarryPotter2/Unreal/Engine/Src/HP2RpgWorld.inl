@@ -157,7 +157,7 @@
 			if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || !IsStaff(A) )
 				continue;
 			const FLOAT D = (A->Location - P).SizeSquared();
-			if( D<BestD && Engine->GLevel->Model->FastLineCheck( A->Location + FVector(0,0,A->CollisionHeight*0.8f), P ) )
+			if( D<BestD && Engine->GLevel->Model->FastLineCheck( A->Location + FVector(0,0,A->CollisionHeight*0.8f), P ) && IsOutAndAbout(Engine,A) )
 			{
 				BestD = D;
 				Best = A;
@@ -217,6 +217,8 @@
 			AActor* A = Engine->GLevel->Actors(i);
 			if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) )
 				continue;
+			if( (IsStudent(A) || ClassChainIsAny(A,TEXT("Draco|Crabbe|Goyle"))) && !IsOutAndAbout(Engine,A) )
+				continue; // parked out of reach for a cutscene
 			if( ClassChainIsAny(A,TEXT("Draco|Crabbe|Goyle")) )
 				Gang.AddItem( A );
 			else if( IsStudent(A) && StudentHouse(A)==HOUSE_Slytherin && VendorFor(A)<0 )
@@ -242,12 +244,30 @@
 			FTroublemaker* T = new(Troublemakers) FTroublemaker;
 			T->Actor = Order(n);
 			T->Name = Order(n)->GetFName();
-			T->NextMischief = RpgClock + 20.f + RpgRand(30) + n*15.f;
+			T->NextMischief = RpgClock + 30.f + RpgRand(30) + n*25.f;
 			T->RedHandedUntil = 0.f;
 			T->LessonUntil = 0.f;
 			T->bCaughtChecked = 1;
 		}
 		RpgLog( TEXT("troublemakers: %i of %i candidates"), Troublemakers.Num(), Order.Num() );
+	}
+
+	// Holds a character still for a moment in a one-shot pose.
+	void StartPose( AActor* A, const TCHAR* Anim )
+	{
+		if( IsReacting(A) )
+			return;
+		FReaction* R = new(Reactions) FReaction;
+		R->Actor = A;
+		R->OldRole = A->Role;
+		R->Left = 2.2f;
+		R->OldSeq = A->AnimSequence;
+		R->bOldLoop = A->bAnimLoop;
+		A->Role = ROLE_DumbProxy;
+		A->Velocity = FVector( 0, 0, 0 );
+		A->Acceleration = FVector( 0, 0, 0 );
+		if( !PlayReactAnim( A, Anim ) )
+			PlayReactAnim( A, TEXT("taunt_1") );
 	}
 
 	void DoMischief( UGameEngine* Engine, APlayerPawn* Harry, FTroublemaker& T )
@@ -260,25 +280,49 @@
 			{ TEXT("is tripping up students"),   TEXT("DustCloud01_tiny") },
 			{ TEXT("dropped Fanged Frisbees"),   TEXT("Verd_fly") },
 		};
-		const INT k = RpgRand( (INT)ARRAY_COUNT(Acts) );
-		SpawnFx( Engine, Acts[k][1], A->Location, 3.f );
-		if( !IsReacting(A) )
+		INT k = RpgRand( (INT)ARRAY_COUNT(Acts) );
+		// A student nearby to pick on: the hex and the trip are cast at them.
+		AActor* Victim = NULL;
+		FLOAT BestD = 700.f*700.f;
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
-			FReaction* R = new(Reactions) FReaction;
-			R->Actor = A;
-			R->OldRole = A->Role;
-			R->Left = 2.2f;
-			R->OldSeq = A->AnimSequence;
-			R->bOldLoop = A->bAnimLoop;
-			A->Role = ROLE_DumbProxy;
-			A->Velocity = FVector( 0, 0, 0 );
-			A->Acceleration = FVector( 0, 0, 0 );
-			PlayReactAnim( A, RpgRand(2) ? TEXT("taunt_1") : TEXT("taunt_2") );
+			AActor* V = Engine->GLevel->Actors(i);
+			if( !V || V==A || V->bDeleteMe || V->bHidden || !IsStudent(V) || IsTroublemaker(V) || IsHolding(V) || IsTransfigured(V) )
+				continue;
+			const FLOAT D = (V->Location - A->Location).SizeSquared();
+			if( D<BestD && Engine->GLevel->Model->FastLineCheck( V->Location + FVector(0,0,30.f), A->Location + FVector(0,0,30.f) ) )
+			{
+				BestD = D;
+				Victim = V;
+			}
+		}
+		if( Victim && k!=1 && k!=2 && RpgRand(3)>0 )
+			k = 1 + RpgRand(2);
+		if( Victim && (k==1 || k==2) )
+		{
+			// Face the victim, cast, and send a visible bolt across.
+			FVector D = Victim->Location - A->Location;
+			D.Z = 0.f;
+			A->Rotation = FRotator( 0, D.Rotation().Yaw, 0 );
+			StartPose( A, TEXT("cast") );
+			const FVector From = A->Location + FVector( 0, 0, 30.f ), To = Victim->Location + FVector( 0, 0, 30.f );
+			for( INT b=1; b<5; b++ )
+				SpawnFx( Engine, k==1 ? TEXT("Verd_fly") : TEXT("Wing_hit"), From + (To-From)*(b/5.f), 1.2f );
+			SpawnFx( Engine, Acts[k][1], To, 2.f );
+			StartPose( Victim, k==1 ? TEXT("flinch") : TEXT("scared") );
+			AddFeed( FString::Printf(TEXT("%s %s %s!"), *NpcName(A), k==1 ? TEXT("is hexing") : TEXT("jinxed"), *NpcName(Victim)), FColor(90,200,110,255), TOAST_Trouble, TEXT("Stop them: Flipendo, Leviosa or Transfiguration") );
+		}
+		else
+		{
+			if( k==1 || k==2 )
+				k = RpgRand(2) ? 0 : 3;
+			SpawnFx( Engine, Acts[k][1], A->Location, 3.f );
+			StartPose( A, RpgRand(2) ? TEXT("taunt_1") : TEXT("taunt_2") );
+			AddFeed( FString::Printf(TEXT("%s %s!"), *NpcName(A), Acts[k][0]), FColor(90,200,110,255), TOAST_Trouble, TEXT("Stop them: Flipendo, Leviosa or Transfiguration") );
 		}
 		T.RedHandedUntil = RpgClock + 20.f;
 		T.bCaughtChecked = 0;
-		T.NextMischief = RpgClock + 45.f + RpgRand(40);
-		AddFeed( FString::Printf(TEXT("%s %s!"), *NpcName(A), Acts[k][0]), FColor(90,200,110,255), TOAST_Trouble, TEXT("Stop them: Flipendo, Leviosa or Transfiguration") );
+		T.NextMischief = RpgClock + 70.f + RpgRand(60);
 		RpgLog( TEXT("mischief by %s: %s"), A->GetName(), Acts[k][0] );
 	}
 
@@ -316,7 +360,12 @@
 			}
 			if( !bGameplay || RpgClock<T.NextMischief || RpgClock<T.LessonUntil || IsTransfigured(T.Actor) )
 				continue;
-			if( (T.Actor->Location - Harry->Location).SizeSquared() > 1800.f*1800.f )
+			// Only where Harry can see it happen, and one at a time.
+			UBOOL bOtherActive = 0;
+			for( INT o=0; o<Troublemakers.Num(); o++ )
+				bOtherActive |= o!=t && RpgClock<Troublemakers(o).RedHandedUntil;
+			if( bOtherActive || T.Actor->bHidden || (T.Actor->Location - Harry->Location).SizeSquared() > 1500.f*1500.f
+				|| !Engine->GLevel->Model->FastLineCheck( Harry->Location + FVector(0,0,40.f), T.Actor->Location + FVector(0,0,30.f) ) )
 			{
 				T.NextMischief = RpgClock + 10.f;
 				continue;

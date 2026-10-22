@@ -2003,6 +2003,11 @@
 			// Schoolmates only speak: no XP, so nothing to farm by reloading.
 			if( MateTalk(Npc) )
 				return;
+			if( IsCompanion(Npc) )
+			{
+				CompanionReact( Npc, 0 );
+				return;
+			}
 			if( FStandIn* S = FindStandIn(Npc) )
 			{
 				// Their own voice from the game; the written line if it fails.
