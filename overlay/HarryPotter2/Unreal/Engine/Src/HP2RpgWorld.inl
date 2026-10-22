@@ -31,7 +31,7 @@
 	{
 		bOwlsSpawned = 1;
 		const TCHAR* Map = Engine->GLevel->URL.Map.Len() ? *Engine->GLevel->URL.Map : TEXT("");
-		if( !appStrstr(Map,TEXT("Grounds")) )
+		if( !MapHas(Map,TEXT("Grounds")) )
 			return; // indoor hubs would clip owls through the ceilings
 		UMesh* Mesh = LoadMesh( TEXT("HPModels.skowlbarnMesh") );
 		if( !Mesh )

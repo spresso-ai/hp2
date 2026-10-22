@@ -154,6 +154,19 @@
 		return p>=0 && p<MAX_PAGES && (State.Pages[p>>5] & (1<<(p&31)))!=0;
 	}
 
+	// HP2 hubs have no PathNodes: NPCs walk between PatrolPoints. The
+	// points in the hidden people rooms (cutscene storage) don't count.
+	static UBOOL IsWalkPoint( AActor* A )
+	{
+		if( !A || A->bDeleteMe || !(A->IsA(APathNode::StaticClass()) || ClassChainIs(A,TEXT("PatrolPoint"))) )
+			return 0;
+		static const FVector PeopleRooms[3] = { FVector(-1050.f,410.f,-291.f), FVector(-280.f,-240.f,298.f), FVector(-3590.f,-1400.f,35.f) };
+		for( INT r=0; r<3; r++ )
+			if( (A->Location-PeopleRooms[r]).SizeSquared() < 500.f*500.f )
+				return 0;
+		return 1;
+	}
+
 	// A spot on the floor near a navigation point, picked by a stable hash.
 	UBOOL PickSpot( UGameEngine* Engine, DWORD Seed, FVector& Out )
 	{
@@ -161,7 +174,7 @@
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
 			ANavigationPoint* N = Cast<ANavigationPoint>( Engine->GLevel->Actors(i) );
-			if( N && !N->bDeleteMe && N->IsA(APathNode::StaticClass()) )
+			if( N && IsWalkPoint(N) )
 				Nav.AddItem( N );
 		}
 		if( !Nav.Num() )
@@ -202,7 +215,7 @@
 		for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 		{
 			const FQuestDef& Q = GQuests[q];
-			if( Q.Type!=QT_Collect || State.QuestState[q]!=QS_Active || !Q.Map || !appStrstr(Map,Q.Map) )
+			if( Q.Type!=QT_Collect || State.QuestState[q]!=QS_Active || !Q.Map || !MapHas(Map,Q.Map) )
 				continue;
 			for( INT i=State.QuestBase[q]; i<Q.Count; i++ )
 			{
@@ -219,7 +232,7 @@
 		// Field Guide pages: hidden until Revelio.
 		for( INT g=0; g<GNumFieldPages && g<MAX_PAGES; g++ )
 		{
-			if( PageFound(g) || !appStrstr(Map,GFieldPages[g].Map) )
+			if( PageFound(g) || !MapHas(Map,GFieldPages[g].Map) )
 				continue;
 			FVector Where;
 			if( !PickSpot( Engine, (DWORD)(g*977 + 31), Where ) )

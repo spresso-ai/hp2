@@ -202,7 +202,7 @@
 			return;
 		}
 		// Revelio is an exploring spell: the hubs only, not story levels.
-		if( i==SP2_Revelio && !(LastLevel && appStrstr(*LastLevel->URL.Map, TEXT("_hub"))) && !(LastLevel && appStrstr(*LastLevel->URL.Map, TEXT("GreatHall"))) )
+		if( i==SP2_Revelio && !(LastLevel && MapHas(*LastLevel->URL.Map,TEXT("_hub"))) && !(LastLevel && MapHas(*LastLevel->URL.Map,TEXT("GreatHall"))) )
 		{
 			AddFeed( TEXT("Revelio"), D.Color, TOAST_Info, TEXT("Works while exploring the castle grounds and halls") );
 			return;
@@ -316,6 +316,23 @@
 		}
 	}
 
+	// A chest or cauldron that was already opened. Cauldrons never set
+	// bOpened, and an opened one can come back from a save in its auto
+	// state, so look at what it shows: no spell taken any more, or the
+	// tipped/open animation.
+	UBOOL IsOpenedTreasure( AActor* A )
+	{
+		static FName WaitForSpell( TEXT("waitforspell") );
+		if( GetBoolProp(A,TEXT("bOpened")) || GetStateName(A)!=WaitForSpell )
+			return 1;
+		if( GetByteProp(A,TEXT("eVulnerableToSpell"),1)==0 )
+			return 1;
+		const FString Seq = *A->AnimSequence;
+		if( Seq==TEXT("tipped") || Seq==TEXT("tipover") || Seq==TEXT("end") || Seq==TEXT("open") )
+			return 1;
+		return LastLevel && OpenedTreasure.FindItemIndex(LastLevel->URL.Map + TEXT(":") + A->GetName())!=INDEX_NONE;
+	}
+
 	UBOOL CastRevelio( UGameEngine* Engine, APlayerPawn* Harry )
 	{
 		Reveals.Empty();
@@ -330,8 +347,7 @@
 			if( ClassChainIs(A,TEXT("SecretAreaMarker")) && !GetBoolProp(A,TEXT("bFound")) )
 				Kind = 0;
 			// Only chests and cauldrons still waiting for their spell.
-			else if( ClassChainIsAny(A,TEXT("chestbronze|bronzecauldron")) && !GetBoolProp(A,TEXT("bOpened")) && S==FName(TEXT("waitforspell"))
-				&& OpenedTreasure.FindItemIndex(LastLevel->URL.Map + TEXT(":") + A->GetName())==INDEX_NONE )
+			else if( ClassChainIsAny(A,TEXT("chestbronze|bronzecauldron")) && !IsOpenedTreasure(A) )
 				Kind = 1;
 			else if( ClassChainIs(A,TEXT("WizardCardIcon")) && !A->Owner && !A->bHidden && S!=FName(TEXT("PickupProp")) )
 				Kind = 2;
@@ -738,6 +754,7 @@
 		UTexture* OldSkin;
 		UTexture* OldMulti[8];
 		UAnimation* OldAnim;
+		FName OldSeq;
 		FLOAT OldScale;
 		BYTE OldRole;
 		FLOAT Left;
@@ -789,6 +806,7 @@
 		for( INT i=0; i<8; i++ )
 			E->OldMulti[i] = T->MultiSkins[i];
 		E->OldAnim = T->SkelAnim;
+		E->OldSeq = T->AnimSequence;
 		E->OldScale = T->DrawScale;
 		E->OldRole = T->Role;
 		E->Left = HasPerk(PERK_LastingChange) ? 40.f : 20.f;
@@ -835,7 +853,18 @@
 		T->SkelAnim = E.OldAnim;
 		T->DrawScale = E.OldScale;
 		T->Role = E.OldRole;
+		// Back on its own animation, or it walks on in a frozen pose.
 		T->AnimSequence = NAME_None;
+		FName Seq = NAME_None;
+		if( T->SkelAnim )
+		{
+			if( E.OldSeq!=NAME_None && T->SkelAnim->GetAnimSeq(E.OldSeq) )
+				Seq = E.OldSeq;
+			else
+				Seq = FindSeq( T->SkelAnim, TEXT("Idle") );
+		}
+		if( Seq!=NAME_None )
+			T->PlayAnim( Seq, true, 1.f, 0.2f );
 		if( bEffects )
 		{
 			SpawnFx( Engine, TEXT("SmokeExplo_02"), T->Location, 1.5f );

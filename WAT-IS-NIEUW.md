@@ -1,5 +1,15 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v5.4 – Reparaties na je test
+- **Boek**: de inhoud stopt nu boven de knoppen (Leave challenge / Save game / Close), dus er valt geen tekst meer onder. Bij **Skills** hebben de rijen weer genoeg ruimte voor de beschrijving en kun je **scrollen** (muiswiel of pijltjes). Ook de spreuk-upgrades scrollen met het muiswiel als ze niet allemaal passen.
+- **3D-modellen in de kledingkast** stonden in een stijve houding met de armen wijd. Ze staan nu rustig ademend in hun gewone houding, los van wat Harry doet.
+- **Huisdieren en vrienden** draaiden rondjes om je heen. Ze lopen je nu echt achterna, stoppen een paar passen achter je, en kijken je aan als je stilstaat. Huisdieren zoals Mevrouw Norks scharrelen een beetje rond als je even stilstaat.
+- **Veldgids-pagina's** verschenen nooit: de mod zocht plekken waar de hubs van dit spel er geen hebben. Nu liggen er per hub vijf verborgen pagina's; Revelio laat ze zien als "Page" met afstand.
+- **Leraren en bekende gezichten** (v5.1) verschenen om dezelfde reden niet. Nu lopen ze wel rond, en ze hebben altijd hun animaties.
+- **Na het laden van een save** in de Hal werkten pagina's, leraren en het schoolritme niet, omdat het spel de map dan "EntryHall_Hub" noemt (met hoofdletters). Dat maakt nu niet meer uit.
+- **Leerlingen in T-pose**: een leerling die terugveranderde na Transfiguratie liep zonder animatie verder. Nu krijgt hij zijn eigen beweging terug.
+- **Revelio** toont geen omgegooide ketels en geopende kisten meer als "Treasure", ook niet als ze al open waren voordat de mod dat bijhield.
+
 ## v5.3 – Schoolritme in de Hal (versie 1)
 - **Een schooldag heeft nu drie delen**: **Les**, **Vrije tijd** en **Avond**. Het volgende deel begint pas als je een hub binnenkomt (nooit midden in beeld), en elke keer maximaal één stap.
   - Les → Vrije tijd: na je les van vandaag, een huistaak, een uitgespeelde uitdaging of 8 minuten spelen.

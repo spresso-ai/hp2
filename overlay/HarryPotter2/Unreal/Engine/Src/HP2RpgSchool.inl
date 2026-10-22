@@ -648,7 +648,7 @@
 		const FLOAT BY = Area.Y+Area.H-RowH;
 		const FLOAT BW = Area.W/3.f - 6*S;
 		const FDecorDef& Dd = Decor( Sel );
-		const UBOOL bHub = LastLevel && appStrstr( *LastLevel->URL.Map, TEXT("_hub") );
+		const UBOOL bHub = LastLevel && MapHas(*LastLevel->URL.Map,TEXT("_hub") );
 		if( Ui.Button( FRpgRect(Area.X, BY, BW, RowH-2*S), *FString::Printf(TEXT("Buy (%i)"), Dd.Price), Beans>=Dd.Price, &Placed ) )
 		{
 			GiveBeans( Harry, -Dd.Price );

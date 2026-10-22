@@ -154,7 +154,7 @@
 	// so reloading never moves the day on.
 	void StepRhythm( const TCHAR* Map, UBOOL bFromSave )
 	{
-		if( !appStrstr(Map,TEXT("_hub")) )
+		if( !MapHas(Map,TEXT("_hub")) )
 			return;
 		if( State.RhythmDay!=State.Day )
 		{
@@ -222,7 +222,7 @@
 	void SpawnSchoolmates( UGameEngine* Engine, APlayerPawn* Harry )
 	{
 		bMatesSpawned = 1;
-		if( !appStrstr(*Engine->GLevel->URL.Map,TEXT("Entryhall_hub")) )
+		if( !MapHas(*Engine->GLevel->URL.Map,TEXT("Entryhall_hub")) )
 			return;
 		const INT GS = GameStateNum( Harry );
 		const INT Phase = Clamp( State.RhythmPhase, (INT)PHASE_Lesson, (INT)PHASE_Evening );
@@ -262,8 +262,7 @@
 			if( !A )
 				continue;
 			A->AmbientGlow = 0;
-			if( A->Mesh && A->Mesh->IsA(USkeletalMesh::StaticClass()) )
-				A->SkelAnim = ((USkeletalMesh*)A->Mesh)->DefaultAnimation;
+			LinkCharacterAnims( A, MateDef(m).Mesh );
 			if( MateDef(m).Skin0 )
 			{
 				A->MultiSkins[0] = LoadTex( MateDef(m).Skin0 );

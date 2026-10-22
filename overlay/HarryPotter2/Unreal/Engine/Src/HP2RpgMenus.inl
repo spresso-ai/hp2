@@ -419,6 +419,15 @@
 		Body->Location = FVector( Dist, 0, Lift ) - Point;
 	}
 
+	// A calm idle on the preview clock: the same for every preview and
+	// independent of Harry. The frame moves a little each draw, which also
+	// makes the shared preview actor re-pose for each mesh it shows
+	// (a frozen frame left some meshes in their bind pose).
+	static FLOAT PreviewFrame( FLOAT Clock )
+	{
+		return (FLOAT)appFmod( Clock*0.25f, 1.f )*0.98f;
+	}
+
 	void CopyAnim( AActor* Dest, AActor* Src )
 	{
 		Dest->SkelAnim = Src->SkelAnim;
@@ -458,7 +467,7 @@
 		{
 			const FName Pose = FindSeq( Body->SkelAnim, TEXT("Idle") );
 			Body->AnimSequence = Pose!=NAME_None ? Pose : Harry->AnimSequence;
-			Body->AnimFrame = 0.f;
+			Body->AnimFrame = PreviewFrame( RpgClock );
 			Body->AnimRate = 0.f;
 		}
 		ApplyLook( Outfit, Glasses );
@@ -533,7 +542,7 @@
 				if( Pose==NAME_None ) Pose = FindSeq( Anim, TEXT("Fly") );
 				if( Pose==NAME_None ) Pose = Anim->AnimSeqs(0).Name;
 				Item->AnimSequence = Pose;
-				Item->AnimFrame = 0.f;
+				Item->AnimFrame = PreviewFrame( RpgClock );
 				Item->AnimRate = 0.f;
 			}
 		}
@@ -1241,7 +1250,6 @@
 		UFont* TitleFont = Ui.FontInk ? Ui.FontInk : Ui.FontTitle;
 		const FLOAT TitleH = Ui.TextHeight(TitleFont);
 		const FLOAT HeaderH = TitleH+LineH+Ui.P(24.f);
-		const FLOAT FooterH = LineH*2.f+Ui.P(32.f);
 		Ui.Sky(FRpgRect(0,0,Ui.C->ClipX,Ui.C->ClipY));
 		FLOAT NavW = 0.f;
 		for( INT t=0; t<BOOK_MAX; t++ )
@@ -1249,9 +1257,13 @@
 		NavW += Ui.P(32.f);
 		const FLOAT Top = Pad+HeaderH;
 		const FLOAT RowH = Ui.TextHeight(Ui.FontBody)+Ui.P(12.f);
+		// The content ends above the button row, so nothing slides under it.
+		const FLOAT ButtonH = LineH+Ui.P(16.f);
+		const FLOAT BottomY = Ui.C->ClipY-Pad-ButtonH-LineH-Ui.P(8.f);
+		const FLOAT ContentH = Max(Ui.P(80.f),BottomY-Ui.P(28.f)-Top);
 		// Framed navigation and content sections on the night sky.
 		Ui.Panel(FRpgRect(Pad-Ui.P(8.f),Top-Ui.P(8.f),NavW+Ui.P(16.f),BOOK_MAX*RowH+Ui.P(16.f)));
-		Ui.Panel(FRpgRect(Pad+NavW+Gap-Ui.P(12.f),Top-Ui.P(12.f),Ui.C->ClipX-Pad*2-NavW-Gap+Ui.P(24.f),Ui.C->ClipY-Top-Pad-FooterH+Ui.P(24.f)));
+		Ui.Panel(FRpgRect(Pad+NavW+Gap-Ui.P(12.f),Top-Ui.P(12.f),Ui.C->ClipX-Pad*2-NavW-Gap+Ui.P(24.f),ContentH+Ui.P(24.f)));
 		for( INT t=0; t<BOOK_MAX; t++ )
 		{
 			const FRpgRect R(Pad,Top+t*RowH,NavW,RowH);
@@ -1270,7 +1282,7 @@
 				Ui.Play(RSND_Tab,Harry);
 			}
 		}
-		const FRpgRect Body(Pad+NavW+Gap,Top,Max(Ui.P(80.f),Ui.C->ClipX-Pad*2-NavW-Gap),Max(Ui.P(80.f),Ui.C->ClipY-Top-Pad-FooterH));
+		const FRpgRect Body(Pad+NavW+Gap,Top,Max(Ui.P(80.f),Ui.C->ClipX-Pad*2-NavW-Gap),ContentH);
 		Ui.Text(TitleFont,Body.X,Pad-Ui.P(6.f),RpgGoldBright,GBookTabNames[BookTab],RALIGN_Left);
 		Ui.Text(Ui.FontBody,Body.X,Pad+TitleH,RpgMuted,
 			*Ui.FitText(Ui.FontBody,*FString::Printf(TEXT("Level %i   |   %i skill points   |   School day %i"),State.Level,State.SkillPoints,State.Day),Body.W),RALIGN_Left,0);
@@ -1302,9 +1314,7 @@
 			default: DrawStatusTab(Harry,Body); break;
 		}
 		bActivate = 0;
-		const FLOAT ButtonH = LineH+Ui.P(16.f);
 		const FLOAT ButtonW = Ui.TextWidth(Ui.FontBody,TEXT("Close"))+Ui.P(40.f);
-		const FLOAT BottomY = Ui.C->ClipY-Pad-ButtonH-LineH-Ui.P(8.f);
 		if( NoticeTime>0.f && Notice.Len() )
 			Ui.Text(Ui.FontBody,Body.X,BottomY,RpgGoldBright,*Ui.FitText(Ui.FontBody,*Notice,Body.W-ButtonW-Gap),RALIGN_Left,0);
 		if( Ui.Button(FRpgRect(Ui.C->ClipX-Pad-ButtonW,BottomY,ButtonW,ButtonH),TEXT("Close"),1,&Menu) )
@@ -1357,10 +1367,15 @@
 	{
 		Sel = Clamp(Sel,0,SKILL_MAX-1);
 		const FLOAT ButtonH = Ui.TextHeight(Ui.FontBody)+Ui.P(16.f);
-		const FLOAT RowH = Min( Ui.TextHeight(Ui.FontItem)+Ui.TextHeight(Ui.FontBody)+Ui.P(20.f), (Area.H-ButtonH-Ui.P(16.f))/SKILL_MAX );
-		for( INT i=0; i<SKILL_MAX; i++ )
+		// Rows keep their full height; the list scrolls when it doesn't fit.
+		const FLOAT RowH = Ui.TextHeight(Ui.FontItem)+Ui.TextHeight(Ui.FontBody)+Ui.P(24.f);
+		const INT Rows = Clamp( (INT)((Area.H-ButtonH-Ui.P(16.f))/RowH), 1, (INT)SKILL_MAX );
+		ApplyWheel( SKILL_MAX, 1, Rows );
+		ClampSelection( SKILL_MAX, 1, Rows );
+		for( INT v=0; v<Rows && Scroll+v<SKILL_MAX; v++ )
 		{
-			const FRpgRect Row(Area.X,Area.Y+i*RowH,Area.W,RowH-Ui.P(6.f));
+			const INT i = Scroll+v;
+			const FRpgRect Row(Area.X,Area.Y+v*RowH,Area.W,RowH-Ui.P(6.f));
 			const UBOOL bHover = Ui.Hovered(Row,&GSkillNames[i]);
 			Ui.Rect(Row,i==Sel ? FColor(34,44,96,255) : FColor(22,30,66,255));
 			if( Ui.Clicked(Row,&GSkillNames[i]) )
@@ -1374,13 +1389,14 @@
 				const FLOAT Pip = Ui.TextHeight(Ui.FontSmall)*0.8f;
 				Ui.Pips( Row.X+Row.W-Ui.P(12.f)-SKILL_MAX_PIPS*(Pip+Ui.P(6.f)), Row.Y+Ui.P(8.f), State.Skill[i], SKILL_MAX_PIPS, Pip );
 			}
-			Ui.Text(Ui.FontBody,Row.X+Ui.P(12.f),Row.Y+Ui.TextHeight(Ui.FontItem)+Ui.P(8.f),RpgMuted,*Ui.FitText(Ui.FontBody,GSkillDescs[i],Row.W-Ui.P(24.f)),RALIGN_Left,0);
+			Ui.Text(Ui.FontBody,Row.X+Ui.P(12.f),Row.Y+Ui.TextHeight(Ui.FontItem)+Ui.P(10.f),RpgMuted,*Ui.FitText(Ui.FontBody,GSkillDescs[i],Row.W-Ui.P(24.f)),RALIGN_Left,0);
 		}
+		DrawScrollHints( FRpgRect(Area.X,Area.Y,Area.W,Rows*RowH-Ui.P(6.f)), SKILL_MAX, 1, Rows );
 		const FLOAT H = Ui.TextHeight(Ui.FontBody)+Ui.P(16.f);
 		const UBOOL bCanLearn = State.SkillPoints>0 && State.Skill[Sel]<SKILL_MAX_PIPS;
 		const FString Label = State.Skill[Sel]>=SKILL_MAX_PIPS ? FString(TEXT("Mastered")) :
 			State.SkillPoints<=0 ? FString(TEXT("No skill points")) : FString::Printf(TEXT("Improve %s - 1 point"),GSkillNames[Sel]);
-		const FRpgRect B(Area.X,Area.Y+SKILL_MAX*RowH+Ui.P(12.f),Min(Area.W,Ui.TextWidth(Ui.FontBody,*Label)+Ui.P(32.f)),H);
+		const FRpgRect B(Area.X,Area.Y+Rows*RowH+Ui.P(12.f),Min(Area.W,Ui.TextWidth(Ui.FontBody,*Label)+Ui.P(32.f)),H);
 		if( (Ui.Button(B,*Label,bCanLearn,&State.SkillPoints) || bActivate) && bCanLearn )
 		{
 			State.SkillPoints--;
@@ -1413,6 +1429,8 @@
 		return N;
 	}
 
+	INT PerkScroll;
+
 	void DrawSpellsTab( APlayerPawn* Harry, const FRpgRect& Area )
 	{
 		const FLOAT S = Ui.P(2.f);
@@ -1443,6 +1461,7 @@
 			if( Ui.Clicked( Cell, &GSpellNames[sp] ) )
 			{
 				Sel = sp;
+				PerkScroll = 0;
 				Ui.Play( RSND_Tab, Harry );
 			}
 		}
@@ -1455,8 +1474,22 @@
 			Level++;
 		FLOAT Y = Area.Y + PickH + 12*S;
 		const FLOAT Link = 10*S;
-		const FLOAT NodeH = Count ? Max( Ui.TextHeight(Ui.FontItem)+Ui.TextHeight(Ui.FontBody)*2+18*S, Min( (Area.Y+Area.H - Y - Link*(Count-1))/Count, 110*S ) ) : 0.f;
-		for( INT n=0; n<Count; n++ )
+		// Nodes keep room for the title and two lines; the list scrolls
+		// (mouse wheel over it) when they don't all fit.
+		const FLOAT NodeH = Ui.TextHeight(Ui.FontItem)+Ui.TextHeight(Ui.FontBody)*2+20*S;
+		const FRpgRect List( Area.X, Y, Area.W, Area.Y+Area.H-Y );
+		const INT Visible = Clamp( (INT)((List.H+Link)/(NodeH+Link)), 1, Max(1,Count) );
+		if( Ui.WheelDelta && List.Contains(Ui.MouseX,Ui.MouseY) )
+		{
+			PerkScroll -= Ui.WheelDelta;
+			Ui.WheelDelta = 0;
+		}
+		PerkScroll = Clamp( PerkScroll, 0, Max(0,Count-Visible) );
+		if( PerkScroll>0 )
+			Ui.Text( Ui.FontBody, List.X+List.W, List.Y-Ui.TextHeight(Ui.FontBody), RpgGoldBright, TEXT("^"), RALIGN_Right );
+		if( PerkScroll+Visible<Count )
+			Ui.Text( Ui.FontBody, List.X+List.W, Area.Y+Area.H-Ui.TextHeight(Ui.FontBody), RpgGoldBright, TEXT("v"), RALIGN_Right );
+		for( INT n=PerkScroll; n<Count && n<PerkScroll+Visible; n++ )
 		{
 			const FPerkDef& D = GPerks[Chain[n]];
 			const UBOOL bLearned = n<Level;
@@ -1470,7 +1503,7 @@
 			// Connector dot and line on the left.
 			const FLOAT Dot = 10*S;
 			Ui.Rect( FRpgRect(Area.X+4*S, Node.Y+NodeH*0.5f-Dot*0.5f, Dot, Dot), Edge );
-			if( n<Count-1 )
+			if( n<Count-1 && n<PerkScroll+Visible-1 )
 				Ui.Rect( FRpgRect(Area.X+4*S+Dot*0.5f-S, Node.Y+NodeH*0.5f+Dot*0.5f, 2*S, NodeH*0.5f+Link+NodeH*0.5f-Dot), n<Level-1 ? RpgGreen : FColor(70,74,104,255) );
 
 			const FString Head = FString::Printf( TEXT("Level %i  -  %s"), n+1, D.Name );

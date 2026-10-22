@@ -55,6 +55,19 @@ static DWORD HashString( const TCHAR* S )
 	Diagnostics: <SavePath>/HP2Rpg.log.
 -----------------------------------------------------------------------------*/
 
+// Map names come in either case ("Entryhall_hub" on travel, "EntryHall_Hub"
+// from a save), so map checks ignore case.
+static UBOOL MapHas( const TCHAR* Map, const TCHAR* Sub )
+{
+	if( !Map || !Sub )
+		return 0;
+	const INT N = appStrlen( Sub );
+	for( const TCHAR* P=Map; *P; P++ )
+		if( appStrnicmp(P,Sub,N)==0 )
+			return 1;
+	return 0;
+}
+
 static void VARARGS RpgLog( const TCHAR* Fmt, ... )
 {
 	TCHAR Buffer[1024];
@@ -2841,7 +2854,7 @@ public:
 		// Only while our costume is in use, never in the real Quidditch match.
 		{
 			const TCHAR* Map = LastLevel ? *LastLevel->URL.Map : TEXT("");
-			SetQuidFix( IsQuidMesh(LoadMesh(GCosmetics[State.Equip[RSLOT_Outfit]].Mesh)) && !appStrstr(Map,TEXT("uidditch")) );
+			SetQuidFix( IsQuidMesh(LoadMesh(GCosmetics[State.Equip[RSLOT_Outfit]].Mesh)) && !MapHas(Map,TEXT("uidditch")) );
 		}
 		// The game swaps Harry's mesh for cutscenes and Polyjuice; never fight it.
 		if( Harry->Mesh!=HarryMesh && (!CostumeApplied || Harry->Mesh!=CostumeApplied) )
@@ -3085,6 +3098,69 @@ public:
 			Pet->PlayAnim( N, true, Rate, 0.2f );
 	}
 
+	// Following like a real companion: it walks after Harry until it is a
+	// few steps away and then stays put, so it never swings round him when
+	// he turns. Pets potter about while Harry stands still.
+	struct FFollow
+	{
+		UBOOL bChase;
+		FLOAT Idle;
+		FLOAT WanderTime;
+		UBOOL bWanderSet;
+		FVector Wander;
+	};
+	FFollow PetFollow, FriendFollow;
+
+	FVector FollowStep( UGameEngine* Engine, APlayerPawn* Harry, FFollow& F, const FVector& Old, FLOAT Gap, FLOAT Side, UBOOL bWander, FLOAT DeltaSeconds )
+	{
+		FVector D = Harry->Location - Old;
+		D.Z = 0.f;
+		const FLOAT Dist = D.Size();
+		if( Dist > Gap+70.f )
+			F.bChase = 1;
+		else if( Dist < Gap+10.f )
+			F.bChase = 0;
+		FVector Goal = Old;
+		FLOAT Speed = 0.f;
+		if( F.bChase && Dist>1.f )
+		{
+			const FVector Dir = D/Dist;
+			const FVector Perp( -Dir.Y, Dir.X, 0.f );
+			Goal = Harry->Location - Dir*Gap + Perp*Side;
+			Speed = Clamp( (Dist-Gap)*2.2f, 140.f, 650.f );
+			F.Idle = 0.f;
+			F.bWanderSet = 0;
+			F.WanderTime = 1.5f + RpgRand(3);
+		}
+		else
+		{
+			F.Idle += DeltaSeconds;
+			if( bWander && F.Idle>2.5f )
+			{
+				F.WanderTime -= DeltaSeconds;
+				if( F.WanderTime<=0.f )
+				{
+					F.WanderTime = 4.f + RpgRand(5);
+					const FLOAT A = RpgRand(628)*0.01f;
+					const FVector Spot = Harry->Location + FVector( (FLOAT)appCos(A), (FLOAT)appSin(A), 0.f )*(Gap*0.6f + RpgRand(appRound(Gap*0.6f)+1));
+					F.bWanderSet = Engine->GLevel->Model->FastLineCheck( Harry->Location, Spot ) && Engine->GLevel->Model->FastLineCheck( Old + FVector(0,0,20.f), Spot );
+					F.Wander = Spot;
+				}
+				if( F.bWanderSet )
+				{
+					Goal = F.Wander;
+					Speed = 55.f;
+				}
+			}
+		}
+		FVector Step = Goal - Old;
+		Step.Z = 0.f;
+		const FLOAT L = Step.Size();
+		if( L<2.f || Speed<=0.f )
+			return Old;
+		return Old + Step/L*Min( L, Speed*DeltaSeconds );
+	}
+
 	UBOOL UpdateCompanion( UGameEngine* Engine, APlayerPawn* Harry, AActor* Pet, const FCosmetic& Spec, FLOAT DeltaSeconds )
 	{
 		const FPetStyle& St = PetStyle( Spec.Mesh );
@@ -3108,31 +3184,26 @@ public:
 		}
 		Pet->DrawScale = St.Scale*Harry->DrawScale/Max(0.01f,BaseDrawScale);
 
-		// Where it wants to be: flyers circle above Harry's shoulder,
-		// walkers trot a little behind and to the side.
+		// It walks (or flies) after Harry and waits a few steps away.
 		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
 		const FVector Fwd( (FLOAT)appCos(HarryYaw), (FLOAT)appSin(HarryYaw), 0.f );
-		const FVector Right( -Fwd.Y, Fwd.X, 0.f );
-		FVector Want;
-		if( St.bFly )
-		{
-			PetAngle += DeltaSeconds*0.9f;
-			Want = Harry->Location + FVector( (FLOAT)appCos(PetAngle)*75.f, (FLOAT)appSin(PetAngle)*75.f, Harry->CollisionHeight*0.9f + (FLOAT)appSin(PetAngle*2.3f)*12.f );
-		}
-		else
-			Want = Harry->Location - Fwd*55.f + Right*45.f;
-
 		const FVector Old = Pet->Location;
-		FVector Delta = Want - Old;
-		const FLOAT Dist = Delta.Size();
-		// Lost (teleports, doors, falling): pop back next to Harry.
-		if( Dist>700.f || (Dist>200.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
+		const FLOAT Dist = (Harry->Location - Old).Size();
+		// Lost (teleports, doors, falling): back behind Harry.
+		if( Dist>700.f || (Dist>220.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
 		{
-			Engine->GLevel->FarMoveActor( Pet, Want, 0, 1 );
+			PetFollow.bChase = 0;
+			Engine->GLevel->FarMoveActor( Pet, Harry->Location - Fwd*70.f + FVector(0,0,St.bFly ? Harry->CollisionHeight*0.9f : 0.f), 0, 1 );
 			return 1;
 		}
-		FVector New = Old + Delta*Min( 1.f, DeltaSeconds*(St.bFly ? 3.f : 4.f) );
-		if( !St.bFly )
+		FVector New = FollowStep( Engine, Harry, PetFollow, Old, St.bFly ? 80.f : 70.f, 35.f, 1, DeltaSeconds );
+		if( St.bFly )
+		{
+			PetAngle += DeltaSeconds;
+			const FLOAT WantZ = Harry->Location.Z + Harry->CollisionHeight*0.9f + (FLOAT)appSin(PetAngle*2.3f)*10.f;
+			New.Z = Old.Z + (WantZ-Old.Z)*Min( 1.f, DeltaSeconds*3.f );
+		}
+		else
 		{
 			// Stand on the floor under the new spot.
 			FCheckResult Hit;
@@ -3205,18 +3276,17 @@ public:
 		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
 		const FVector Fwd( (FLOAT)appCos(HarryYaw), (FLOAT)appSin(HarryYaw), 0.f );
 		const FVector Right( -Fwd.Y, Fwd.X, 0.f );
-		// Beside Harry on his left, a step back (behind him is where the
-		// camera is). The pet keeps the right.
-		const FVector Want = Harry->Location - Fwd*(bBig ? 30.f : 15.f) - Right*(bBig ? 120.f : 80.f);
+		// Walks after Harry and waits a few steps away (the pet keeps the
+		// other side).
 		const FVector Old = F->Location;
-		const FVector Delta = Want - Old;
-		const FLOAT Dist = Delta.Size();
-		if( Dist>800.f || (Dist>250.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
+		const FLOAT Dist = (Harry->Location - Old).Size();
+		if( Dist>800.f || (Dist>260.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
 		{
-			Engine->GLevel->FarMoveActor( F, Want, 0, 1 );
+			FriendFollow.bChase = 0;
+			Engine->GLevel->FarMoveActor( F, Harry->Location - Fwd*(bBig ? 150.f : 110.f) - Right*40.f, 0, 1 );
 			return 1;
 		}
-		FVector New = Old + Delta*Min( 1.f, DeltaSeconds*3.f );
+		FVector New = FollowStep( Engine, Harry, FriendFollow, Old, bBig ? 150.f : 110.f, -40.f, 0, DeltaSeconds );
 		FCheckResult Hit;
 		const FVector Top = New + FVector( 0, 0, 80.f );
 		if( !Engine->GLevel->SingleLineCheck( Hit, F, Top - FVector(0,0,300.f), Top, TRACE_VisBlocking, FVector(0,0,0) ) )
@@ -3601,7 +3671,7 @@ public:
 		if( bLoadedFromSlot )
 			bLoadedFromSlot = 0;
 		else if( (appStrfind(MapName,TEXT("PrivetDr")) || appStrfind(MapName,TEXT("privetdr")))
-			&& (PrevMap.Len()==0 || appStrstr(*PrevMap,TEXT("Startup")) || appStrstr(*PrevMap,TEXT("startup"))) )
+			&& (PrevMap.Len()==0 || MapHas(*PrevMap,TEXT("Startup")) || MapHas(*PrevMap,TEXT("startup"))) )
 		{
 			State.Reset();
 			Placed.Empty();
@@ -3610,7 +3680,7 @@ public:
 			SpellsKnownNotified = -1;
 			RpgLog( TEXT("new game, RPG progress reset") );
 		}
-		else if( appStrstr(MapName,TEXT("_hub")) && RpgClock-LastDayClock > 300.f
+		else if( MapHas(MapName,TEXT("_hub")) && RpgClock-LastDayClock > 300.f
 			&& (State.DayPlaySeconds>=1200 || (State.DayTaskDone && State.DayPlaySeconds>=420)) )
 		{
 			// A new school day starts back in a hub after real play: 20 minutes,

@@ -66,6 +66,27 @@
 		}
 	}
 
+	// Gives a spawned character its animation set: the mesh's default, its
+	// own "...Anims" package, or the shared student set. Without one it
+	// would walk around in its bind pose.
+	static void LinkCharacterAnims( AActor* A, const TCHAR* MeshPath )
+	{
+		if( A->Mesh && A->Mesh->IsA(USkeletalMesh::StaticClass()) )
+			A->SkelAnim = ((USkeletalMesh*)A->Mesh)->DefaultAnimation;
+		if( A->SkelAnim && A->SkelAnim->AnimSeqs.Num() )
+			return;
+		FString Path = MeshPath;
+		const INT Cut = Path.InStr( TEXT("Mesh"), 1 );
+		if( Cut>0 )
+		{
+			Path = Path.Left( Cut ) + TEXT("Anims");
+			A->SkelAnim = (UAnimation*)FRpgUi::LoadRooted( UAnimation::StaticClass(), *Path );
+		}
+		if( !A->SkelAnim || !A->SkelAnim->AnimSeqs.Num() )
+			A->SkelAnim = (UAnimation*)FRpgUi::LoadRooted( UAnimation::StaticClass(), TEXT("HPModels.skGenMaleAnims") );
+		RpgLog( TEXT("anims for %s: %s"), MeshPath, A->SkelAnim ? A->SkelAnim->GetName() : TEXT("none") );
+	}
+
 	FStandIn* FindStandIn( AActor* A )
 	{
 		for( INT i=0; i<StandIns.Num(); i++ )
@@ -92,12 +113,12 @@
 	{
 		bStandInsSpawned = 1;
 		const TCHAR* Map = *Engine->GLevel->URL.Map;
-		if( !appStrstr(Map,TEXT("_hub")) )
+		if( !MapHas(Map,TEXT("_hub")) )
 			return;
 		for( INT d=0; d<NUM_STANDINS; d++ )
 		{
 			const FStandInDef& Def = StandInDef( d );
-			if( !appStrstr(Map,Def.Map) )
+			if( !MapHas(Map,Def.Map) )
 				continue;
 			// The story already shows this character here: no double.
 			UBOOL bPresent = 0;
@@ -117,8 +138,7 @@
 			if( !A )
 				continue;
 			A->AmbientGlow = 0;
-			if( A->Mesh && A->Mesh->IsA(USkeletalMesh::StaticClass()) )
-				A->SkelAnim = ((USkeletalMesh*)A->Mesh)->DefaultAnimation;
+			LinkCharacterAnims( A, Def.Mesh );
 			FStandIn* S = new(StandIns) FStandIn;
 			S->Actor = A;
 			S->Def = d;
@@ -136,8 +156,8 @@
 		TArray<FVector> Spots;
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
-			APathNode* N = Cast<APathNode>( Engine->GLevel->Actors(i) );
-			if( !N || (N->Location-S.Anchor).SizeSquared() > 800.f*800.f || (N->Location-S.Actor->Location).SizeSquared() < 120.f*120.f )
+			AActor* N = Engine->GLevel->Actors(i);
+			if( !IsWalkPoint(N) || (N->Location-S.Anchor).SizeSquared() > 800.f*800.f || (N->Location-S.Actor->Location).SizeSquared() < 120.f*120.f )
 				continue;
 			if( Engine->GLevel->Model->FastLineCheck( N->Location, S.Actor->Location + FVector(0,0,40.f) ) )
 				Spots.AddItem( N->Location );
@@ -172,6 +192,9 @@
 			const FName Move = FindSeq( A->SkelAnim, Def.Move );
 			// Stop to chat while Harry stands close.
 			const UBOOL bNearHarry = (A->Location-Harry->Location).SizeSquared() < 160.f*160.f;
+			// No walk cycle in its set: it stays where it is rather than slide.
+			if( Move==NAME_None )
+				S.Wait = Max( S.Wait, 1.f );
 			if( S.Wait>0.f || bNearHarry )
 			{
 				S.Wait = Max( 0.f, S.Wait-DeltaSeconds );
@@ -284,7 +307,7 @@
 	// The level's own walk-out exit to a hub (Tag "Backup" preferred).
 	AActor* HubExit( UGameEngine* Engine )
 	{
-		if( !Engine->GLevel || appStrstr(*Engine->GLevel->URL.Map,TEXT("_hub")) )
+		if( !Engine->GLevel || MapHas(*Engine->GLevel->URL.Map,TEXT("_hub")) )
 			return NULL;
 		AActor* Best = NULL;
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
@@ -293,7 +316,7 @@
 			if( !A || A->bDeleteMe || !ClassChainIs(A,TEXT("TriggerChangeLevel")) )
 				continue;
 			const FString To = PropString( A, TEXT("NewMapName") ).Caps();
-			if( !appStrstr(*To,TEXT("_HUB")) )
+			if( !MapHas(*To,TEXT("_HUB")) )
 				continue;
 			if( !Best || A->Tag==FName(TEXT("Backup")) )
 				Best = A;
