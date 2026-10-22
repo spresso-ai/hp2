@@ -82,7 +82,7 @@
 	{
 		DialogSpeaker = Speaker;
 		DialogText = Text;
-		DialogLeft = 7.f;
+		DialogLeft = Clamp( 2.5f + appStrlen(Text)*0.05f, 3.f, 7.f );
 	}
 
 	// Talking to a giver: returns 1 if a quest was given or completed.
@@ -237,11 +237,11 @@
 			FVector Where;
 			if( !PickSpot( Engine, (DWORD)(g*977 + 31), Where ) )
 				continue;
-			// A loose golden page floating a little above the floor.
-			Where.Z += 26.f;
-			AActor* A = SpawnPickup( Engine, TEXT("HProps.skSheetTest1Mesh"), Where, 1.4f );
+			// A little spellbook floating at chest height.
+			Where.Z += 34.f;
+			AActor* A = SpawnPickup( Engine, TEXT("HProps.skBooksSmallBookMesh"), Where, 1.6f );
 			if( !A )
-				A = SpawnPickup( Engine, TEXT("HProps.skBooksBigFlitwickBookMesh"), Where, 0.5f );
+				A = SpawnPickup( Engine, TEXT("HProps.skSheetTest1Mesh"), Where, 1.4f );
 			if( !A )
 				continue;
 			A->bHidden = 1;
@@ -263,6 +263,8 @@
 				continue;
 			P.bRevealed = 1;
 			P.Actor->bHidden = 0;
+			P.Actor->AmbientGlow = 160;
+			SpawnFx( Engine, TEXT("WizCrackSparkle"), P.Base, 1.5f );
 			SpawnFx( Engine, TEXT("GoldSparkle01"), P.Base, 2.f );
 			FRevealEntry* E = new(Reveals) FRevealEntry;
 			E->Actor = P.Actor;
@@ -270,6 +272,8 @@
 			E->Kind = 4;
 			N++;
 		}
+		if( N )
+			PlaySfx( TEXT("HPSounds.Magic_sfx.vendor_spawn_WC") );
 		return N;
 	}
 
@@ -329,8 +333,10 @@
 			}
 			if( !P.bRevealed )
 				continue;
-			// Spin and bob so it reads as something to grab.
+			// Spin and bob so it reads as something to grab; pages glitter.
 			P.Actor->Rotation.Yaw += appRound( 16000.f*DeltaSeconds );
+			if( P.Page>=0 && appFmod(RpgClock+p*0.37f, 1.6f) < DeltaSeconds )
+				SpawnFx( Engine, TEXT("GoldSparkle01"), P.Base, 1.2f );
 			Engine->GLevel->FarMoveActor( P.Actor, P.Base + FVector(0,0,(FLOAT)appSin(RpgClock*2.5f + p)*6.f), 0, 1 );
 			const FVector D = Harry->Location - P.Base;
 			if( D.X*D.X + D.Y*D.Y < 75.f*75.f && Abs(D.Z) < 110.f )
@@ -464,16 +470,21 @@
 			if( More>0 )
 				Ui.Text( Ui.FontCaption, X, Y, Text2, *FString::Printf(TEXT("+%i in Journal [K]"),More), RALIGN_Right );
 		}
-		// Quest dialogue: a parchment-toned panel above the hotbar.
+		// Quest dialogue: a slim subtitle-style panel low on the screen,
+		// only as tall as its text, the speaker in the game's ink letters.
 		if( DialogLeft>0.f && DialogText.Len() )
 		{
-			const FLOAT W = Min( Ui.P(820.f), C->ClipX*0.7f );
-			const FLOAT LineH = Ui.TextHeight( Ui.FontModern );
-			const FLOAT H = Ui.TextHeight(Ui.FontModernBold) + LineH*3 + Ui.P(28.f);
-			const FRpgRect R( (C->ClipX-W)*0.5f, C->ClipY - Ui.P(150.f) - H, W, H );
+			UFont* NameFont = Ui.FontItem ? Ui.FontItem : Ui.FontModernBold;
+			const FLOAT TextW = Ui.TextWidth( Ui.FontBody, *DialogText );
+			const FLOAT W = Clamp( TextW + Ui.P(40.f), Ui.P(320.f), Min( Ui.P(600.f), C->ClipX*0.55f ) );
+			const FLOAT LineH = Ui.TextHeight( Ui.FontBody );
+			const INT Lines = Clamp( appCeil( TextW/Max(1.f, W-Ui.P(36.f)) ), 1, 3 );
+			const FLOAT H = Ui.TextHeight(NameFont) + LineH*Lines + Ui.P(20.f);
+			const FRpgRect R( (C->ClipX-W)*0.5f, C->ClipY - Ui.P(36.f) - H, W, H );
 			Ui.Glass( R, 1 );
-			Ui.Text( Ui.FontModernBold, R.X+Ui.P(16.f), R.Y+Ui.P(10.f), GoldHi, *DialogSpeaker, RALIGN_Left, 0 );
-			Ui.TextWrapped( Ui.FontModern, FRpgRect(R.X+Ui.P(16.f), R.Y+Ui.P(14.f)+Ui.TextHeight(Ui.FontModernBold), R.W-Ui.P(32.f), LineH*3+Ui.P(4.f)), Text1, *DialogText );
+			Ui.Rect( FRpgRect(R.X, R.Y, Max(1.f,Ui.P(2.f)), R.H), RpgGold );
+			Ui.Text( NameFont, R.X+Ui.P(18.f), R.Y+Ui.P(6.f), GoldHi, *DialogSpeaker, RALIGN_Left, 0 );
+			Ui.TextWrapped( Ui.FontBody, FRpgRect(R.X+Ui.P(18.f), R.Y+Ui.P(10.f)+Ui.TextHeight(NameFont), R.W-Ui.P(36.f), LineH*Lines+Ui.P(4.f)), Text1, *DialogText );
 		}
 	}
 

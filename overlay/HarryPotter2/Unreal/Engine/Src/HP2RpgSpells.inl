@@ -39,7 +39,7 @@
 
 	struct FPullEntry   { AActor* Actor; BYTE OldPhysics; FLOAT Age; };
 	struct FRevealEntry { AActor* Actor; FVector Location; INT Kind; };
-	struct FLiftEntry   { AActor* Actor; BYTE OldRole; BYTE OldPhysics; FVector Base; FLOAT Age; UBOOL bDropped; UBOOL bProp; UBOOL bControlled; UBOOL bThrown; FLOAT HoldDist; };
+	struct FLiftEntry   { AActor* Actor; BYTE OldRole; BYTE OldPhysics; FVector Base; FLOAT Age; UBOOL bDropped; UBOOL bProp; UBOOL bControlled; UBOOL bThrown; FLOAT HoldDist; FLOAT LastSpeed; AActor* Struck[4]; INT NumStruck; };
 	struct FFreezeEntry { AActor* Actor; FLOAT Left; UBOOL OldEnviro; UTexture* OldTexture; BYTE OldFatness; FLOAT OldScaleGlow; };
 
 	FLOAT SpellCooldown[SP2_MAX];
@@ -397,6 +397,8 @@
 		E->bProp = !T->IsA(APawn::StaticClass());
 		E->bControlled = 1;
 		E->bThrown = 0;
+		E->LastSpeed = 0.f;
+		E->NumStruck = 0;
 		E->HoldDist = Clamp( (T->Location - Harry->Location).Size2D(), 160.f, 520.f );
 		if( LessonKind==LES_Charms && LessonLifted.FindItemIndex(T)==INDEX_NONE )
 			LessonLifted.AddItem( T );
@@ -418,6 +420,30 @@
 			if( Lifts(l).bControlled && IsInLevel(Lifts(l).Actor) )
 				return &Lifts(l);
 		return NULL;
+	}
+
+	// Damage from a Leviosa throw: one hit at walking pace up to four at
+	// full speed, spent on the creature's own hit counters, then its
+	// own spell reaction and a TakeDamage for creatures that have health.
+	void ThrowImpact( UGameEngine* Engine, AActor* C, FLOAT Speed, FVector Momentum )
+	{
+		const INT Hits = Clamp( appRound(Speed/450.f), 1, 4 );
+		const INT Type = CreatureType( C );
+		for( INT h=1; h<Hits; h++ )
+		{
+			if( Type==CR_SpiderLarge )
+				DecrementInt( C, TEXT("numSpells"), 1 );
+			else if( Type==CR_FireCrab )
+				DecrementInt( C, TEXT("iNumSpellHitsToFlip"), 1 );
+		}
+		const INT Vuln = GetByteProp( C, TEXT("eVulnerableToSpell"), 0 );
+		QueueRedispatch( C, Vuln>0 ? Vuln : 13 );
+		APlayerPawn* Harry = CurrentHarry();
+		FRpgArg Args[5] = { FRpgArg::I(Hits*10), FRpgArg::O(Harry), FRpgArg::V(C->Location), FRpgArg::V(Momentum*0.2f), FRpgArg::N(FName(TEXT("Thrown"))) };
+		CallScript( C, TEXT("TakeDamage"), Args, 5 );
+		SpawnFx( Engine, TEXT("Wing_hit"), C->Location, 1.f );
+		PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
+		RpgLog( TEXT("leviosa: %s hit at %.0f (%i)"), C->GetName(), Speed, Hits );
 	}
 
 	// Lets go of the levitated target: a drop, or a throw along the aim.
@@ -492,7 +518,31 @@
 				continue;
 			}
 			if( T->Physics==PHYS_Falling && E.Age < 8.f )
+			{
+				// A thrown thing hurts every creature it flies into.
+				const FLOAT Speed = T->Velocity.Size();
+				if( E.bThrown && Speed>250.f )
+				{
+					E.LastSpeed = Speed;
+					for( INT i=0; i<Engine->GLevel->Actors.Num() && E.NumStruck<4; i++ )
+					{
+						AActor* C = Engine->GLevel->Actors(i);
+						if( !C || C==T || C->bDeleteMe || C->bHidden || CreatureType(C)<0 )
+							continue;
+						const FLOAT Reach = T->CollisionRadius + C->CollisionRadius + 25.f;
+						if( (C->Location-T->Location).SizeSquared() > Reach*Reach )
+							continue;
+						UBOOL bAgain = 0;
+						for( INT k=0; k<E.NumStruck; k++ )
+							bAgain |= E.Struck[k]==C;
+						if( bAgain )
+							continue;
+						E.Struck[E.NumStruck++] = C;
+						ThrowImpact( Engine, C, Speed, T->Velocity );
+					}
+				}
 				continue;
+			}
 			// Landed: hand control back, and let props react like a Flipendo hit.
 			T->Role = E.OldRole;
 			if( E.bProp )
@@ -502,12 +552,14 @@
 			}
 			else if( E.OldPhysics!=PHYS_Walking && E.OldPhysics!=PHYS_None && E.OldPhysics!=PHYS_Falling )
 				T->setPhysics( E.OldPhysics );
-			if( E.bThrown && HasPerk(PERK_Hurl) && CreatureType(T)>=0 )
-				QueueRedispatch( T, 13 );
+			// A thrown creature slams into the floor or a wall: the harder,
+			// the more it hurts.
+			if( E.bThrown && CreatureType(T)>=0 && E.LastSpeed>250.f )
+				ThrowImpact( Engine, T, E.LastSpeed*(HasPerk(PERK_Hurl) ? 1.3f : 1.f), FVector(0,0,0) );
 			const INT Vuln = GetByteProp( T, TEXT("eVulnerableToSpell"), 0 );
 			if( E.bProp && Vuln==13 )
 				QueueRedispatch( T, Vuln ); // only props a Flipendo would open
-			else if( CreatureType(T)>=0 )
+			else if( CreatureType(T)>=0 && !E.bThrown )
 				QueueRedispatch( T, 13 );
 			Lifts.Remove( l );
 		}

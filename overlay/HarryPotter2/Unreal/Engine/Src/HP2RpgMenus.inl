@@ -2005,7 +2005,15 @@
 				return;
 			if( FStandIn* S = FindStandIn(Npc) )
 			{
-				Say( StandInDef(S->Def).Name, StandInDef(S->Def).Hello );
+				// Their own voice from the game; the written line if it fails.
+				S->bGreeted = 1;
+				if( RpgClock<S->NextTalk || RpgClock<MateVoiceFree )
+					return;
+				const FLOAT Secs = SpeakLine( Npc, StandInLines(S->Def), S->LineIndex );
+				if( Secs>0.f )
+					S->NextTalk = RpgClock + Secs + 4.f;
+				else
+					Say( StandInDef(S->Def).Name, StandInDef(S->Def).Hello );
 				return;
 			}
 			FRpgArg JustTalk = FRpgArg::I( 1 );

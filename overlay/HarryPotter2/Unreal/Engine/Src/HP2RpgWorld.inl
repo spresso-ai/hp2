@@ -13,7 +13,7 @@
 =============================================================================*/
 
 	struct FOwl { AActor* Actor; FLOAT Angle; FLOAT Radius; FLOAT Height; FLOAT Speed; FVector Centre; };
-	struct FReaction { AActor* Actor; BYTE OldRole; FLOAT Left; };
+	struct FReaction { AActor* Actor; BYTE OldRole; FLOAT Left; FName OldSeq; UBOOL bOldLoop; };
 	struct FReactCooldown { AActor* Actor; FName Name; FLOAT Until; };
 
 	TArray<FOwl> Owls;
@@ -268,10 +268,12 @@
 			R->Actor = A;
 			R->OldRole = A->Role;
 			R->Left = 2.2f;
+			R->OldSeq = A->AnimSequence;
+			R->bOldLoop = A->bAnimLoop;
 			A->Role = ROLE_DumbProxy;
 			A->Velocity = FVector( 0, 0, 0 );
 			A->Acceleration = FVector( 0, 0, 0 );
-			A->PlayAnim( FName(RpgRand(2) ? TEXT("taunt_1") : TEXT("taunt_2")), false, 1.f, 0.15f );
+			PlayReactAnim( A, RpgRand(2) ? TEXT("taunt_1") : TEXT("taunt_2") );
 		}
 		T.RedHandedUntil = RpgClock + 20.f;
 		T.bCaughtChecked = 0;
@@ -402,15 +404,32 @@
 		R->Actor = Student;
 		R->OldRole = Student->Role;
 		R->Left = 2.2f;
+		R->OldSeq = Student->AnimSequence;
+		R->bOldLoop = Student->bAnimLoop;
 		Student->Role = ROLE_DumbProxy;
 		Student->Velocity = FVector( 0, 0, 0 );
 		Student->Acceleration = FVector( 0, 0, 0 );
-		Student->PlayAnim( FName(Anim), false, 1.f, 0.15f );
+		PlayReactAnim( Student, Anim );
+	}
+
+	// Only sequences the character really has: a missing one leaves it in
+	// its bind pose (arms out) until its own script picks a new animation.
+	static UBOOL PlayReactAnim( AActor* A, const TCHAR* Name )
+	{
+		const FName Seq( Name, FNAME_Find );
+		if( Seq==NAME_None || !A->SkelAnim || !A->SkelAnim->GetAnimSeq(Seq) )
+			return 0;
+		A->PlayAnim( Seq, false, 1.f, 0.15f );
+		return 1;
 	}
 
 	void EndReaction( FReaction& R )
 	{
 		R.Actor->Role = R.OldRole;
+		// Back to what it was doing (walking, idling), not frozen on the
+		// last frame of the wave.
+		if( R.OldSeq!=NAME_None && R.Actor->SkelAnim && R.Actor->SkelAnim->GetAnimSeq(R.OldSeq) )
+			R.Actor->PlayAnim( R.OldSeq, R.bOldLoop!=0, 1.f, 0.2f );
 	}
 
 	void UpdateStudents( UGameEngine* Engine, APlayerPawn* Harry, UBOOL bGameplay, FLOAT DeltaSeconds )

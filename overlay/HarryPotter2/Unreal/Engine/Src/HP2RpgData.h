@@ -153,7 +153,7 @@ static const FCosmetic GCosmetics[] =
 
 	// --- Appended (v4.4). Friends: Skin0 holds the animation set. ----------
 	{ RSLOT_Friend, TEXT("Go Alone"), TEXT("Just you and your wand."), 0, RAR_Common, STAT_None, 0, 0, 0, NULL, 1.f, 0,0,0, NULL, NULL },
-	{ RSLOT_Friend, TEXT("Dobby"), TEXT("Dobby has come to help Harry Potter, sir!"), 0, RAR_Rare, STAT_Speed, 3, 0, 0, TEXT("HPModels.skdobbyMesh"), 1.f, 0,0,0, TEXT("HPModels.skHarryAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Dobby"), TEXT("Dobby has come to help Harry Potter, sir!"), 0, RAR_Rare, STAT_Speed, 3, 0, 0, TEXT("HPModels.skdobbyMesh"), 1.f, 0,0,0, TEXT("HPModels.skdobbyAnims"), NULL },
 	{ RSLOT_Friend, TEXT("Ginny Weasley"), TEXT("Ron's little sister, braver than she looks."), 400, RAR_Rare, STAT_SpellPower, 5, 0, 0, TEXT("HPModels.skGinnyMesh"), 1.f, 0,0,0, TEXT("HPModels.skGenFemaleAnims"), NULL },
 	{ RSLOT_Friend, TEXT("Ron Weasley"), TEXT("Best mate. Brings snacks, finds beans."), 500, RAR_Epic, STAT_BeanFind, 8, 0, 0, TEXT("HPModels.skronMesh"), 1.f, 0,0,0, TEXT("HPModels.skGenMaleAnims"), NULL },
 	{ RSLOT_Friend, TEXT("Hermione Granger"), TEXT("Knows every answer - and every spell."), 600, RAR_Epic, STAT_XpGain, 8, 0, 0, TEXT("HPModels.skhermioneMesh"), 1.f, 0,0,0, TEXT("HPModels.skGenFemaleAnims"), NULL },
@@ -319,6 +319,7 @@ enum ERpgPerk
 	PERK_DeepFreeze, PERK_Shatter,
 	PERK_TimeSlip, PERK_Stillness,
 	PERK_LastingChange, PERK_GentleTouch,
+	PERK_Severing,
 	PERK_MAX
 };
 
@@ -360,6 +361,7 @@ static const FPerkDef GPerks[PERK_MAX] =
 	{ SP_Arresto, TEXT("Stillness"), TEXT("Enemies are slowed even more."), 2, PERK_TimeSlip },
 	{ SP_Transfig, TEXT("Lasting Change"), TEXT("Transfigured students stay changed for 40 seconds."), 1, -1 },
 	{ SP_Transfig, TEXT("Gentle Touch"), TEXT("Transfiguration no longer gets you into trouble."), 2, PERK_LastingChange },
+	{ SP_Diffindo, TEXT("Severing Charm"), TEXT("Diffindo slices straight through its target and also cuts up to three things behind it."), 3, PERK_Harvest },
 };
 
 /*-----------------------------------------------------------------------------

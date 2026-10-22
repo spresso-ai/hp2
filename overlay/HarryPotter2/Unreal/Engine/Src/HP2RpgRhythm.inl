@@ -280,13 +280,13 @@
 		RpgLog( TEXT("rhythm: %s, state %i, %i schoolmates"), PhaseName(Phase), GS, Count );
 	}
 
-	void SayMateLine( INT m )
+	// Speaks the next retail line of a '|' list on Speaker, with its voice
+	// and the game's own subtitle. Returns the line's length (0 = none).
+	FLOAT SpeakLine( AActor* Speaker, const TCHAR* Lines, INT& Index )
 	{
-		FSchoolmate& S = Mates[m];
-		const TCHAR* Lines = IsChristmas( GameStateNum(CurrentHarry()) ) && ChristmasLines(m) ? ChristmasLines(m) : MateSpot(m,State.RhythmPhase).Lines;
 		TCHAR Id[64];
-		if( !S.Actor || !ListToken( Lines, S.LineIndex++, Id, (INT)ARRAY_COUNT(Id) ) )
-			return;
+		if( !Speaker || !Lines || !ListToken( Lines, Index++, Id, (INT)ARRAY_COUNT(Id) ) )
+			return 0.f;
 		FRpgArg Args[4];
 		Args[0] = FRpgArg::S( Id );
 		Args[1] = FRpgArg::I( 1 );
@@ -294,18 +294,35 @@
 		Args[3] = FRpgArg::S( appStrstr(Id,TEXT("BUMPLINES")) ? TEXT("BumpDialog") : TEXT("HPdialog") );
 		FRpgArg Len;
 		Len.Float = 4.f;
-		if( CallScript( S.Actor, TEXT("DeliverLocalizedDialog"), Args, 4, &Len ) )
+		if( !CallScript( Speaker, TEXT("DeliverLocalizedDialog"), Args, 4, &Len ) )
+			return 0.f;
+		const FLOAT Secs = Clamp( Len.Float, 1.5f, 12.f );
+		MateVoiceFree = RpgClock + Secs + 2.f;
+		LastTalkTime = RpgClock + Secs - 4.f;   // IsTalking() while the line plays
+		static const TCHAR* Talks[4] = { TEXT("talk_bothhands"), TEXT("talkbothhands"), TEXT("talk_rhand"), TEXT("talk1") };
+		for( INT t=0; t<4; t++ )
 		{
-			const FLOAT Secs = Clamp( Len.Float, 1.5f, 12.f );
-			MateVoiceFree = RpgClock + Secs + 2.f;
-			S.NextTalk = RpgClock + Secs + 6.f;
-			LastTalkTime = RpgClock + Secs - 4.f;   // IsTalking() while the line plays
-			const FName Talk = FindSeq( S.Actor->SkelAnim, m==MATE_Hermione ? TEXT("talk_rhand") : TEXT("talk_bothhands") );
+			const FName Talk = FindSeq( Speaker->SkelAnim, Talks[t] );
 			if( Talk!=NAME_None )
-				S.Actor->PlayAnim( Talk, false, 1.f, 0.2f );
+			{
+				Speaker->PlayAnim( Talk, false, 1.f, 0.2f );
+				break;
+			}
+		}
+		return Secs;
+	}
+
+	void SayMateLine( INT m )
+	{
+		FSchoolmate& S = Mates[m];
+		const TCHAR* Lines = IsChristmas( GameStateNum(CurrentHarry()) ) && ChristmasLines(m) ? ChristmasLines(m) : MateSpot(m,State.RhythmPhase).Lines;
+		const FLOAT Secs = SpeakLine( S.Actor, Lines, S.LineIndex );
+		if( Secs>0.f )
+		{
+			S.NextTalk = RpgClock + Secs + 6.f;
 			S.NextAct = Secs + 1.f;
 		}
-		else
+		else if( S.Actor )
 			Say( MateDef(m).Name, TEXT("...") );
 	}
 

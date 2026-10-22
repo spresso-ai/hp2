@@ -32,7 +32,7 @@
 			{ TEXT("Entryhall"), TEXT("Nearly Headless Nick"), TEXT("NHNick"), TEXT("HPModels.skNHNickMesh"), TEXT("Fly"), 50.f, 10.f, TEXT("Lovely evening, Harry. Do mind the draught - it goes straight through me.") },
 			{ TEXT("Entryhall"), TEXT("Percy Weasley"), TEXT("Percy"), TEXT("HPModels.skPercyMesh"), TEXT("Walk"), 90.f, 0.f, TEXT("Prefect on patrol. Keep your nose clean, Harry.") },
 			{ TEXT("Grandstaircase"), TEXT("Professor Flitwick"), TEXT("ProfFlitwick"), TEXT("HPModels.skProfFlitwickMesh"), TEXT("Walk"), 55.f, 0.f, TEXT("Ah, Mr Potter! Swish and flick, remember - swish and flick!") },
-			{ TEXT("Grandstaircase"), TEXT("Peeves"), TEXT("Peeves"), TEXT("HPModels.skpeevesMesh"), TEXT("Flying"), 70.f, 20.f, TEXT("Potty wee Potter! Wandering about, are we?") },
+			{ TEXT("Grandstaircase"), TEXT("Peeves"), TEXT("Peeves"), TEXT("HPModels.skpeevesMesh"), TEXT("Flying"), 70.f, 75.f, TEXT("Potty wee Potter! Wandering about, are we?") },
 			{ TEXT("Grounds"), TEXT("Professor Sprout"), TEXT("ProfSprout"), TEXT("HPModels.skProfSproutMesh"), TEXT("Walk"), 65.f, 0.f, TEXT("Lovely weather for the Mandrakes, Harry dear.") },
 			{ TEXT("Grounds"), TEXT("Oliver Wood"), TEXT("OliverWood"), TEXT("HPModels.skOliverWoodMesh"), TEXT("Walk"), 95.f, 0.f, TEXT("Potter! Practice at dawn. Don't be late.") },
 			{ TEXT("Grounds"), TEXT("Hagrid"), TEXT("Hagrid"), TEXT("HPModels.skHagridMesh"), TEXT("Walk"), 70.f, 0.f, TEXT("'Ello, Harry! Fancy a rock cake later?") },
@@ -41,7 +41,25 @@
 	}
 	enum { NUM_STANDINS = 9 };
 
-	struct FStandIn { AActor* Actor; INT Def; FVector Target; FLOAT Wait; FVector Anchor; };
+	// Retail voice lines each stand-in may call out (AllDialog ids).
+	static const TCHAR* StandInLines( INT i )
+	{
+		static const TCHAR* Lines[NUM_STANDINS] =
+		{
+			TEXT("PC_MCG_BUMPLINES_593|PC_MCG_BUMPLINES_589|PC_MCG_BUMPLINES_655"),
+			TEXT("PC_GIL_BUMPLINES_998|PC_GIL_BUMPLINES_995|PC_GIL_BUMPLINES_1001|PC_GIL_BUMPLINES_997"),
+			TEXT("PC_Nhn_GoldExplain_01|PC_Nhn_GoldExplain_03|PC_Nhn_Chal2Skurge_18"),
+			TEXT("PC_PCY_BUMPLINES_336|PC_PCY_BUMPLINES_339|PC_PCY_BUMPLINES_555|PC_PCY_BUMPLINES_557|PC_PCY_BUMPLINES_653"),
+			TEXT("PC_Flt_Chal2Skurge_49|PC_Flt_CharmSkurgTeach_06|PC_Flt_CharmSkurgTeach_05"),
+			TEXT("PC_Pvs_Chal2Skurge_54|PC_Pvs_Chal2Skurge_51|PC_Pvs_Chal2Skurge_53|PC_Pvs_Chal2Skurge_24"),
+			TEXT("PC_Spr_HerbDiffTeach_06|PC_Spr_Chal3Diff_22|PC_Spr_Chal3Diff_07"),
+			TEXT("PC_Owd_GoToQuid_00|PC_Owd_GoToQuid2_04|PC_Owd_QuidTut1_27"),
+			TEXT("PC_HDW_BUMPLINES_349|PC_HDW_BUMPLINES_352|PC_HDW_BUMPLINES_560|PC_HDW_BUMPLINES_355|PC_HDW_BUMPLINES_971"),
+		};
+		return Lines[ Clamp(i, 0, (INT)NUM_STANDINS-1) ];
+	}
+
+	struct FStandIn { AActor* Actor; INT Def; FVector Target; FLOAT Wait; FVector Anchor; UBOOL bGreeted; INT LineIndex; FLOAT NextTalk; };
 	TArray<FStandIn> StandIns;
 	UBOOL bStandInsSpawned;
 	FLOAT StandInDelay;
@@ -145,6 +163,9 @@
 			S->Anchor = Where;
 			S->Target = Where;
 			S->Wait = 2.f + RpgRand(4);
+			S->bGreeted = 0;
+			S->LineIndex = State.Day + d;
+			S->NextTalk = 0.f;
 		}
 		if( StandIns.Num() )
 			RpgLog( TEXT("castle: %i stand-ins in %s"), StandIns.Num(), Map );
@@ -192,6 +213,15 @@
 			const FName Move = FindSeq( A->SkelAnim, Def.Move );
 			// Stop to chat while Harry stands close.
 			const UBOOL bNearHarry = (A->Location-Harry->Location).SizeSquared() < 160.f*160.f;
+			// Call out once per visit when Harry comes by.
+			if( !S.bGreeted && (A->Location-Harry->Location).SizeSquared() < 320.f*320.f
+				&& RpgClock>=MateVoiceFree && IsFreeGameplay(Engine,Harry) && !IsTalking() )
+			{
+				S.bGreeted = 1;
+				const FLOAT Secs = SpeakLine( A, StandInLines(S.Def), S.LineIndex );
+				S.NextTalk = RpgClock + Secs + 6.f;
+				S.Wait = Max( S.Wait, Secs );
+			}
 			// No walk cycle in its set: it stays where it is rather than slide.
 			if( Move==NAME_None )
 				S.Wait = Max( S.Wait, 1.f );

@@ -640,6 +640,31 @@ public:
 	struct FMeshBox { UMesh* Mesh; FVector Lo, Hi; };
 	TArray<FMeshBox> PreviewBoxes;   // standing bounds per mesh, measured once
 	FLOAT HarryRefH, HarryRefMinZ, QuidPivot;
+	FLOAT HarryRefFootZ;
+	UBOOL HarryRefFootValid;
+
+	// Lowest foot bone, relative to the actor's location.
+	static UBOOL FootZ( AActor* A, FLOAT& Out )
+	{
+		USkeletalMesh* Skel = Cast<USkeletalMesh>( A->Mesh );
+		if( !Skel )
+			return 0;
+		static const TCHAR* Bones[4] = { TEXT("Bip01 L Foot"), TEXT("Bip01 R Foot"), TEXT("Bip01 L Toe0"), TEXT("Bip01 R Toe0") };
+		UBOOL bAny = 0;
+		FLOAT Low = 0.f;
+		for( INT b=0; b<4; b++ )
+		{
+			const INT Bone = Skel->BoneIndex( FName(Bones[b],FNAME_Find) );
+			if( Bone<0 )
+				continue;
+			const FLOAT Z = Skel->GetBoneCoords( A, Bone ).Origin.Z - A->Location.Z;
+			Low = bAny ? Min(Low,Z) : Z;
+			bAny = 1;
+		}
+		if( bAny )
+			Out = Low;
+		return bAny;
+	}
 	UBOOL bConfirmLeave;
 	INT Scroll;
 	INT ShopTab;
@@ -2404,6 +2429,29 @@ public:
 			}
 			if( HasPerk(PERK_Harvest) && (Type==CR_Bowtruckle || Type==CR_SpikyPlant || Type==CR_Tentacula || Type==CR_Horklump) && !TestAndSet(Target,AF_Harvested) )
 				QueueBeans( Target->Location, 2 );
+			// Severing Charm: the cut carries on along the line of the cast
+			// and severs up to three Diffindo targets behind this one.
+			APlayerPawn* Harry = CurrentHarry();
+			if( HasPerk(PERK_Severing) && Harry && Target->XLevel )
+			{
+				FVector Dir = Target->Location - Harry->Location;
+				Dir.Z = 0.f;
+				Dir = Dir.SafeNormal();
+				INT Count = 0;
+				for( INT i=0; i<Target->XLevel->Actors.Num() && Count<3; i++ )
+				{
+					AActor* Other = Target->XLevel->Actors(i);
+					if( !Other || Other==Target || Other->bDeleteMe || Other->bHidden || GetByteProp(Other,TEXT("eVulnerableToSpell"),0)!=19 )
+						continue;
+					FVector D = Other->Location - Target->Location;
+					D.Z = 0.f;
+					const FLOAT Along = D | Dir;
+					if( Along<=0.f || Along>600.f || (D - Dir*Along).SizeSquared() > 90.f*90.f )
+						continue;
+					QueueRedispatch( Other, 19 );
+					Count++;
+				}
+			}
 			return;
 		}
 
@@ -2754,8 +2802,25 @@ public:
 						const FLOAT K = HarryRefH/QH;
 						Body->DrawScale *= K;
 						const FLOAT QMin = (Min(B.Origin.Z, B.Origin.Z+B.ZAxis.Z) - Body->Location.Z)*K;
-						QuidPivot = HarryRefMinZ - QMin;
-						Body->PrePivot.Z += QuidPivot;
+						const FLOAT Pivot0 = Body->PrePivot.Z;
+						Body->PrePivot.Z += HarryRefMinZ - QMin;
+						// The box of the flying mesh doesn't end at its feet: put
+						// its foot bones where Harry's are, checking the result
+						// so the correction can't go the wrong way.
+						FLOAT Foot = 0.f;
+						if( HarryRefFootValid && FootZ(Body,Foot) )
+						{
+							const FLOAT Delta = HarryRefFootZ - Foot;
+							Body->PrePivot.Z += Delta;
+							FLOAT After = 0.f;
+							if( FootZ(Body,After) && Abs(HarryRefFootZ-After) > Abs(Delta)*0.5f )
+							{
+								Body->PrePivot.Z -= 2.f*Delta;
+								FootZ( Body, After );
+							}
+							RpgLog( TEXT("quidditch robes: feet %.1f -> %.1f (harry %.1f)"), Foot, After, HarryRefFootZ );
+						}
+						QuidPivot = Body->PrePivot.Z - Pivot0;
 						RpgLog( TEXT("quidditch robes: height %.1f -> %.1f, pivot %.1f"), QH, HarryRefH, QuidPivot );
 					}
 				}
@@ -2871,6 +2936,7 @@ public:
 			{
 				HarryRefH = Abs( B.ZAxis.Z );
 				HarryRefMinZ = Min( B.Origin.Z, B.Origin.Z+B.ZAxis.Z ) - Harry->Location.Z;
+				HarryRefFootValid = FootZ( Harry, HarryRefFootZ );
 			}
 		}
 		SetCostume( Harry, State.Equip[RSLOT_Outfit], 1 );
@@ -2975,6 +3041,16 @@ public:
 		A->bCollideWorld = 0;
 		A->Physics = PHYS_None;
 		A->Tag = FName( TEXT("HP2RpgActor") );
+		// The render class is a Fragment: left in its auto state it turns to
+		// 'Dying' after five seconds and destroys itself once unseen, which
+		// made pets, friends and characters vanish and respawn.
+		if( !Class )
+		{
+			A->GotoState( NAME_None );
+			A->TimerRate = 0.f;
+			A->TimerCounter = 0.f;
+			A->RotationRate = FRotator( 0, 0, 0 );
+		}
 		return A;
 	}
 
@@ -3247,6 +3323,7 @@ public:
 
 	FLOAT FriendFloor;
 	FLOAT FriendIdle;
+	FLOAT FriendNextAct;    // next idle gesture (apparating friends)
 	AActor* FriendLinked;
 	AActor* FriendActor;
 	INT FriendActorKind;
@@ -3255,6 +3332,57 @@ public:
 	{
 		const FName N( Name, FNAME_Find );
 		return (N!=NAME_None && Anim && Anim->GetAnimSeq(N)) ? N : NAME_None;
+	}
+
+	// A house-elf doesn't walk along: Dobby stays put and, once Harry has
+	// moved on, disapparates and pops up beside him again.
+	UBOOL UpdateApparating( UGameEngine* Engine, APlayerPawn* Harry, AActor* F, const FVector& Fwd, const FVector& Right, FLOAT DeltaSeconds )
+	{
+		const FVector Old = F->Location;
+		FVector D = Harry->Location - Old;
+		D.Z = 0.f;
+		const UBOOL bLost = D.Size()>320.f || D.Size()<40.f || !Engine->GLevel->Model->FastLineCheck( Harry->Location, Old );
+		if( bLost && IsFreeGameplay(Engine,Harry) )
+		{
+			FVector Want = Harry->Location - Fwd*90.f - Right*60.f;
+			if( !Engine->GLevel->Model->FastLineCheck( Harry->Location, Want ) )
+				Want = Harry->Location - Fwd*70.f;
+			FCheckResult Hit;
+			const FVector Top = Want + FVector( 0, 0, 80.f );
+			if( !Engine->GLevel->SingleLineCheck( Hit, F, Top - FVector(0,0,300.f), Top, TRACE_VisBlocking, FVector(0,0,0) ) )
+				Want.Z = Hit.Location.Z + FriendFloor;
+			else
+				Want.Z = Harry->Location.Z - Harry->CollisionHeight + FriendFloor;
+			if( D.Size()<2000.f )
+				SpawnFx( Engine, TEXT("WizCrackSparkle"), Old, 1.f );
+			Engine->GLevel->FarMoveActor( F, Want, 0, 1 );
+			SpawnFx( Engine, TEXT("WizCrackSparkle"), Want, 1.f );
+			PlaySfx( TEXT("HPSounds.PrivetDr.Dobby_appears") );
+			const FName Appear = FindSeq( F->SkelAnim, TEXT("appear") );
+			if( Appear!=NAME_None )
+				F->PlayAnim( Appear, false, 1.f, 0.f );
+			FriendNextAct = RpgClock + 8.f + RpgRand(8);
+		}
+		// Face Harry; idle, now and then a little gesture.
+		FVector Face = Harry->Location - F->Location;
+		Face.Z = 0.f;
+		if( Face.SizeSquared()>1.f )
+		{
+			const INT Diff = ((Face.Rotation().Yaw - F->Rotation.Yaw + 32768) & 65535) - 32768;
+			F->Rotation = FRotator( 0, F->Rotation.Yaw + appRound(Diff*Min(1.f,DeltaSeconds*5.f)), 0 );
+		}
+		const FName Idle = FindSeq( F->SkelAnim, TEXT("Idle") );
+		if( RpgClock>=FriendNextAct )
+		{
+			static const TCHAR* Gestures[3] = { TEXT("talk1"), TEXT("talk3"), TEXT("slapInTheHead") };
+			const FName G = FindSeq( F->SkelAnim, Gestures[RpgRand(3)] );
+			if( G!=NAME_None )
+				F->PlayAnim( G, false, 1.f, 0.2f );
+			FriendNextAct = RpgClock + 10.f + RpgRand(10);
+		}
+		else if( Idle!=NAME_None && F->AnimSequence!=Idle && (F->bAnimLoop || !F->IsAnimating()) )
+			F->PlayAnim( Idle, true, 1.f, 0.3f );
+		return 1;
 	}
 
 	UBOOL UpdateFriend( UGameEngine* Engine, APlayerPawn* Harry, AActor* F, const FCosmetic& Spec, FLOAT DeltaSeconds )
@@ -3280,6 +3408,8 @@ public:
 		// other side).
 		const FVector Old = F->Location;
 		const FLOAT Dist = (Harry->Location - Old).Size();
+		if( FindSeq(F->SkelAnim,TEXT("Walk"))==NAME_None )
+			return UpdateApparating( Engine, Harry, F, Fwd, Right, DeltaSeconds );
 		if( Dist>800.f || (Dist>260.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
 		{
 			FriendFollow.bChase = 0;

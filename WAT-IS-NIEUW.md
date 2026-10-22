@@ -1,5 +1,17 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v5.5 – Levendiger kasteel, sterkere spreuken
+- **Verdwijnende figuren opgelost**: alles wat de mod neerzet (huisdieren, vrienden, leraren, pagina's) verdween na een paar seconden zodra je er niet naar keek, en kwam dan opnieuw. Dat gebeurt niet meer.
+- **Dobby** gebruikt nu zijn eigen model en bewegingen (geen vervormd lijf meer). Huiselfen lopen niet mee: Dobby blijft staan, en als je verder loopt verdwijnt hij met een *plop* en verschijnt naast je (met zijn eigen geluid uit het spel). Af en toe praat hij of slaat hij zichzelf tegen het hoofd.
+- **Geen T-pose meer** bij leerlingen die naar je zwaaien of je uitlachen: ze gebruiken alleen bewegingen die ze echt hebben, en gaan daarna verder met wat ze deden.
+- **Leraren en bekende gezichten praten** nu met hun echte stem uit het spel, met ondertitels: één keer als je langsloopt, en als je met ze praat (E). Bijvoorbeeld Hagrid ("Nice day, ain't it, Harry?"), Smalhart over zijn snoepjes, Percy over prefect zijn, Foppe ("Gotcha!").
+- **Foppe** zweeft nu boven de grond in plaats van erin.
+- **Veldgids-pagina's** zijn nu kleine toverboekjes die op borsthoogte zweven en glinsteren. Revelio laat ze met een plop en een magisch geluid verschijnen.
+- **Missie-gesprekken** staan nu in een smal vak onderin beeld, net zo groot als de tekst, met de naam in sierletters, en verdwijnen sneller.
+- **Zwerkbalgewaad**: de voeten staan nu op de grond (gemeten aan de voeten in plaats van aan het hele model).
+- **Nieuwe Diffindo-upgrade – Severing Charm** (3 punten, na Harvest): Diffindo snijdt door zijn doel heen en raakt nog tot drie dingen erachter.
+- **Wingardium Leviosa als wapen**: een opgetild wezen dat je weggooit, krijgt schade als het ergens tegenaan klapt – hoe harder, hoe meer (tot 4 treffers). Wezens die onderweg geraakt worden, krijgen ook schade. Zo kun je vijanden verslaan.
+
 ## v5.4 – Reparaties na je test
 - **Boek**: de inhoud stopt nu boven de knoppen (Leave challenge / Save game / Close), dus er valt geen tekst meer onder. Bij **Skills** hebben de rijen weer genoeg ruimte voor de beschrijving en kun je **scrollen** (muiswiel of pijltjes). Ook de spreuk-upgrades scrollen met het muiswiel als ze niet allemaal passen.
 - **3D-modellen in de kledingkast** stonden in een stijve houding met de armen wijd. Ze staan nu rustig ademend in hun gewone houding, los van wat Harry doet.
