@@ -271,12 +271,14 @@ struct FRpgArg
 	UObject* Obj;
 	FName Name;
 	FVector Vec;
-	FRpgArg() : Int(0), Float(0.f), Obj(NULL), Name(NAME_None), Vec(0,0,0) {}
+	const TCHAR* Str;
+	FRpgArg() : Int(0), Float(0.f), Obj(NULL), Name(NAME_None), Vec(0,0,0), Str(NULL) {}
 	static FRpgArg I( INT V ) { FRpgArg A; A.Int=V; A.Float=(FLOAT)V; return A; }
 	static FRpgArg F( FLOAT V ) { FRpgArg A; A.Float=V; return A; }
 	static FRpgArg O( UObject* V ) { FRpgArg A; A.Obj=V; return A; }
 	static FRpgArg N( FName V ) { FRpgArg A; A.Name=V; return A; }
 	static FRpgArg V( FVector V ) { FRpgArg A; A.Vec=V; return A; }
+	static FRpgArg S( const TCHAR* V ) { FRpgArg A; A.Str=V; return A; }
 };
 
 static void WriteArg( UProperty* P, BYTE* Addr, const FRpgArg& A )
@@ -326,19 +328,34 @@ static UBOOL CallScript( UObject* Obj, const TCHAR* FuncName, const FRpgArg* Arg
 	{
 		if( It->PropertyFlags & CPF_ReturnParm )
 			continue;
-		if( Cast<UStrProperty>(*It) && ArgIndex < NumArgs )
+		if( Cast<UStrProperty>(*It) && ArgIndex < NumArgs && !Args[ArgIndex].Str )
 			return 0;
+		ArgIndex++;
+	}
+	ArgIndex = 0;
+	for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & CPF_Parm); ++It )
+	{
+		if( It->PropertyFlags & CPF_ReturnParm )
+			continue;
 		if( ArgIndex < NumArgs )
-			WriteArg( *It, Parms + It->Offset, Args[ArgIndex] );
+		{
+			if( Cast<UStrProperty>(*It) )
+				*(FString*)(Parms + It->Offset) = FString( Args[ArgIndex].Str ); // zeroed memory is an empty FString
+			else
+				WriteArg( *It, Parms + It->Offset, Args[ArgIndex] );
+		}
 		ArgIndex++;
 	}
 
 	Obj->ProcessEvent( Function, Parms );
 
-	if( Ret )
-		for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & CPF_Parm); ++It )
-			if( It->PropertyFlags & CPF_ReturnParm )
-				ReadArg( *It, Parms + It->Offset, *Ret );
+	for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & CPF_Parm); ++It )
+	{
+		if( Ret && (It->PropertyFlags & CPF_ReturnParm) )
+			ReadArg( *It, Parms + It->Offset, *Ret );
+		if( Cast<UStrProperty>(*It) )
+			((FString*)(Parms + It->Offset))->Empty();
+	}
 	return 1;
 }
 
@@ -439,6 +456,9 @@ struct FRpgState
 	INT LessonGrades[8];           // best grade per lesson (1 T .. 5 O)
 	INT BrewDay;                   // last day the Brewing Cauldron brewed
 	INT DecorOwned[32];            // furniture in storage
+	INT RhythmPhase;               // ERpgPhase of the school day
+	INT RhythmDay;                 // school day the phase belongs to
+	INT RhythmEventDay;            // school day a story challenge was finished
 
 	void Reset()
 	{
@@ -868,6 +888,7 @@ public:
 		Text += FString::Printf(TEXT("DuelRank=%i LessonDay=%i BrewDay=%i\r\n"), State.DuelRank, State.LessonDay, State.BrewDay);
 		Text += FString(TEXT("Grades=")) + IntList(State.LessonGrades,8) + TEXT("\r\n");
 		Text += FString(TEXT("DecorOwned=")) + IntList(State.DecorOwned,32) + TEXT("\r\n");
+		Text += FString::Printf(TEXT("RhythmPhase=%i RhythmDay=%i RhythmEventDay=%i\r\n"), State.RhythmPhase, State.RhythmDay, State.RhythmEventDay);
 		Text += FString(TEXT("Decor=")) + SaveDecor() + TEXT("\r\n");
 		{
 			FString Opened;
@@ -983,6 +1004,9 @@ public:
 				Parse( S, TEXT("BrewDay="), State.BrewDay );
 				ParseIntList( S, TEXT("Grades="), State.LessonGrades, 8 );
 				ParseIntList( S, TEXT("DecorOwned="), State.DecorOwned, 32 );
+				Parse( S, TEXT("RhythmPhase="), State.RhythmPhase );
+				Parse( S, TEXT("RhythmDay="), State.RhythmDay );
+				Parse( S, TEXT("RhythmEventDay="), State.RhythmEventDay );
 				LoadDecor( S );
 				OpenedTreasure.Empty();
 				SplitNames( S, TEXT("Opened="), OpenedTreasure );
@@ -1870,6 +1894,8 @@ public:
 	{
 		if( FStandIn* S = FindStandIn(Actor) )
 			return StandInDef(S->Def).Name;
+		if( MateIndex(Actor)>=0 )
+			return MateDef( MateIndex(Actor) ).Name;
 		if( IsStaff(Actor) )
 			return StaffName( Actor );
 		const INT V = VendorFor( Actor );
@@ -1936,8 +1962,23 @@ public:
 		AActor* Stand = NearestStandIn( Harry, Nearest );
 		if( Stand )
 		{
+			Nearest = (Stand->Location - Harry->Location).Size();
 			NearNpc = Stand;
 			NearVendor = -1;
+		}
+		// Schoolmates of the school rhythm.
+		for( INT m=0; m<MATE_MAX; m++ )
+		{
+			AActor* A = Mates[m].Actor;
+			if( !A || A->bHidden || A->bDeleteMe )
+				continue;
+			const FLOAT Dist = (A->Location - Harry->Location).Size();
+			if( Dist < Nearest )
+			{
+				Nearest = Dist;
+				NearNpc = A;
+				NearVendor = -1;
+			}
 		}
 	}
 
@@ -2070,6 +2111,7 @@ public:
 		}
 		if( Name==N_ChallengeScores )
 		{
+			State.RhythmEventDay = State.Day;   // a story challenge ends: free time next
 			UStrProperty* UrlP = Cast<UStrProperty>( ParmByName(Function,TEXT("strLevelURL")) );
 			UIntProperty* HighP = Cast<UIntProperty>( ParmByName(Function,TEXT("nHighScore")) );
 			UIntProperty* MaxP = Cast<UIntProperty>( ParmByName(Function,TEXT("nMaxScore")) );
@@ -3517,6 +3559,7 @@ public:
 		UpdateLesson( Engine, Harry, DeltaSeconds );
 		UpdateDecor( Engine, Harry, DeltaSeconds );
 		UpdateStandIns( Engine, Harry, DeltaSeconds );
+		UpdateSchoolmates( Engine, Harry, DeltaSeconds );
 		UpdatePhoto( Harry );
 	}
 
@@ -3554,6 +3597,7 @@ public:
 		}
 
 		const TCHAR* MapName = Engine->GLevel->URL.Map.Len() ? *Engine->GLevel->URL.Map : TEXT("");
+		const UBOOL bFromSave = bLoadedFromSlot;
 		if( bLoadedFromSlot )
 			bLoadedFromSlot = 0;
 		else if( (appStrfind(MapName,TEXT("PrivetDr")) || appStrfind(MapName,TEXT("privetdr")))
@@ -3577,6 +3621,7 @@ public:
 			State.DayTaskDone = 0;
 			TalkedToday.Empty();
 		}
+		StepRhythm( MapName, bFromSave );
 		if( State.StockDay!=State.Day )
 		{
 			State.StockDay = State.Day;
@@ -3605,6 +3650,7 @@ public:
 		EndPickups( Engine );
 		EndDecor( Engine );
 		EndStandIns( Engine );
+		EndSchoolmates( Engine );
 		ClearLessonItems( Engine );
 		LessonKind = -1;
 		SetPhoto( Engine, GetHarry(Engine), 0 );
@@ -3649,6 +3695,7 @@ public:
 		ForgetQuests();
 		ForgetDecor();
 		ForgetStandIns();
+		ForgetSchoolmates();
 		LessonItems.Empty();
 		LessonItemShown.Empty();
 		LessonCounted.Empty();
@@ -3684,6 +3731,7 @@ public:
 	#include "HP2RpgQuests.inl"
 	#include "HP2RpgSchool.inl"
 	#include "HP2RpgCastle.inl"
+	#include "HP2RpgRhythm.inl"
 };
 
 static FHP2Rpg GRpg;

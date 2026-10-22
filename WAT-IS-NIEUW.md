@@ -1,5 +1,16 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v5.3 – Schoolritme in de Hal (versie 1)
+- **Een schooldag heeft nu drie delen**: **Les**, **Vrije tijd** en **Avond**. Het volgende deel begint pas als je een hub binnenkomt (nooit midden in beeld), en elke keer maximaal één stap.
+  - Les → Vrije tijd: na je les van vandaag, een huistaak, een uitgespeelde uitdaging of 8 minuten spelen.
+  - Vrije tijd → Avond: na 15 minuten spelen (of 5 minuten als je een huistaak hebt gedaan).
+  - Een nieuwe schooldag begint weer met Les.
+- **Ron, Hermelien, Marcel en Draco** staan in de **Hal** (Entryhall), op een vaste plek per dagdeel, en doen daar iets: in de les zitten ze in het toverdrankenlokaal, in de vrije tijd zoekt Hermelien boeken en zit Ron in de leerlingenkamer, en 's avonds zitten de Griffoendors samen in de leerlingenkamer terwijl Draco in de kerkers rondhangt.
+- Ze **praten met hun echte stem en ondertiteling** uit het spel: één keer als je langsloopt, en als je met ze praat (E). Rond de kerst heeft Marcel kerstzinnen.
+- Gebruikt het verhaal iemand (bijvoorbeeld in een filmpje of bij de huispuntenceremonie), dan staat die er niet dubbel. Hermelien ontbreekt wanneer ze volgens het verhaal in de ziekenzaal ligt. Je vriend-volger staat er niet nog een keer.
+- **Opslaan en laden** verandert het dagdeel niet, maakt geen extra dag aan en geeft geen beloning. Praten met hen geeft geen XP, dus herladen levert niets op.
+- Let op: Marcel bestaat niet als model in het spel; hij is een Griffoendor-jongen en spreekt met een algemene Griffoendor-stem.
+
 ## v5.2 – Nieuwe skills, spreuk-upgrades en mooie details
 - **3D-modellen in de menu's** staan nu altijd in dezelfde rustige houding (niet meer in de pose waarin Harry toevallig loopt of springt).
 - **Zwerkbalgewaad**: op Harry's eigen lengte en met de voeten op de grond.

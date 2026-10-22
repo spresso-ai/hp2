@@ -82,6 +82,9 @@
 		FStandIn* S = FindStandIn( A );
 		if( S )
 			return ListHas( List, StandInDef(S->Def).Class );
+		const INT m = MateIndex( A );
+		if( m>=0 )
+			return MateDef(m).Class && ListHas( List, MateDef(m).Class );
 		return ClassChainIsAny( A, List );
 	}
 

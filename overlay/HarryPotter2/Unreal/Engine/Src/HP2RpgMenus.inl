@@ -1967,6 +1967,9 @@
 		// Teachers start today's class; quest givers speak about their quest.
 		if( !LessonTalk( Ui.Engine, Harry, Npc ) && !QuestTalk( Harry, Npc ) )
 		{
+			// Schoolmates only speak: no XP, so nothing to farm by reloading.
+			if( MateTalk(Npc) )
+				return;
 			if( FStandIn* S = FindStandIn(Npc) )
 			{
 				Say( StandInDef(S->Def).Name, StandInDef(S->Def).Hello );
