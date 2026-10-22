@@ -440,7 +440,27 @@
 			return;
 		FRpgClipScope Clip( Ui, R );
 		SetCostume( Body, Outfit, 0 );
-		CopyAnim( Body, Harry );
+		// Always the same calm standing pose. Bounds are measured once per
+		// mesh (from Harry's pose at that moment) so framing stays stable.
+		INT BoxIdx = -1;
+		for( INT b=0; b<PreviewBoxes.Num(); b++ )
+			if( PreviewBoxes(b).Mesh==Body->Mesh )
+				BoxIdx = b;
+		if( BoxIdx<0 )
+		{
+			CopyAnim( Body, Harry );
+			FMeshBox* MB = new(PreviewBoxes) FMeshBox;
+			MB->Mesh = Body->Mesh;
+			FRpgUi::MeasureBounds( Body, MB->Lo, MB->Hi );
+			BoxIdx = PreviewBoxes.Num()-1;
+		}
+		Body->SkelAnim = HarryAnimSet() ? HarryAnimSet() : Harry->SkelAnim;
+		{
+			const FName Pose = FindSeq( Body->SkelAnim, TEXT("Idle") );
+			Body->AnimSequence = Pose!=NAME_None ? Pose : Harry->AnimSequence;
+			Body->AnimFrame = 0.f;
+			Body->AnimRate = 0.f;
+		}
 		ApplyLook( Outfit, Glasses );
 		if( Body->Mesh==HarryMesh )
 			Body->MultiSkins[3] = GCosmetics[Glasses].Skin0 ? LoadTex( GCosmetics[Glasses].Skin0 ) : NULL;
@@ -459,7 +479,7 @@
 			Bone = ShoulderBone( Body, Skel );
 			Zoom = 2.2f;
 		}
-		if( !Ui.PlaceInRect( Body, R, Yaw, Bone>=0 ? Zoom : 1.f ) )
+		if( !Ui.PlaceInRect( Body, R, Yaw, Bone>=0 ? Zoom : 1.f, &PreviewBoxes(BoxIdx).Lo, &PreviewBoxes(BoxIdx).Hi ) )
 			return;
 		if( Bone>=0 && Skel )
 			Ui.FocusPoint( Body, Skel->GetBoneCoords(Body,Bone).Origin, R.X+R.W*0.5f, R.Y+R.H*(Framing==PREV_Hat ? 0.68f : Framing==PREV_Head ? 0.6f : 0.5f) );
@@ -1336,7 +1356,8 @@
 	void DrawSkillsTab( APlayerPawn* Harry, const FRpgRect& Area )
 	{
 		Sel = Clamp(Sel,0,SKILL_MAX-1);
-		const FLOAT RowH = Ui.TextHeight(Ui.FontItem)+Ui.TextHeight(Ui.FontBody)+Ui.P(20.f);
+		const FLOAT ButtonH = Ui.TextHeight(Ui.FontBody)+Ui.P(16.f);
+		const FLOAT RowH = Min( Ui.TextHeight(Ui.FontItem)+Ui.TextHeight(Ui.FontBody)+Ui.P(20.f), (Area.H-ButtonH-Ui.P(16.f))/SKILL_MAX );
 		for( INT i=0; i<SKILL_MAX; i++ )
 		{
 			const FRpgRect Row(Area.X,Area.Y+i*RowH,Area.W,RowH-Ui.P(6.f));
@@ -1348,7 +1369,11 @@
 				bActivate = 0; // inspecting a row never spends a point
 			}
 			Ui.Text(Ui.FontItem,Row.X+Ui.P(12.f),Row.Y+Ui.P(6.f),i==Sel || bHover ? RpgGoldBright : RpgParchment,GSkillNames[i],RALIGN_Left,0);
-			Ui.Text(Ui.FontBody,Row.X+Row.W-Ui.P(12.f),Row.Y+Ui.P(6.f),RpgMuted,*FString::Printf(TEXT("%i / %i"),State.Skill[i],(INT)SKILL_MAX_PIPS),RALIGN_Right,0);
+			{
+				// Gold pips: one per learned point.
+				const FLOAT Pip = Ui.TextHeight(Ui.FontSmall)*0.8f;
+				Ui.Pips( Row.X+Row.W-Ui.P(12.f)-SKILL_MAX_PIPS*(Pip+Ui.P(6.f)), Row.Y+Ui.P(8.f), State.Skill[i], SKILL_MAX_PIPS, Pip );
+			}
 			Ui.Text(Ui.FontBody,Row.X+Ui.P(12.f),Row.Y+Ui.TextHeight(Ui.FontItem)+Ui.P(8.f),RpgMuted,*Ui.FitText(Ui.FontBody,GSkillDescs[i],Row.W-Ui.P(24.f)),RALIGN_Left,0);
 		}
 		const FLOAT H = Ui.TextHeight(Ui.FontBody)+Ui.P(16.f);
@@ -1393,13 +1418,15 @@
 		const FLOAT S = Ui.P(2.f);
 		Sel = Clamp( Sel, 0, SP_MAX-1 );
 
-		// Spell picker: one icon per spell.
-		const FLOAT CellW = Area.W/SP_MAX;
-		const FLOAT IconS = Min( CellW*0.55f, 44*S );
-		const FLOAT PickH = IconS + Ui.TextHeight(Ui.FontSmall) + 10*S;
+		// Spell picker: the game's spells, then the wheel spells (two rows).
+		const INT PerRow = (SP_MAX+1)/2;
+		const FLOAT CellW = Area.W/PerRow;
+		const FLOAT IconS = Min( CellW*0.45f, 30*S );
+		const FLOAT CellH = IconS + Ui.TextHeight(Ui.FontSmall) + 10*S;
+		const FLOAT PickH = CellH*2 + 4*S;
 		for( INT sp=0; sp<SP_MAX; sp++ )
 		{
-			const FRpgRect Cell( Area.X + CellW*sp, Area.Y, CellW-4*S, PickH );
+			const FRpgRect Cell( Area.X + CellW*(sp%PerRow), Area.Y + (sp/PerRow)*(CellH+4*S), CellW-4*S, CellH );
 			const UBOOL bHover = Ui.Hovered( Cell, &GSpellNames[sp] );
 			if( sp==Sel )
 			{
@@ -1428,7 +1455,7 @@
 			Level++;
 		FLOAT Y = Area.Y + PickH + 12*S;
 		const FLOAT Link = 10*S;
-		const FLOAT NodeH = Count ? Min( (Area.Y+Area.H - Y - Link*(Count-1))/Count, 110*S ) : 0.f;
+		const FLOAT NodeH = Count ? Max( Ui.TextHeight(Ui.FontItem)+Ui.TextHeight(Ui.FontBody)*2+18*S, Min( (Area.Y+Area.H - Y - Link*(Count-1))/Count, 110*S ) ) : 0.f;
 		for( INT n=0; n<Count; n++ )
 		{
 			const FPerkDef& D = GPerks[Chain[n]];
@@ -1452,7 +1479,7 @@
 			Ui.Text( Ui.FontSmall, Node.X+Node.W-10*S, Node.Y+8*S, bLearned ? RpgGreen : (bNext && State.SkillPoints>=D.Cost ? RpgGoldBright : RpgMuted), Status, RALIGN_Right );
 			Ui.Text( Ui.FontSmall, Node.X+Node.W-10*S, Node.Y+8*S+Ui.TextHeight(Ui.FontSmall), RpgParchment,
 				*FString::Printf(TEXT("%i skill point%s"), D.Cost, D.Cost>1 ? TEXT("s") : TEXT("")), RALIGN_Right );
-			Ui.TextWrapped( Ui.FontBody, FRpgRect(Node.X+10*S, Node.Y+Ui.TextHeight(Ui.FontItem)+10*S, Node.W-20*S, NodeH-Ui.TextHeight(Ui.FontItem)-14*S),
+			Ui.TextWrapped( Ui.FontBody, FRpgRect(Node.X+10*S, Node.Y+Ui.TextHeight(Ui.FontItem)+8*S, Node.W-20*S, Max(Ui.TextHeight(Ui.FontBody)*2, NodeH-Ui.TextHeight(Ui.FontItem)-10*S)),
 				bNext || bLearned ? RpgParchment : RpgMuted, D.Desc );
 
 			if( bNext && (Ui.Clicked(Node,&GPerks[Chain[n]]) || bActivate) )
@@ -1631,7 +1658,7 @@
 			const FString Text = bKnown ? FString(GCreatures[c].Name) : FString(TEXT("Unknown creature"));
 			Ui.Text( Ui.FontBody, Row.X+4*S, Row.Y, c==Sel ? RpgGoldBright : (bKnown ? RpgParchment : RpgMuted), *Ui.FitText(Ui.FontBody,*Text,Row.W*0.62f) );
 			if( bKnown )
-				Ui.Text( Ui.FontBody, Row.X+Row.W-4*S, Row.Y, Tier ? RpgGreen : RpgParchment, *FString::Printf(TEXT("%i defeated  %s"), State.Kills[c], Tier ? *FString::Printf(TEXT("R%i"),Tier) : TEXT("")), RALIGN_Right );
+				Ui.Text( Ui.FontBody, Row.X+Row.W-4*S, Row.Y, Tier ? RpgGreen : RpgParchment, *FString::Printf(TEXT("%i defeated  %s"), State.Kills[c], Tier ? *FString::Printf(TEXT("Rank %s"), Tier==1 ? TEXT("I") : Tier==2 ? TEXT("II") : TEXT("III")) : TEXT("")), RALIGN_Right );
 		}
 		const INT c = Sel;
 		const FRpgRect Side( Area.X+Area.W*0.62f, Y, Area.W*0.38f, Area.Y+Area.H-Y );
@@ -1775,7 +1802,8 @@
 				State.LettersRead |= (1<<i);
 			const UBOOL bRead = (State.LettersRead & (1<<i))!=0;
 			Ui.Text( Ui.FontBody, Row.X+6*S, Row.Y+2*S, i==Sel ? RpgGoldBright : (bRead ? RpgParchment : FColor(255,255,255,255)), *Ui.FitText(Ui.FontBody,L.From,Row.W-12*S) );
-			Ui.Text( Ui.FontSmall, Row.X+6*S, Row.Y+Ui.TextHeight(Ui.FontBody)+2*S, bRead ? RpgMuted : RpgGoldBright, *Ui.FitText(Ui.FontSmall,L.Subject,Row.W-12*S) );
+			Ui.Text( Ui.FontSmall, Row.X+6*S, Row.Y+Ui.TextHeight(Ui.FontBody)+2*S, bRead ? RpgMuted : RpgGoldBright,
+				*Ui.FitText(Ui.FontSmall,*((State.GiftsPending & (1<<i)) ? FString::Printf(TEXT("Gift!  %s"),L.Subject) : FString(L.Subject)),Row.W-12*S) );
 		}
 		if( Ui.Hovered( FRpgRect(Area.X+ListW, Area.Y, Area.W-ListW, Area.H), &State.LettersRead ) )
 			State.LettersRead |= (1<<Sel);
@@ -1785,7 +1813,20 @@
 		Ui.Rect( Paper, FColor(228,214,180,255) );
 		Ui.Border( Paper, Max(1.f,S*1.5f), FColor(150,120,70,255) );
 		Ui.Text( Ui.FontItem, Paper.X+12*S, Paper.Y+8*S, FColor(90,50,20,255), *Ui.FitText(Ui.FontItem,L.Subject,Paper.W-24*S), RALIGN_Left, 0 );
-		const FRpgRect BodyR( Paper.X+12*S, Paper.Y+Ui.TextHeight(Ui.FontItem)+16*S, Paper.W-24*S, Paper.H-Ui.TextHeight(Ui.FontItem)-24*S );
+		// A gift still in the envelope: open it when you like.
+		const UBOOL bGift = (State.GiftsPending & (1<<Sel))!=0;
+		const FLOAT GiftH = bGift ? Ui.TextHeight(Ui.FontBody)+Ui.P(16.f) : 0.f;
+		if( bGift )
+		{
+			const FString Label = FString::Printf( TEXT("Open gift: %s"), *GiftText(L) );
+			const FRpgRect GB( Paper.X+12*S, Paper.Y+Paper.H-GiftH-10*S, Min(Paper.W-24*S, Ui.TextWidth(Ui.FontBody,*Label)+Ui.P(40.f)), GiftH );
+			if( Ui.Button( GB, *Label, 1, &State.GiftsPending ) )
+			{
+				State.GiftsPending &= ~(1<<Sel);
+				GrantGift( Harry, L );
+			}
+		}
+		const FRpgRect BodyR( Paper.X+12*S, Paper.Y+Ui.TextHeight(Ui.FontItem)+16*S, Paper.W-24*S, Paper.H-Ui.TextHeight(Ui.FontItem)-24*S-GiftH-(bGift ? 10*S : 0.f) );
 		// Dark ink on parchment: draw without the drop shadow.
 		FString Line, Word;
 		FLOAT Y = BodyR.Y;

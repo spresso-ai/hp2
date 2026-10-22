@@ -246,7 +246,7 @@
 		for( INT p=0; p<Pickups.Num(); p++ )
 		{
 			FWorldPickup& P = Pickups(p);
-			if( P.Page<0 || P.bRevealed || !IsInLevel(P.Actor) || (P.Base-Harry->Location).SizeSquared() > 2600.f*2600.f )
+			if( P.Page<0 || P.bRevealed || !IsInLevel(P.Actor) )
 				continue;
 			P.bRevealed = 1;
 			P.Actor->bHidden = 0;

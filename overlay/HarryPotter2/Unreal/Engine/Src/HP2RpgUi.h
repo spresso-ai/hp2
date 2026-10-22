@@ -119,7 +119,8 @@ public:
 
 	// 3D.
 	UBOOL ScreenToWorld( FLOAT SX, FLOAT SY, FLOAT Depth, FVector& Out );
-	UBOOL PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zoom=1.f );
+	UBOOL PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zoom=1.f, const FVector* KnownLo=NULL, const FVector* KnownHi=NULL );
+	static void MeasureBounds( AActor* Actor, FVector& Lo, FVector& Hi );
 	void FocusPoint( AActor* Actor, const FVector& World, FLOAT SX, FLOAT SY );
 	void DrawActorInRect( AActor* Actor, UBOOL bClearZ=1 );
 	// Restricts 3D drawing to R: a sub-frame whose viewport is R, so models

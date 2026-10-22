@@ -105,7 +105,8 @@ void FRpgUi::Resolve()
 	FontTitle = MakeNativeFont( InkBig, TEXT("AvenirNext-DemiBold"), 15 );
 	FontInk = InkBig;
 	FontInkMed = InkMed;
-	FontItem = MakeNativeFont( InkMed, TEXT("AvenirNext-DemiBold"), 10 );
+	// Headings and item names keep the game's ink lettering.
+	FontItem = InkMed ? InkMed : MakeNativeFont( InkMed, TEXT("AvenirNext-DemiBold"), 10 );
 	FontBody = MakeNativeFont( InkSmall, TEXT("AvenirNext-Medium"), 9 );
 	FontSmall = MakeNativeFont( InkTiny, TEXT("AvenirNext-Medium"), 8 );
 	FontModern = MakeNativeFont( InkSmall, TEXT("AvenirNext-Medium"), 9 );
@@ -591,7 +592,14 @@ static void ActorBounds( AActor* Actor, FVector& Lo, FVector& Hi )
 	}
 }
 
-UBOOL FRpgUi::PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zoom )
+void FRpgUi::MeasureBounds( AActor* Actor, FVector& Lo, FVector& Hi )
+{
+	Actor->DrawScale = 1.f;
+	Actor->Location = FVector( 0, 0, 0 );
+	ActorBounds( Actor, Lo, Hi );
+}
+
+UBOOL FRpgUi::PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zoom, const FVector* KnownLo, const FVector* KnownHi )
 {
 	FSceneNode* F = View();
 	if( !Actor || !Actor->Mesh || !F )
@@ -605,7 +613,13 @@ UBOOL FRpgUi::PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zo
 	Actor->DrawScale = 1.f;
 	Actor->Location = FVector( 0, 0, 0 );
 	FVector Lo, Hi;
-	ActorBounds( Actor, Lo, Hi );
+	if( KnownLo && KnownHi )
+	{
+		Lo = *KnownLo;
+		Hi = *KnownHi;
+	}
+	else
+		ActorBounds( Actor, Lo, Hi );
 	const FVector Size = Hi - Lo;
 	const FLOAT Height = Max( Size.Z, 1.f );
 	const FLOAT Width = Max( Max(Size.X,Size.Y), 1.f );

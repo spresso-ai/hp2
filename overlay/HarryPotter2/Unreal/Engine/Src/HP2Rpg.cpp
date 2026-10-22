@@ -383,16 +383,19 @@ static UClass* LoadParticleClass( const TCHAR* Name )
 	Persistent RPG state.
 -----------------------------------------------------------------------------*/
 
-enum ERpgSkill { SKILL_Health, SKILL_Speed, SKILL_Jump, SKILL_Luck, SKILL_MAX };
+enum ERpgSkill { SKILL_Health, SKILL_Speed, SKILL_Jump, SKILL_Luck, SKILL_Wisdom, SKILL_Charm, SKILL_Focus, SKILL_MAX };
 enum { SKILL_MAX_PIPS = 5, MAX_TROPHIES = 32, MAX_MASTERED = 16 };
 
-static const TCHAR* GSkillNames[SKILL_MAX] = { TEXT("Health"), TEXT("Speed"), TEXT("Jump"), TEXT("Luck") };
+static const TCHAR* GSkillNames[SKILL_MAX] = { TEXT("Health"), TEXT("Speed"), TEXT("Jump"), TEXT("Luck"), TEXT("Wisdom"), TEXT("Charm"), TEXT("Focus") };
 static const TCHAR* GSkillDescs[SKILL_MAX] =
 {
 	TEXT("More maximum health: one extra health bar per point."),
 	TEXT("Harry runs faster: +8% per point."),
 	TEXT("Harry jumps higher and further: +10% per point."),
 	TEXT("Bonus beans on pickup and better prices."),
+	TEXT("Learn faster: +4% XP per point."),
+	TEXT("Students like you sooner (+20% reputation) and vendors give 2% off per point."),
+	TEXT("New spells recharge faster: -7% cooldown per point."),
 };
 
 struct FRpgState
@@ -426,6 +429,7 @@ struct FRpgState
 	INT Delivered[2];       // bit per letter id ever delivered (gifts are one-time)
 	INT DayPlaySeconds;     // play time since the school day began
 	INT DayTaskDone;        // a house task was completed today
+	INT GiftsPending;       // bit per inbox slot: gift not taken yet
 	INT Difficulty;         // ERpgDifficulty
 	INT Pages[MAX_PAGES/32];       // Field Guide pages found
 	INT QuestState[MAX_QUESTS];    // EQuestState
@@ -545,6 +549,7 @@ public:
 	UBOOL bLoadedFromSlot;
 	FString PrevMap;               // map before this one (new-game detection)
 	TArray<FString> TalkedToday;   // map:actor talked to this school day
+	TArray<FString> OpenedTreasure; // map:actor of chests/cauldrons already opened
 	INT RpgPoints[HOUSE_MAX];      // house points the mod itself just gave
 	FLOAT DayPlayAccum;
 	UBOOL bWasCutscene;
@@ -599,6 +604,9 @@ public:
 	INT BookTab;
 	INT Sel;
 	INT TryOn;          // cosmetic shown on Harry in the stage (-1: none)
+	struct FMeshBox { UMesh* Mesh; FVector Lo, Hi; };
+	TArray<FMeshBox> PreviewBoxes;   // standing bounds per mesh, measured once
+	FLOAT HarryRefH, HarryRefMinZ, QuidPivot;
 	UBOOL bConfirmLeave;
 	INT Scroll;
 	INT ShopTab;
@@ -861,6 +869,13 @@ public:
 		Text += FString(TEXT("Grades=")) + IntList(State.LessonGrades,8) + TEXT("\r\n");
 		Text += FString(TEXT("DecorOwned=")) + IntList(State.DecorOwned,32) + TEXT("\r\n");
 		Text += FString(TEXT("Decor=")) + SaveDecor() + TEXT("\r\n");
+		{
+			FString Opened;
+			for( INT o=0; o<OpenedTreasure.Num(); o++ )
+				Opened += OpenedTreasure(o) + TEXT("|");
+			Text += FString(TEXT("Opened=")) + Opened + TEXT("\r\n");
+		}
+		Text += FString::Printf(TEXT("GiftsPending=%i\r\n"), State.GiftsPending);
 		Text += FString(TEXT("QuestState=")) + IntList(State.QuestState,MAX_QUESTS) + TEXT("\r\n");
 		Text += FString(TEXT("QuestBase=")) + IntList(State.QuestBase,MAX_QUESTS) + TEXT("\r\n");
 		// By name too, so new table entries never shift what a save owns.
@@ -969,6 +984,9 @@ public:
 				ParseIntList( S, TEXT("Grades="), State.LessonGrades, 8 );
 				ParseIntList( S, TEXT("DecorOwned="), State.DecorOwned, 32 );
 				LoadDecor( S );
+				OpenedTreasure.Empty();
+				SplitNames( S, TEXT("Opened="), OpenedTreasure );
+				Parse( S, TEXT("GiftsPending="), State.GiftsPending );
 				ParseIntList( S, TEXT("QuestState="), State.QuestState, MAX_QUESTS );
 				ParseIntList( S, TEXT("QuestBase="), State.QuestBase, MAX_QUESTS );
 				if( Version>=3 )
@@ -1073,15 +1091,18 @@ public:
 				State.TaskDay = 0; // re-roll
 		for( INT h=0; h<4; h++ )
 			State.Rep[h] = Clamp( State.Rep[h], -100, 100 );
-		INT Kept = 0, Read = 0;
+		INT Kept = 0, Read = 0, Gifts = 0;
 		for( INT i=0; i<MAX_INBOX; i++ )
 			if( State.Inbox[i]>0 && State.Inbox[i]<=GNumLetters )
 			{
 				if( State.LettersRead & (1<<i) )
 					Read |= 1<<Kept;
+				if( State.GiftsPending & (1<<i) )
+					Gifts |= 1<<Kept;
 				State.Inbox[Kept++] = State.Inbox[i];
 			}
 		State.LettersRead = Read;
+		State.GiftsPending = Gifts;
 		for( INT i=Kept; i<MAX_INBOX; i++ )
 			State.Inbox[i] = 0;
 		for( INT s=0; s<RSLOT_MAX; s++ )
@@ -1151,9 +1172,11 @@ public:
 			if( (State.CardRewards & (1<<r)) && GCardRewards[r].Stat==Stat )
 				Total += GCardRewards[r].StatValue;
 		if( Stat==STAT_Discount )
-			Total += 2*State.Skill[SKILL_Luck];
+			Total += 2*State.Skill[SKILL_Luck] + 2*State.Skill[SKILL_Charm];
 		if( Stat==STAT_BeanFind )
 			Total += 8*State.Skill[SKILL_Luck];
+		if( Stat==STAT_XpGain )
+			Total += 4*State.Skill[SKILL_Wisdom];
 		if( State.FelixSeconds>0 && (Stat==STAT_BeanFind || Stat==STAT_XpGain) )
 			Total += 100;
 		return Total;
@@ -1540,9 +1563,36 @@ public:
 		if( Id<64 )
 			State.Delivered[Id>>5] |= 1<<(Id&31);
 		State.LettersRead = (State.LettersRead<<1) & ((1<<MAX_INBOX)-1);
+		State.GiftsPending = (State.GiftsPending<<1) & ((1<<MAX_INBOX)-1);
 		const FLetterDef& L = GLetters[Id];
+		// Gifts wait in the letter until Harry opens them in the Post tab.
+		if( bGift && L.Gift!=GIFT_None )
+		{
+			State.GiftsPending |= 1;
+			AddFeed( FString::Printf(TEXT("Owl post from %s"), L.From), FColor(230,210,170,255), TOAST_Reward, TEXT("A gift is waiting - open Post in your book (K)") );
+			return;
+		}
+		AddFeed( FString::Printf(TEXT("Owl post from %s"), L.From), FColor(230,210,170,255), TOAST_Reward, L.Subject );
+	}
+
+	// What a letter's gift is, in words.
+	static FString GiftText( const FLetterDef& L )
+	{
+		switch( L.Gift )
+		{
+			case GIFT_Beans:      return FString::Printf( TEXT("%i beans"), L.GiftAmount );
+			case GIFT_Potion:     return TEXT("a Wiggenweld Potion");
+			case GIFT_ChocFrog:   return TEXT("a Chocolate Frog");
+			case GIFT_BronzeCard: return TEXT("a Wizard Card");
+			case GIFT_SkillPoint: return TEXT("a skill point");
+			default:              return TEXT("");
+		}
+	}
+
+	void GrantGift( APlayerPawn* Harry, const FLetterDef& L )
+	{
 		FString Gift;
-		switch( bGift ? L.Gift : (INT)GIFT_None )
+		switch( L.Gift )
 		{
 			case GIFT_Beans:      GiveBeans( Harry, L.GiftAmount ); Gift = FString::Printf( TEXT("  +%i beans"), L.GiftAmount ); break;
 			case GIFT_Potion:     ApplyConsumable( Harry, CON_Potion, L.GiftAmount ); Gift = TEXT("  +Wiggenweld potion"); break;
@@ -1551,7 +1601,8 @@ public:
 			case GIFT_SkillPoint: State.SkillPoints += L.GiftAmount; Gift = TEXT("  +1 skill point"); break;
 			default: break;
 		}
-		AddFeed( FString::Printf(TEXT("Owl post from %s"), L.From), FColor(230,210,170,255), TOAST_Reward, *(FString(L.Subject) + Gift) );
+		AddFeed( FString::Printf(TEXT("Gift from %s"), L.From), FColor(255,222,130,255), TOAST_Reward, *GiftText(L) );
+		Ui.Play( RSND_Reward, Harry );
 	}
 
 	static const TCHAR* RepTier( INT Rep )
@@ -1567,6 +1618,8 @@ public:
 
 	void AddRep( INT House, INT Amount )
 	{
+		if( Amount>0 )
+			Amount = appRound( Amount*(1.f + 0.2f*State.Skill[SKILL_Charm]) );
 		const TCHAR* Before = RepTier( State.Rep[House] );
 		State.Rep[House] = Clamp( State.Rep[House]+Amount, -100, 100 );
 		const TCHAR* After = RepTier( State.Rep[House] );
@@ -1945,6 +1998,8 @@ public:
 			if( ShieldLeft>0.f || IsFrozen(Caller) || IsFrozen(ParmObj(Function,Locals,1)) )
 			{
 				*Damage = 0;
+				if( ShieldLeft>0.f && HasPerk(PERK_PerfectGuard) && Caller && Caller->IsA(AActor::StaticClass()) && CreatureType((AActor*)Caller)>=0 && CreatureType((AActor*)Caller)!=CR_Boss )
+					QueueRedispatch( (AActor*)Caller, 13 );
 				if( ShieldLeft>0.f )
 					PlaySfx( TEXT("HPSounds.Magic_sfx.Dueling_EXP_smack") );
 				return;
@@ -2092,6 +2147,16 @@ public:
 	{
 		if( !bEnabled || bLevelTransition || !Self->IsA(AActor::StaticClass()) )
 			return;
+		// Remember opened chests and cauldrons, so Revelio stops pointing at them.
+		{
+			static FName Turnover( TEXT("turnover") ), StillOpen( TEXT("stillOpen") );
+			if( (NewState==Turnover || NewState==StillOpen) && ClassChainIsAny(Self,TEXT("chestbronze|bronzecauldron")) && LastLevel )
+			{
+				const FString Key = LastLevel->URL.Map + TEXT(":") + Self->GetName();
+				if( OpenedTreasure.FindItemIndex(Key)==INDEX_NONE && OpenedTreasure.Num()<400 )
+					OpenedTreasure.AddItem( Key );
+			}
+		}
 		if( NewState==N_CaughtHarry )
 		{
 			if( RpgClock-LastCaughtTime > 10.f )
@@ -2618,6 +2683,27 @@ public:
 				Body->MultiSkins[0] = S0;
 				Body->MultiSkins[1] = S1;
 				Body->DrawScale = BaseDrawScale*O.Scale;
+				if( bIsHarry && QuidPivot!=0.f )
+				{
+					Body->PrePivot.Z -= QuidPivot;
+					QuidPivot = 0.f;
+				}
+				// The Quidditch mesh is built bigger and higher (for flying):
+				// bring it to Harry's height with his feet on the floor.
+				if( bIsHarry && IsQuidMesh(Mesh) && HarryRefH>10.f )
+				{
+					const FCoords B = Body->GetRenderBoundingBox( 1 );
+					const FLOAT QH = Abs( B.ZAxis.Z );
+					if( QH>10.f )
+					{
+						const FLOAT K = HarryRefH/QH;
+						Body->DrawScale *= K;
+						const FLOAT QMin = (Min(B.Origin.Z, B.Origin.Z+B.ZAxis.Z) - Body->Location.Z)*K;
+						QuidPivot = HarryRefMinZ - QMin;
+						Body->PrePivot.Z += QuidPivot;
+						RpgLog( TEXT("quidditch robes: height %.1f -> %.1f, pivot %.1f"), QH, HarryRefH, QuidPivot );
+					}
+				}
 				if( bIsHarry )
 					RpgLog( TEXT("costume on: %s"), Mesh->GetPathName() );
 			}
@@ -2626,6 +2712,11 @@ public:
 		}
 		else if( Body->Mesh!=HarryMesh )
 		{
+			if( bIsHarry && QuidPivot!=0.f )
+			{
+				Body->PrePivot.Z -= QuidPivot;
+				QuidPivot = 0.f;
+			}
 			Body->Mesh = HarryMesh;
 			for( INT i=0; i<8; i++ )
 				Body->MultiSkins[i] = NULL;
@@ -2717,7 +2808,16 @@ public:
 		if( RpgClock-HarrySince < 1.f )
 			return;
 		if( Harry->Mesh==HarryMesh && Harry->SkelAnim )
+		{
 			HarryAnim = Harry->SkelAnim;
+			// Reference size for costumes that come at another scale.
+			const FCoords B = Harry->GetRenderBoundingBox( 1 );
+			if( Abs(B.ZAxis.Z)>10.f )
+			{
+				HarryRefH = Abs( B.ZAxis.Z );
+				HarryRefMinZ = Min( B.Origin.Z, B.Origin.Z+B.ZAxis.Z ) - Harry->Location.Z;
+			}
+		}
 		SetCostume( Harry, State.Equip[RSLOT_Outfit], 1 );
 		// Keep Harry's own moves on the costume: if the linked set lacks the
 		// sequence being played the mesh falls back to its bind (T) pose.
@@ -2742,6 +2842,11 @@ public:
 	void RestoreCostume( APlayerPawn* Harry )
 	{
 		SetQuidFix( 0 );
+		if( Harry && QuidPivot!=0.f )
+		{
+			Harry->PrePivot.Z -= QuidPivot;
+			QuidPivot = 0.f;
+		}
 		if( Harry && CostumeApplied && Harry->Mesh==CostumeApplied && HarryMesh )
 		{
 			Harry->Mesh = HarryMesh;
@@ -3456,6 +3561,7 @@ public:
 		{
 			State.Reset();
 			Placed.Empty();
+			OpenedTreasure.Empty();
 			Sanitize();
 			SpellsKnownNotified = -1;
 			RpgLog( TEXT("new game, RPG progress reset") );

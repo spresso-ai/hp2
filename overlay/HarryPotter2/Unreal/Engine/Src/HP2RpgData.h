@@ -293,12 +293,15 @@ static const INT GSellIngredient = 6;
 	Spell mastery perks.
 -----------------------------------------------------------------------------*/
 
-enum ERpgSpell { SP_Flipendo, SP_Rictusempra, SP_Diffindo, SP_Skurge, SP_Wand, SP_MAX };
-static const TCHAR* GSpellNames[SP_MAX] = { TEXT("Flipendo"), TEXT("Rictusempra"), TEXT("Diffindo"), TEXT("Skurge"), TEXT("Wandwork") };
+enum ERpgSpell { SP_Flipendo, SP_Rictusempra, SP_Diffindo, SP_Skurge, SP_Wand, SP_Accio, SP_Revelio, SP_Protego, SP_Leviosa, SP_Glacius, SP_Arresto, SP_Transfig, SP_MAX };
+static const TCHAR* GSpellNames[SP_MAX] = { TEXT("Flipendo"), TEXT("Rictusempra"), TEXT("Diffindo"), TEXT("Skurge"), TEXT("Wandwork"),
+	TEXT("Accio"), TEXT("Revelio"), TEXT("Protego"), TEXT("Leviosa"), TEXT("Glacius"), TEXT("Arresto"), TEXT("Transfiguration") };
 static const TCHAR* GSpellIcons[SP_MAX] =
 {
 	TEXT("SpellShapes.Shapes.SPSflipendo"), TEXT("SpellShapes.Shapes.SPSrictusempra"), TEXT("SpellShapes.Shapes.SPSdiffindo"),
-	TEXT("SpellShapes.Shapes.SPSskurge"), TEXT("SpellShapes.Shapes.SPSlumos")
+	TEXT("SpellShapes.Shapes.SPSskurge"), TEXT("SpellShapes.Shapes.SPSlumos"),
+	TEXT("SpellShapes.Shapes.SPSalohomora"), TEXT("SpellShapes.Shapes.SPSlumos"), TEXT("SpellShapes.Shapes.SPSexpelliarmus"), TEXT("SpellShapes.Shapes.SPSspongify"),
+	TEXT("SpellShapes.Shapes.SPSmimble"), TEXT("SpellShapes.Shapes.SPSskurge"), TEXT("SpellShapes.Shapes.SPSdiffindo")
 };
 
 enum ERpgPerk
@@ -308,6 +311,14 @@ enum ERpgPerk
 	PERK_SharpCut, PERK_Harvest,
 	PERK_DeepClean, PERK_Ghostbuster,
 	PERK_QuickWand, PERK_FarSight, PERK_Duelist,
+	// Appended: upgrades for the wheel spells (perks are saved as bits).
+	PERK_LongReach, PERK_QuickSummons,
+	PERK_KeenEye, PERK_LingeringLight,
+	PERK_SturdyShield, PERK_PerfectGuard,
+	PERK_StrongLift, PERK_Hurl,
+	PERK_DeepFreeze, PERK_Shatter,
+	PERK_TimeSlip, PERK_Stillness,
+	PERK_LastingChange, PERK_GentleTouch,
 	PERK_MAX
 };
 
@@ -335,6 +346,20 @@ static const FPerkDef GPerks[PERK_MAX] =
 	{ SP_Wand, TEXT("Quick Wand"), TEXT("Cast spells faster."), 2, PERK_FarSight },
 	{ SP_Wand, TEXT("Far Sight"), TEXT("Your spell cursor locks on from further away."), 1, -1 },
 	{ SP_Wand, TEXT("Duellist"), TEXT("Your duel spells hit harder, and opponents' hit softer."), 2, PERK_QuickWand },
+	{ SP_Accio, TEXT("Long Reach"), TEXT("Accio pulls things from much further away."), 1, -1 },
+	{ SP_Accio, TEXT("Quick Summons"), TEXT("Accio recharges twice as fast."), 2, PERK_LongReach },
+	{ SP_Revelio, TEXT("Keen Eye"), TEXT("Revelio reaches across the whole area."), 1, -1 },
+	{ SP_Revelio, TEXT("Lingering Light"), TEXT("Revelio's markers stay twice as long."), 2, PERK_KeenEye },
+	{ SP_Protego, TEXT("Sturdy Shield"), TEXT("Protego lasts 6 seconds instead of 4."), 1, -1 },
+	{ SP_Protego, TEXT("Perfect Guard"), TEXT("Creatures that hit your shield are knocked back."), 2, PERK_SturdyShield },
+	{ SP_Leviosa, TEXT("Strong Lift"), TEXT("Lift bigger and heavier things."), 1, -1 },
+	{ SP_Leviosa, TEXT("Hurl"), TEXT("Thrown things fly much further and stun creatures."), 2, PERK_StrongLift },
+	{ SP_Glacius, TEXT("Deep Freeze"), TEXT("Frozen creatures stay frozen for 9 seconds."), 1, -1 },
+	{ SP_Glacius, TEXT("Shatter"), TEXT("Glacius also freezes creatures close to the target for a moment."), 2, PERK_DeepFreeze },
+	{ SP_Arresto, TEXT("Time Slip"), TEXT("Arresto Momentum lasts 10 seconds."), 1, -1 },
+	{ SP_Arresto, TEXT("Stillness"), TEXT("Enemies are slowed even more."), 2, PERK_TimeSlip },
+	{ SP_Transfig, TEXT("Lasting Change"), TEXT("Transfigured students stay changed for 40 seconds."), 1, -1 },
+	{ SP_Transfig, TEXT("Gentle Touch"), TEXT("Transfiguration no longer gets you into trouble."), 2, PERK_LastingChange },
 };
 
 /*-----------------------------------------------------------------------------

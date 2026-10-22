@@ -1,5 +1,16 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v5.2 – Nieuwe skills, spreuk-upgrades en mooie details
+- **3D-modellen in de menu's** staan nu altijd in dezelfde rustige houding (niet meer in de pose waarin Harry toevallig loopt of springt).
+- **Zwerkbalgewaad**: op Harry's eigen lengte en met de voeten op de grond.
+- **Nieuwe skills**: Wisdom (+4% XP per punt), Charm (sneller bevriend met leerlingen, 2% korting per punt) en Focus (nieuwe spreuken laden 7% sneller op per punt). De gele blokjes zijn terug bij Skills.
+- **Upgrades voor je nieuwe spreuken** (boek → Spells, tweede rij): Accio (verder bereik, sneller opladen), Revelio (hele gebied, langer zichtbaar), Protego (langer, wezens stuiteren terug), Leviosa (zwaardere dingen, verder gooien + verdoven), Glacius (langer bevroren, buren bevriezen mee), Arresto (langer, nog trager), Transfiguratie (langer, geen straf meer).
+- Beschrijvingen bij alle spreuk-upgrades staan er weer.
+- **Sierletters** voor titels, koppen en itemnamen.
+- **Bestiarium**: "R1/R2/R3" heet nu "Rank I / II / III" (hoe vaker verslagen, hoe meer je over het wezen weet).
+- **Revelio** onthoudt welke kisten en ketels je al hebt geopend (ook na opslaan) en toont **alle** verborgen veldgids-pagina's in het gebied, met afstand.
+- **Post met cadeau**: het cadeau blijft in de brief zitten. Open de brief in Post en klik op **Open gift** wanneer je wilt. In de lijst staat "Gift!".
+
 ## v5.1 – Levend kasteel, opslaan, terug naar de hub
 - **De magische look is terug**: nachtlucht, gouden kaders en hoekjes, titels in de sierletters van het spel – met de nieuwe, ruimere indeling.
 - **Levend kasteel**: leraren en bekende gezichten die volgens het verhaal niet in een hub staan, lopen er nu rond: Anderling, Smalhart, Haast Onthoofde Henk en Percy (Hal), Banning en Foppe (trappenhuis), Stronk, Oliver Plank en Hagrid (terrein). Ze blijven staan als je dichtbij komt; praat met ze (E) voor missies, lessen of een praatje. Staat iemand er al volgens het verhaal, dan komt er geen dubbele bij; tijdens filmpjes verdwijnen ze even.

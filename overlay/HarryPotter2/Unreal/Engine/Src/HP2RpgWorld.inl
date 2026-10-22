@@ -170,7 +170,7 @@
 	void StudentHitBySpell( AActor* Student, INT Trouble, INT Rep, const TCHAR* Reason )
 	{
 		// McGonagall's practical: transfiguring classmates is the homework.
-		if( LessonKind==LES_Transfig && appStrstr(Reason,TEXT("Transfig")) )
+		if( (LessonKind==LES_Transfig || HasPerk(PERK_GentleTouch)) && appStrstr(Reason,TEXT("Transfig")) )
 			return;
 		APlayerPawn* Harry = CurrentHarry();
 		FTroublemaker* T = FindTroublemaker( Student );
