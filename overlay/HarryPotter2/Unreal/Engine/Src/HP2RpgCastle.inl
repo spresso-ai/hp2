@@ -33,14 +33,18 @@
 			{ TEXT("Entryhall"), TEXT("Percy Weasley"), TEXT("Percy"), TEXT("HPModels.skPercyMesh"), TEXT("Walk"), 90.f, 0.f, TEXT("Prefect on patrol. Keep your nose clean, Harry.") },
 			{ TEXT("Grandstaircase"), TEXT("Professor Flitwick"), TEXT("ProfFlitwick"), TEXT("HPModels.skProfFlitwickMesh"), TEXT("Walk"), 55.f, 0.f, TEXT("Ah, Mr Potter! Swish and flick, remember - swish and flick!") },
 			{ TEXT("Grandstaircase"), TEXT("Peeves"), TEXT("Peeves"), TEXT("HPModels.skpeevesMesh"), TEXT("Flying"), 70.f, 75.f, TEXT("Potty wee Potter! Wandering about, are we?") },
-			{ TEXT("Grounds"), TEXT("Professor Sprout"), TEXT("ProfSprout"), TEXT("HPModels.skProfSproutMesh"), TEXT("Walk"), 65.f, 0.f, TEXT("Lovely weather for the Mandrakes, Harry dear.") },
-			{ TEXT("Grounds"), TEXT("Oliver Wood"), TEXT("OliverWood"), TEXT("HPModels.skOliverWoodMesh"), TEXT("Walk"), 95.f, 0.f, TEXT("Potter! Practice at dawn. Don't be late.") },
-			{ TEXT("Grounds"), TEXT("Hagrid"), TEXT("Hagrid"), TEXT("HPModels.skHagridMesh"), TEXT("Walk"), 70.f, 0.f, TEXT("'Ello, Harry! Fancy a rock cake later?") },
+			{ TEXT("Grounds_hub"), TEXT("Professor Sprout"), TEXT("ProfSprout"), TEXT("HPModels.skProfSproutMesh"), TEXT("Walk"), 65.f, 0.f, TEXT("Lovely weather for the Mandrakes, Harry dear.") },
+			{ TEXT("Grounds_hub"), TEXT("Oliver Wood"), TEXT("OliverWood"), TEXT("HPModels.skOliverWoodMesh"), TEXT("Walk"), 95.f, 0.f, TEXT("Potter! Practice at dawn. Don't be late.") },
+			{ TEXT("Grounds_hub"), TEXT("Hagrid"), TEXT("Hagrid"), TEXT("HPModels.skHagridMesh"), TEXT("Walk"), 70.f, 0.f, TEXT("'Ello, Harry! Fancy a rock cake later?") },
 			{ TEXT("Entryhall"), TEXT("Professor Snape"), TEXT("ProfSnape"), TEXT("HPModels.skProfSnapeMesh"), TEXT("Walk"), 60.f, 0.f, TEXT("Potter. Shouldn't you be somewhere... less in my way?") },
+			// --- Appended (v6.2): the night grounds ---------------------------
+			{ TEXT("Grounds_Night"), TEXT("Hagrid"), TEXT("Hagrid"), TEXT("HPModels.skHagridMesh"), TEXT("Walk"), 60.f, 0.f, TEXT("Harry! Out late, aren't yeh? Mind Filch doesn't catch yeh.") },
+			{ TEXT("Grounds_Night"), TEXT("Argus Filch"), TEXT("filch"), TEXT("HPModels.skFilchMesh"), TEXT("Walk"), 55.f, 0.f, TEXT("Out of bed at this hour? Wait till the Headmaster hears about this...") },
+			{ TEXT("Grounds_Night"), TEXT("Nearly Headless Nick"), TEXT("NHNick"), TEXT("HPModels.skNHNickMesh"), TEXT("Fly"), 45.f, 10.f, TEXT("A lovely night for a stroll, Harry. Do mind the Willow.") },
 		};
 		return Defs[ Clamp(i, 0, (INT)ARRAY_COUNT(Defs)-1) ];
 	}
-	enum { NUM_STANDINS = 10 };
+	enum { NUM_STANDINS = 13 };
 
 	// Retail voice lines each stand-in may call out (AllDialog ids).
 	static const TCHAR* StandInLines( INT i )
@@ -57,6 +61,9 @@
 			TEXT("PC_Owd_GoToQuid_00|PC_Owd_GoToQuid2_04|PC_Owd_QuidTut1_27"),
 			TEXT("PC_HDW_BUMPLINES_349|PC_HDW_BUMPLINES_352|PC_HDW_BUMPLINES_560|PC_HDW_BUMPLINES_355|PC_HDW_BUMPLINES_971"),
 			TEXT("PC_SNP_BUMPLINES_973|PC_SNP_BUMPLINES_974|PC_SNP_BUMPLINES_1004|PC_SNP_BUMPLINES_967"),
+			TEXT("PC_HDW_BUMPLINES_349|PC_HDW_BUMPLINES_354|PC_HDW_BUMPLINES_646"),
+			TEXT("PC_FIL_BUMPLINES_977|PC_FIL_BUMPLINES_979"),
+			TEXT("PC_Nhn_GoldExplain_01|PC_Nhn_GoldExplain_03|PC_Nhn_Chal2Skurge_18"),
 		};
 		return Lines[ Clamp(i, 0, (INT)NUM_STANDINS-1) ];
 	}
@@ -149,7 +156,7 @@
 	{
 		bStandInsSpawned = 1;
 		const TCHAR* Map = *Engine->GLevel->URL.Map;
-		if( !MapHas(Map,TEXT("_hub")) )
+		if( !MapHas(Map,TEXT("_hub")) && !MapHas(Map,TEXT("Grounds_Night")) )
 			return;
 		for( INT d=0; d<NUM_STANDINS; d++ )
 		{

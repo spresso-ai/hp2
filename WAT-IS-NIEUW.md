@@ -1,5 +1,10 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v6.2 – Deur naar je kamer, geen flikkering, leven op het nachtterrein
+- **Geen geflikker meer**: de avond- en nachtkleur gebruikt nu dezelfde rustige "gloed" als de vervagingen in filmpjes, in plaats van te vechten met de schade-flits van het spel.
+- **De ongebruikte deur boven in de Griffoendor-leerlingenkamer** is nu je punt: hij glinstert als je in de buurt bent. **E** = naar je kamer, **Z** = slapen tot de ochtend (vanaf 20:00). (Het traliehek doet niets meer.)
+- **Nachtterrein met mensen**: 's nachts lopen er **Hagrid**, **Argus Vilder** ("Out of bed at this hour?") en **Haast Onthoofde Henk** rond. Overdag blijven Stronk, Plank en Hagrid op het gewone terrein.
+
 ## v6.1 – Nacht, je eigen kamer, echte Zwerkbal, brouwen aan tafel
 - **Toverdranken aan een echte tafel**: bij Sneep in de Hal ga je aan een leerlingentafel in het toverdrankenlokaal staan; de camera kijkt schuin op het tafelblad met de ketel en de potjes (de echte potjes uit het spel). Huisdieren en vrienden staan dan even niet in beeld.
 - **Zwerkbaltraining op het echte veld**: na de eerste Zwerkballes uit het verhaal neemt Oliver Plank je mee naar het echte Zwerkbalveld – op je bezem, de Snaai vangen (de wedstrijden van het spel zelf; de finale blijft ongemoeid). Daarvóór blijft het de Snaaienjacht op het terrein.

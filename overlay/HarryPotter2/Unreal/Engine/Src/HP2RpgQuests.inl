@@ -222,8 +222,8 @@
 	// points in the hidden people rooms (cutscene storage) don't count.
 	static UBOOL NearPeopleRoom( const FVector& L )
 	{
-		static const FVector PeopleRooms[3] = { FVector(-1050.f,410.f,-291.f), FVector(-280.f,-240.f,298.f), FVector(-3590.f,-1400.f,35.f) };
-		for( INT r=0; r<3; r++ )
+		static const FVector PeopleRooms[4] = { FVector(-1050.f,410.f,-291.f), FVector(-280.f,-240.f,298.f), FVector(-3590.f,-1400.f,35.f), FVector(-2800.f,-1550.f,60.f) };
+		for( INT r=0; r<4; r++ )
 			if( (L-PeopleRooms[r]).SizeSquared() < 500.f*500.f )
 				return 1;
 		return 0;

@@ -407,6 +407,7 @@
 	-------------------------------------------------------------------------*/
 
 	FLOAT TintW;             // last W we set (1 = no tint)
+	FPlane TintGlow;         // last ConstantGlowFog we set
 	FLOAT SleepFade;         // > 0 while falling asleep
 
 	void UpdateDayNight( APlayerPawn* Harry, FLOAT DeltaSeconds )
@@ -442,21 +443,26 @@
 			if( SleepFade>=3.7f )
 				SleepFade = 0.f;
 		}
-		// Leave the game's own flashes (damage, spells) alone.
-		FPlane& Fog = Harry->FlashFog;
-		const UBOOL bOurs = Abs(Fog.W-TintW)<0.002f || (Fog.W>0.998f && Fog.X<0.002f && Fog.Y<0.002f && Fog.Z<0.002f);
+		// The tint is the player's ConstantGlowFog (the engine's ViewFlash
+		// eases the screen towards it every frame, so it never flickers).
+		// Cutscene fades use it too: only touch it while it is ours.
+		FPlane& Glow = Harry->ConstantGlowFog;
+		const FPlane Want( Col.X, Col.Y, Col.Z, W-1.f );
+		const UBOOL bOurs = Harry->FadeRate==0.f
+			&& ( (Abs(Glow.X-TintGlow.X)<0.002f && Abs(Glow.Y-TintGlow.Y)<0.002f && Abs(Glow.Z-TintGlow.Z)<0.002f && Abs(Glow.W-TintGlow.W)<0.002f)
+			  || (Abs(Glow.X)<0.002f && Abs(Glow.Y)<0.002f && Abs(Glow.Z)<0.002f && Abs(Glow.W)<0.002f) );
 		if( !bOurs )
 			return;
-		Fog = FPlane( Col.X, Col.Y, Col.Z, W );
-		Harry->DesiredFlashFog = Fog;
+		Glow = Want;
+		TintGlow = Want;
 		TintW = W;
 	}
 
 	/*-------------------------------------------------------------------------
 		Your own room and sleeping.
 
-		The barred gate at the east end of the Gryffindor common room's
-		upper gallery (Dorm_Bars) is never used by the game. Standing at it:
+		The door at the top of the Gryffindor common room (the locked bonus
+		challenge door, which the retail game never opens). Standing at it:
 		E goes to your room - the unused, empty Entry map - and Z sleeps
 		until morning once it is 20:00. In your room: E back, Z sleep.
 	-------------------------------------------------------------------------*/
@@ -469,11 +475,11 @@
 		return Map && (appStricmp(Map,TEXT("Entry"))==0 || appStricmp(Map,TEXT("Entry.unr"))==0);
 	}
 
-	static FVector RoomGateSpot() { return FVector( 2870.f, -2008.f, 632.f ); }
+	static FVector RoomGateSpot() { return FVector( 2646.f, -1874.f, 616.f ); }
 
 	UBOOL AtRoomGate( APlayerPawn* Harry )
 	{
-		return LastLevel && MapHas( *LastLevel->URL.Map, TEXT("Entryhall") ) && (Harry->Location-RoomGateSpot()).SizeSquared() < 160.f*160.f;
+		return LastLevel && MapHas( *LastLevel->URL.Map, TEXT("Entryhall") ) && (Harry->Location-RoomGateSpot()).SizeSquared() < 190.f*190.f;
 	}
 
 	UBOOL InRoom()
@@ -526,8 +532,8 @@
 		if( !bReturnFromRoom || RpgClock<ReturnAt || !LastLevel || !MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) )
 			return;
 		bReturnFromRoom = 0;
-		Engine->GLevel->FarMoveActor( Harry, RoomGateSpot() - FVector(60.f,0.f,0.f), 0, 1 );
-		Harry->Rotation = FRotator( 0, 32768, 0 );
+		Engine->GLevel->FarMoveActor( Harry, RoomGateSpot() + FVector(-50.f,60.f,24.f), 0, 1 );
+		Harry->Rotation = FRotator( 0, 16384, 0 );
 		Harry->ViewRotation = Harry->Rotation;
 	}
 
@@ -550,6 +556,9 @@
 		if( NightCheck>0.f || !LastLevel )
 			return;
 		NightCheck = 1.f;
+		// The door to your room glitters when Harry is near.
+		if( MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) && (Harry->Location-RoomGateSpot()).SizeSquared() < 900.f*900.f )
+			SpawnFx( Engine, TEXT("GoldSparkle01"), RoomGateSpot() + FVector(-40.f,-40.f,40.f), 1.2f );
 		const INT GS = GameStateNum( Harry );
 		if( !NightGroundsAllowed(GS) )
 			return;
