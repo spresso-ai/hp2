@@ -1,5 +1,17 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v6.1 – Nacht, je eigen kamer, echte Zwerkbal, brouwen aan tafel
+- **Toverdranken aan een echte tafel**: bij Sneep in de Hal ga je aan een leerlingentafel in het toverdrankenlokaal staan; de camera kijkt schuin op het tafelblad met de ketel en de potjes (de echte potjes uit het spel). Huisdieren en vrienden staan dan even niet in beeld.
+- **Zwerkbaltraining op het echte veld**: na de eerste Zwerkballes uit het verhaal neemt Oliver Plank je mee naar het echte Zwerkbalveld – op je bezem, de Snaai vangen (de wedstrijden van het spel zelf; de finale blijft ongemoeid). Daarvóór blijft het de Snaaienjacht op het terrein.
+- **Dag en nacht**: vanaf 18:00 kleurt het beeld warm, vanaf 20:00 wordt het donkerblauw. **Na 20:00 leidt de deur naar buiten naar het echte nachtterrein** van het spel (de weg naar het Verboden Bos blijft dicht).
+- **Slapen**: bij het **ongebruikte traliehek** boven op de galerij van de Griffoendor-leerlingenkamer (en in je kamer) druk je **Z** om tot de volgende ochtend te slapen (vanaf 20:00).
+- **Je eigen kamer**: bij datzelfde traliehek brengt **E** je naar een lege, ongebruikte kamer uit het spel – richt hem in met Boek → Room → Decorate here. **E** in je kamer brengt je terug. *(Experimenteel.)*
+- **Geen dubbele Sneep meer**, en **Banning** (Bezweringen) loopt nu wél rond; leraren die het verhaal ergens verstopt, tellen niet als aanwezig.
+- Lesvoorwerpen (Snaaien, planten, tekens) liggen alleen nog op plekken die je kunt bereiken.
+- **Fotomodus**: **F** maakt een foto (bewaard in Afbeeldingen → Harry Potter 2), **Tab** wisselt Harry's pose, slepen met de muis of pijltjes/WASD draait de camera.
+- Gezichten bij gesprekken bewegen niet meer mee met je muis.
+- Geen "PRESS ESC TO EXIT" meer over het brouw- en inrichtscherm.
+
 ## v6.0 – Schoolklok, lesrooster, echte toverdrankles, je eigen kamer
 **Klok en lesrooster**
 - Bovenin beeld staat nu de **schoolklok** ("Monday, 08:39"). Een schooldag loopt van 07:00 tot 22:00; schooldag 1 is een maandag.
