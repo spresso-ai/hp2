@@ -3648,7 +3648,8 @@ public:
 			bPlaced = UpdateFriend( Engine, Harry, Actor, Spec, FrameDelta );
 		else
 			Engine->GLevel->FarMoveActor( Actor, Harry->Location + FVector(0,0,Spec.Up), 0, 1 );
-		Actor->bHidden = Harry->bHidden || !bPlaced;
+		// Out of the picture while brewing at a desk or decorating.
+		Actor->bHidden = Harry->bHidden || !bPlaced || Menu==MENU_Brew || Menu==MENU_Room;
 		Actor->ScaleGlow = Harry->ScaleGlow;
 	}
 
@@ -3897,6 +3898,19 @@ public:
 		UpdateSchoolmates( Engine, Harry, DeltaSeconds );
 		UpdatePhoto( Harry );
 		UpdateRoomCam( Harry );
+		UpdateBrewCam( Harry );
+		UpdateDayNight( Harry, DeltaSeconds );
+		UpdateNightGrounds( Engine, Harry, DeltaSeconds );
+		PlaceAfterRoom( Engine, Harry );
+		// The console prints "PRESS ESC TO EXIT" over a paused game; the
+		// mod's own screens pause it, so keep that message empty.
+		if( UObject* Console = Harry->Player ? Harry->Player->Console : NULL )
+			if( UStrProperty* P = FindField<UStrProperty>( Console->GetClass(), TEXT("PausedMessage") ) )
+			{
+				FString* Msg = (FString*)((BYTE*)Console + P->Offset);
+				if( Msg->Len() )
+					*Msg = TEXT("");
+			}
 	}
 
 	void OnLevelChanged( UGameEngine* Engine )
@@ -3964,6 +3978,8 @@ public:
 			appMemzero( State.StockUsed, sizeof(State.StockUsed) );
 		}
 		RpgLog( TEXT("level %s, day %i"), MapName, State.Day );
+		bReturnFromRoom = IsRoomMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
+		ReturnAt = RpgClock + 0.6f;
 		PrevMap = MapName;
 	}
 

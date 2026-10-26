@@ -101,6 +101,21 @@
 		// Potions is brewed at a cauldron of its own.
 		if( k==LES_Potions )
 			return StartBrew( Engine, Harry, Npc );
+		// Quidditch: once the story has had its first practice, Wood takes
+		// Harry to the real pitch - the game's own replayable match, on a
+		// broom, catching the Snitch (match 5, the final, is left alone).
+		const INT GS = GameStateNum( Harry );
+		if( k==LES_Quidditch && GS>=40 )
+		{
+			const INT Match = GS>=130 ? 4 : GS>=100 ? 3 : GS>=80 ? 2 : GS>=50 ? 1 : 0;
+			SetIntProp( Harry, TEXT("curQuidMatchNum"), Match );
+			State.LessonDay = State.Day;
+			MarkSlotAttended();
+			GiveXp( 60, TEXT("Quidditch practice") );
+			SayAs( L.TeacherName, TEXT("Right, Harry - onto your broom! Proper practice on the pitch today: find the Snitch and catch it."), LessonTeacherMesh(k) );
+			TravelTo( Engine, Harry, TEXT("Quidditch.unr") );
+			return 1;
+		}
 		LessonKind = k;
 		LessonLeft = L.Time;
 		LessonProgress = LessonMisses = 0;
@@ -139,7 +154,7 @@
 				for( INT i=0; i<L.Count; i++ )
 				{
 					FVector Where;
-					if( !PickSpot( Engine, (DWORD)(State.Day*53 + i*29 + 7), Where ) )
+					if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*53 + i*29 + 7), Where ) )
 						continue;
 					AActor* A = SpawnPickup( Engine, Pots[i%3], Where, 0.9f );
 					if( A )
@@ -155,7 +170,7 @@
 				for( INT i=0; i<L.Count; i++ )
 				{
 					FVector Where;
-					if( !PickSpot( Engine, (DWORD)(State.Day*61 + i*43 + 11), Where ) )
+					if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*61 + i*43 + 11), Where ) )
 						continue;
 					Where.Z += 55.f;
 					AActor* A = SpawnPickup( Engine, TEXT("HPModels.skSnitchMesh"), Where, 2.f );
@@ -173,7 +188,7 @@
 				for( INT i=0; i<L.Count; i++ )
 				{
 					FVector Where;
-					if( !PickSpot( Engine, (DWORD)(State.Day*71 + i*37 + 3), Where ) )
+					if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*71 + i*37 + 3), Where ) )
 						continue;
 					AActor* A = SpawnPickup( Engine, TEXT("HProps.skChallengeStarMesh"), Where, 0.5f );
 					if( A )
@@ -673,7 +688,7 @@
 		const FLOAT BY = Area.Y+Area.H-RowH;
 		const FLOAT BW = Area.W/3.f - 6*S;
 		const FDecorDef& Dd = Decor( Sel );
-		const UBOOL bHub = LastLevel && MapHas(*LastLevel->URL.Map,TEXT("_hub") );
+		const UBOOL bHub = LastLevel && (MapHas(*LastLevel->URL.Map,TEXT("_hub")) || IsRoomMap(*LastLevel->URL.Map));
 		if( Ui.Button( FRpgRect(Area.X, BY, BW, RowH-2*S), *FString::Printf(TEXT("Buy (%i)"), Dd.Price), Beans>=Dd.Price, &Placed ) )
 		{
 			GiveBeans( Harry, -Dd.Price );

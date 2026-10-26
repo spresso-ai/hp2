@@ -36,7 +36,7 @@
 			{ TEXT("Grounds"), TEXT("Professor Sprout"), TEXT("ProfSprout"), TEXT("HPModels.skProfSproutMesh"), TEXT("Walk"), 65.f, 0.f, TEXT("Lovely weather for the Mandrakes, Harry dear.") },
 			{ TEXT("Grounds"), TEXT("Oliver Wood"), TEXT("OliverWood"), TEXT("HPModels.skOliverWoodMesh"), TEXT("Walk"), 95.f, 0.f, TEXT("Potter! Practice at dawn. Don't be late.") },
 			{ TEXT("Grounds"), TEXT("Hagrid"), TEXT("Hagrid"), TEXT("HPModels.skHagridMesh"), TEXT("Walk"), 70.f, 0.f, TEXT("'Ello, Harry! Fancy a rock cake later?") },
-			{ TEXT("Entryhall"), TEXT("Professor Snape"), TEXT("Snape"), TEXT("HPModels.skProfSnapeMesh"), TEXT("Walk"), 60.f, 0.f, TEXT("Potter. Shouldn't you be somewhere... less in my way?") },
+			{ TEXT("Entryhall"), TEXT("Professor Snape"), TEXT("ProfSnape"), TEXT("HPModels.skProfSnapeMesh"), TEXT("Walk"), 60.f, 0.f, TEXT("Potter. Shouldn't you be somewhere... less in my way?") },
 		};
 		return Defs[ Clamp(i, 0, (INT)ARRAY_COUNT(Defs)-1) ];
 	}
@@ -65,6 +65,22 @@
 	TArray<FStandIn> StandIns;
 	UBOOL bStandInsSpawned;
 	FLOAT StandInDelay;
+	FLOAT StandInCheck;
+
+	// The retail character this stand-in replaces is out in the open now.
+	UBOOL StoryCopyAbout( UGameEngine* Engine, const FStandInDef& Def )
+	{
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AActor* A = Engine->GLevel->Actors(i);
+			if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || !A->IsA(APawn::StaticClass()) || A->Tag==FName(TEXT("HP2RpgActor")) )
+				continue;
+			const UBOOL bSame = ClassChainIs(A,Def.Class) || (appStricmp(Def.Class,TEXT("ProfSnape"))==0 && ClassChainIs(A,TEXT("Snape")));
+			if( bSame && IsOutAndAbout(Engine,A) )
+				return 1;
+		}
+		return 0;
+	}
 
 	static UBOOL ListHas( const TCHAR* List, const TCHAR* Name )
 	{
@@ -141,13 +157,9 @@
 			if( !MapHas(Map,Def.Map) )
 				continue;
 			// The story already shows this character here: no double.
-			UBOOL bPresent = 0;
-			for( INT i=0; i<Engine->GLevel->Actors.Num() && !bPresent; i++ )
-			{
-				AActor* A = Engine->GLevel->Actors(i);
-				if( A && !A->bDeleteMe && !A->bHidden && !IsHolding(A) && A->IsA(APawn::StaticClass()) && ClassChainIs(A,Def.Class) )
-					bPresent = 1;
-			}
+			// Snape has two retail classes; one parked out of reach for a
+			// cutscene doesn't count, then the stand-in walks instead.
+			const UBOOL bPresent = StoryCopyAbout( Engine, Def );
 			if( bPresent )
 				continue;
 			FVector Where;
@@ -197,12 +209,23 @@
 				SpawnStandIns( Engine, Harry );
 			return;
 		}
+		// Now and then: step aside if the story brings its own copy out.
+		StandInCheck -= DeltaSeconds;
+		const UBOOL bCheck = StandInCheck<=0.f;
+		if( bCheck )
+			StandInCheck = 3.f;
 		for( INT i=StandIns.Num()-1; i>=0; i-- )
 		{
 			FStandIn& S = StandIns(i);
 			AActor* A = S.Actor;
 			if( !IsInLevel(A) )
 			{
+				StandIns.Remove( i );
+				continue;
+			}
+			if( bCheck && StoryCopyAbout( Engine, StandInDef(S.Def) ) )
+			{
+				DestroyActorSafe( Engine, S.Actor );
 				StandIns.Remove( i );
 				continue;
 			}

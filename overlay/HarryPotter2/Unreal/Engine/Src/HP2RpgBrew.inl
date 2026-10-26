@@ -68,11 +68,23 @@
 		return A;
 	}
 
+	// At a real desk in Snape's classroom (Entryhall_hub, DeskStudent5):
+	// Harry stands at it, the desk's own cauldron makes way for ours and
+	// the camera looks down on the desk top.
+	UBOOL bBrewDesk;
+	AActor* BrewHidden;      // the desk's retail cauldron, hidden meanwhile
+	enum { BREW_DESK_X = -4642, BREW_DESK_Y = -406 };
+	static FLOAT BrewDeskTop() { return -476.96f; }
+
 	void EndBrew( UGameEngine* Engine )
 	{
 		DestroyActorSafe( Engine, BrewCauldron );
 		for( INT j=0; j<BREW_JARS; j++ )
 			DestroyActorSafe( Engine, BrewJars[j] );
+		if( BrewHidden && IsInLevel(BrewHidden) )
+			BrewHidden->bHidden = 0;
+		BrewHidden = NULL;
+		bBrewDesk = 0;
 	}
 
 	void ForgetBrew()
@@ -80,11 +92,64 @@
 		BrewCauldron = NULL;
 		for( INT j=0; j<BREW_JARS; j++ )
 			BrewJars[j] = NULL;
+		BrewHidden = NULL;
+		bBrewDesk = 0;
+	}
+
+	// A prop resting on a surface at height Top.
+	AActor* SpawnOnTop( UGameEngine* Engine, const TCHAR* Mesh, FLOAT X, FLOAT Y, FLOAT Top, FLOAT Scale )
+	{
+		AActor* A = SpawnPickup( Engine, Mesh, FVector(X,Y,Top+40.f), Scale );
+		if( !A )
+			return NULL;
+		A->Location = FVector( 0, 0, 0 );
+		const FCoords Box = A->GetRenderBoundingBox( 1 );
+		Engine->GLevel->FarMoveActor( A, FVector( X, Y, Top - Min(Box.Origin.Z, Box.Origin.Z+Box.ZAxis.Z) ), 0, 1 );
+		A->AmbientGlow = 70;
+		return A;
+	}
+
+	// Keeps the paused camera over the desk while brewing there.
+	void UpdateBrewCam( APlayerPawn* Harry )
+	{
+		AActor* Cam = HarryCam( Harry );
+		if( Menu!=MENU_Brew || !bBrewDesk || !Cam )
+			return;
+		const FVector Look( BREW_DESK_X, BREW_DESK_Y+4.f, BrewDeskTop() );
+		Cam->Location = FVector( BREW_DESK_X, BREW_DESK_Y-150.f, BrewDeskTop()+165.f );
+		Cam->Rotation = (Look - Cam->Location).Rotation();
 	}
 
 	UBOOL StartBrew( UGameEngine* Engine, APlayerPawn* Harry, AActor* Teacher )
 	{
 		EndBrew( Engine );
+		// In Snape's classroom: brew at a student desk.
+		if( LastLevel && MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) && (Harry->Location-FVector(BREW_DESK_X,BREW_DESK_Y,-470.f)).Size2D() < 2600.f )
+		{
+			bBrewDesk = 1;
+			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+			{
+				AActor* A = Engine->GLevel->Actors(i);
+				if( A && !A->bDeleteMe && !A->bHidden && A->Tag!=FName(TEXT("HP2RpgActor")) && A->Mesh && MapHas(A->Mesh->GetName(),TEXT("Cauldron"))
+					&& (A->Location-FVector(BREW_DESK_X,BREW_DESK_Y,-470.f)).Size2D() < 50.f )
+				{
+					BrewHidden = A;
+					A->bHidden = 1;
+				}
+			}
+			Engine->GLevel->FarMoveActor( Harry, FVector(BREW_DESK_X, -462.f, -471.f), 0, 1 );
+			Harry->Rotation = FRotator( 0, 16384, 0 );
+			Harry->ViewRotation = Harry->Rotation;
+			Harry->Velocity = FVector( 0, 0, 0 );
+			BrewCauldron = SpawnOnTop( Engine, TEXT("HProps.skCauldronStudentMesh"), BREW_DESK_X+22.f, BREW_DESK_Y, BrewDeskTop(), 1.f );
+			static const FLOAT JX[BREW_JARS] = { -42.f, -26.f, -42.f, -26.f };
+			static const FLOAT JY[BREW_JARS] = { 11.f, 11.f, -11.f, -11.f };
+			for( INT j=0; j<BREW_JARS; j++ )
+				BrewJars[j] = SpawnOnTop( Engine, BrewJarMesh(j), BREW_DESK_X+JX[j], BREW_DESK_Y+JY[j], BrewDeskTop(), 1.f );
+		}
+		if( bBrewDesk && BrewCauldron )
+			return BeginBrew( Engine );
+		bBrewDesk = 0;
 		FVector Fwd = Harry->Rotation.Vector();
 		Fwd.Z = 0.f;
 		Fwd = Fwd.SafeNormal();
@@ -101,6 +166,11 @@
 			EndBrew( Engine );
 			return 0;
 		}
+		return BeginBrew( Engine );
+	}
+
+	UBOOL BeginBrew( UGameEngine* Engine )
+	{
 		LessonKind = LES_Potions;
 		LessonLeft = Lesson(LES_Potions).Time;
 		LessonProgress = LessonMisses = 0;
@@ -110,8 +180,7 @@
 		BrewAngle = 0.f;
 		BrewMsg = TEXT("");
 		SpawnFx( Engine, TEXT("SmokeExplo_01"), BrewCauldron->Location, 1.f );
-		INT Index = 0;
-		SpeakLine( Harry, TEXT("PC_Snp_PotionTeach_03"), Index );
+		// No voice here: its subtitle would sit under the brewing panels.
 		OpenMenu( Engine, MENU_Brew );
 		RpgLog( TEXT("brewing started") );
 		return 1;

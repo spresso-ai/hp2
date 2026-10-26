@@ -662,6 +662,7 @@
 			if( bGameplay )
 			{
 				DrawClockHud( Harry );
+				DrawSleepPrompt( Harry );
 				DrawQuestHud( Harry );
 				DrawLessonHud( Harry );
 			}
@@ -2073,6 +2074,8 @@
 			if( LessonInput( Engine, Harry, Key, Action ) )
 				return 1;
 			if( Key==IK_E && Action==IST_Press && !NearNpc && IsFreeGameplay(Engine,Harry) && BrewInput( Engine, Harry ) )
+				return 1;
+			if( (Key==IK_E || Key==IK_Z) && Action==IST_Press && IsFreeGameplay(Engine,Harry) && SleepInput( Engine, Harry, Key ) )
 				return 1;
 			if( Key==IK_F5 && Action==IST_Press )
 			{

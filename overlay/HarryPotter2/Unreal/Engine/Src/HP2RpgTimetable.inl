@@ -398,3 +398,228 @@
 		}
 		Ui.Border( R, Max(1.f,Ui.P(2.f)), RpgGold );
 	}
+
+	/*-------------------------------------------------------------------------
+		Day and night: the evening glows orange, the night is dark blue.
+		The engine blends Harry's FlashFog colour over the scene with
+		strength 1-W (the same effect as the game's damage flash), so the
+		tint is only set while the game isn't flashing on its own.
+	-------------------------------------------------------------------------*/
+
+	FLOAT TintW;             // last W we set (1 = no tint)
+	FLOAT SleepFade;         // > 0 while falling asleep
+
+	void UpdateDayNight( APlayerPawn* Harry, FLOAT DeltaSeconds )
+	{
+		const INT M = ClockMinutes();
+		FVector Col( 0.f, 0.f, 0.f );
+		FLOAT W = 1.f;
+		const UBOOL bHub = LastLevel && MapHas( *LastLevel->URL.Map, TEXT("_hub") );
+		if( bHub && !bWasCutscene )
+		{
+			if( M>=18*60 && M<20*60 )
+			{
+				const FLOAT T = (M-18*60)/120.f;
+				Col = FVector( 0.32f, 0.16f, 0.05f );
+				W = 1.f - 0.18f*T;
+			}
+			else if( M>=20*60 )
+			{
+				const FLOAT T = Min( 1.f, (M-20*60)/60.f );
+				Col = FVector( 0.02f, 0.03f, 0.10f )*T + FVector( 0.32f, 0.16f, 0.05f )*(1.f-T);
+				W = 0.82f - 0.27f*T;
+			}
+		}
+		// Falling asleep: fade to black, then the new day starts.
+		if( SleepFade>0.f )
+		{
+			SleepFade += DeltaSeconds;
+			const FLOAT K = SleepFade<1.5f ? SleepFade/1.5f : SleepFade<2.5f ? 1.f : Max( 0.f, 1.f-(SleepFade-2.5f)/1.2f );
+			Col = Col*(1.f-K);
+			W = W*(1.f-K);
+			if( SleepFade>=1.5f && SleepFade-DeltaSeconds<1.5f )
+				WakeUp( Harry );
+			if( SleepFade>=3.7f )
+				SleepFade = 0.f;
+		}
+		// Leave the game's own flashes (damage, spells) alone.
+		FPlane& Fog = Harry->FlashFog;
+		const UBOOL bOurs = Abs(Fog.W-TintW)<0.002f || (Fog.W>0.998f && Fog.X<0.002f && Fog.Y<0.002f && Fog.Z<0.002f);
+		if( !bOurs )
+			return;
+		Fog = FPlane( Col.X, Col.Y, Col.Z, W );
+		Harry->DesiredFlashFog = Fog;
+		TintW = W;
+	}
+
+	/*-------------------------------------------------------------------------
+		Your own room and sleeping.
+
+		The barred gate at the east end of the Gryffindor common room's
+		upper gallery (Dorm_Bars) is never used by the game. Standing at it:
+		E goes to your room - the unused, empty Entry map - and Z sleeps
+		until morning once it is 20:00. In your room: E back, Z sleep.
+	-------------------------------------------------------------------------*/
+
+	UBOOL bReturnFromRoom;   // just came back from the room: stand at the gate
+	FLOAT ReturnAt;          // once the level has placed Harry itself
+
+	static UBOOL IsRoomMap( const TCHAR* Map )
+	{
+		return Map && (appStricmp(Map,TEXT("Entry"))==0 || appStricmp(Map,TEXT("Entry.unr"))==0);
+	}
+
+	static FVector RoomGateSpot() { return FVector( 2870.f, -2008.f, 632.f ); }
+
+	UBOOL AtRoomGate( APlayerPawn* Harry )
+	{
+		return LastLevel && MapHas( *LastLevel->URL.Map, TEXT("Entryhall") ) && (Harry->Location-RoomGateSpot()).SizeSquared() < 160.f*160.f;
+	}
+
+	UBOOL InRoom()
+	{
+		return LastLevel && IsRoomMap( *LastLevel->URL.Map );
+	}
+
+	// Travel the way TriggerChangeLevel does: save the level's actors, then
+	// let the console change level (with Harry's inventory).
+	void TravelTo( UGameEngine* Engine, APlayerPawn* Harry, const TCHAR* Map )
+	{
+		UObject* Console = Harry && Harry->Player ? (UObject*)Harry->Player->Console : NULL;
+		if( !Console )
+			return;
+		PreSave( Engine );
+		Engine->Exec( TEXT("SAVEPACTORS"), *GLog );
+		FRpgArg Args[2] = { FRpgArg::S(Map), FRpgArg::I(1) };
+		CallScript( Console, TEXT("ChangeLevel"), Args, 2 );
+		RpgLog( TEXT("travel to %s"), Map );
+	}
+
+	UBOOL SleepInput( UGameEngine* Engine, APlayerPawn* Harry, EInputKey Key )
+	{
+		const UBOOL bGate = AtRoomGate( Harry ), bRoom = InRoom();
+		if( (!bGate && !bRoom) || SleepFade>0.f )
+			return 0;
+		if( Key==IK_Z )
+		{
+			if( ClockMinutes() < 20*60 )
+			{
+				SayAs( TEXT("Percy Weasley"), TEXT("Bed already? It's not even eight o'clock. There's plenty of day left."), TEXT("HPModels.skPercyMesh") );
+				return 1;
+			}
+			SleepFade = 0.001f;
+			Ui.Play( RSND_Open, Harry );
+			return 1;
+		}
+		if( Key==IK_E && !NearNpc )
+		{
+			Ui.Play( RSND_Open, Harry );
+			TravelTo( Engine, Harry, bRoom ? TEXT("Entryhall_hub.unr") : TEXT("Entry.unr") );
+			return 1;
+		}
+		return 0;
+	}
+
+	// Back from the room: Harry stands at the gate again.
+	void PlaceAfterRoom( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		if( !bReturnFromRoom || RpgClock<ReturnAt || !LastLevel || !MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) )
+			return;
+		bReturnFromRoom = 0;
+		Engine->GLevel->FarMoveActor( Harry, RoomGateSpot() - FVector(60.f,0.f,0.f), 0, 1 );
+		Harry->Rotation = FRotator( 0, 32768, 0 );
+		Harry->ViewRotation = Harry->Rotation;
+	}
+
+	/*-------------------------------------------------------------------------
+		Night on the grounds: after 20:00 the door to the grounds leads to
+		the game's own night map (Grounds_Night), outside the two story
+		visits that use it. Its way into the Forbidden Forest is closed.
+	-------------------------------------------------------------------------*/
+
+	FLOAT NightCheck;
+
+	static UBOOL NightGroundsAllowed( INT GS )
+	{
+		return GS!=10 && GS!=80 && GS!=150 && GS!=160;
+	}
+
+	void UpdateNightGrounds( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
+	{
+		NightCheck -= DeltaSeconds;
+		if( NightCheck>0.f || !LastLevel )
+			return;
+		NightCheck = 1.f;
+		const INT GS = GameStateNum( Harry );
+		if( !NightGroundsAllowed(GS) )
+			return;
+		const TCHAR* Map = *LastLevel->URL.Map;
+		if( MapHas(Map,TEXT("Entryhall")) )
+		{
+			// The day door to the grounds: Grounds_hub by day, Grounds_Night at night.
+			const UBOOL bNight = ClockMinutes() >= 20*60;
+			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+			{
+				AActor* A = Engine->GLevel->Actors(i);
+				if( !A || A->bDeleteMe || A->Tag!=FName(TEXT("GroundsHub")) || !ClassChainIs(A,TEXT("TriggerChangeLevel")) )
+					continue;
+				if( UStrProperty* P = FindField<UStrProperty>( A->GetClass(), TEXT("NewMapName") ) )
+				{
+					FString& To = *(FString*)((BYTE*)A + P->Offset);
+					const TCHAR* Want = bNight ? TEXT("Grounds_Night.unr") : TEXT("Grounds_hub.unr");
+					if( appStricmp(*To,Want)!=0 )
+					{
+						To = Want;
+						RpgLog( TEXT("grounds door now leads to %s"), Want );
+					}
+				}
+			}
+		}
+		else if( MapHas(Map,TEXT("Grounds_Night")) )
+		{
+			// No way into the forest outside the story night.
+			const FVector Forest( 4000.f, 3400.f, -150.f );
+			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+			{
+				AActor* A = Engine->GLevel->Actors(i);
+				if( !A || A->bDeleteMe || !A->bCollideActors )
+					continue;
+				const UBOOL bForestExit = A->Tag==FName(TEXT("ChangeLevelAdv8Forest"));
+				const UBOOL bNear = (A->Location-Forest).SizeSquared() < 900.f*900.f && (ClassChainIs(A,TEXT("Trigger")) || ClassChainIs(A,TEXT("CutScene")));
+				if( bForestExit || bNear )
+				{
+					A->SetCollision( 0, 0, 0 );
+					RpgLog( TEXT("night grounds: closed %s"), A->GetName() );
+				}
+			}
+		}
+	}
+
+	// The night passes: a new school day at 07:00.
+	void WakeUp( APlayerPawn* Harry )
+	{
+		LastDayClock = RpgClock;
+		State.Day++;
+		State.DayPlaySeconds = 0;
+		State.DayTaskDone = 0;
+		TalkedToday.Empty();
+		SyncSlotDay();
+		if( LastLevel )
+			StepRhythm( *LastLevel->URL.Map, 0 );
+		if( Ui.Engine )
+			EndSchoolmates( Ui.Engine );
+		AddFeed( FString::Printf(TEXT("Good morning! %s"), WeekDayName(WeekDay())), FColor(255,222,130,255), TOAST_Level,
+			*FString::Printf(TEXT("School day %i - week %i"), State.Day, WeekNum()) );
+		RpgLog( TEXT("slept: day %i"), State.Day );
+	}
+
+	void DrawSleepPrompt( APlayerPawn* Harry )
+	{
+		const UBOOL bGate = AtRoomGate( Harry ), bRoom = InRoom();
+		if( (!bGate && !bRoom) || SleepFade>0.f )
+			return;
+		const TCHAR* Keys[2] = { TEXT("E"), TEXT("Z") };
+		const TCHAR* Verbs[2] = { bRoom ? TEXT("Back to the common room") : TEXT("Your room"),
+			ClockMinutes()>=20*60 ? TEXT("Sleep until morning") : TEXT("Sleep (after 20:00)") };
+		Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, 2, bRoom ? TEXT("Your room") : TEXT("Dormitory") );
+	}

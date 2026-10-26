@@ -604,10 +604,16 @@ UBOOL FRpgUi::PlaceInRect( AActor* Actor, const FRpgRect& R, FLOAT Yaw, FLOAT Zo
 	FSceneNode* F = View();
 	if( !Actor || !Actor->Mesh || !F )
 		return 0;
-	// Face the camera.
+	// Face the camera square on, upright on screen: the view's pitch must
+	// not tilt the model (in gameplay the camera looks up and down).
 	const FVector Fwd = F->Coords.ZAxis;
-	const INT CamYaw = appRound( (FLOAT)appAtan2(Fwd.Y,Fwd.X)*32768.f/PI );
-	Actor->Rotation = FRotator( 0, CamYaw + 32768 + appRound(Yaw), 0 );
+	{
+		const FLOAT A = Yaw*PI/32768.f;
+		const FVector Fm = -F->Coords.ZAxis, Rm = -F->Coords.XAxis, Um = -F->Coords.YAxis;
+		const FVector F2 = Fm*(FLOAT)appCos(A) + Rm*(FLOAT)appSin(A);
+		const FVector R2 = Rm*(FLOAT)appCos(A) - Fm*(FLOAT)appSin(A);
+		Actor->Rotation = FCoords( FVector(0,0,0), F2, R2, Um ).OrthoRotation();
+	}
 
 	// Measure at scale 1 at the origin.
 	Actor->DrawScale = 1.f;
