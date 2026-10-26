@@ -36,10 +36,11 @@
 			{ TEXT("Grounds"), TEXT("Professor Sprout"), TEXT("ProfSprout"), TEXT("HPModels.skProfSproutMesh"), TEXT("Walk"), 65.f, 0.f, TEXT("Lovely weather for the Mandrakes, Harry dear.") },
 			{ TEXT("Grounds"), TEXT("Oliver Wood"), TEXT("OliverWood"), TEXT("HPModels.skOliverWoodMesh"), TEXT("Walk"), 95.f, 0.f, TEXT("Potter! Practice at dawn. Don't be late.") },
 			{ TEXT("Grounds"), TEXT("Hagrid"), TEXT("Hagrid"), TEXT("HPModels.skHagridMesh"), TEXT("Walk"), 70.f, 0.f, TEXT("'Ello, Harry! Fancy a rock cake later?") },
+			{ TEXT("Entryhall"), TEXT("Professor Snape"), TEXT("Snape"), TEXT("HPModels.skProfSnapeMesh"), TEXT("Walk"), 60.f, 0.f, TEXT("Potter. Shouldn't you be somewhere... less in my way?") },
 		};
 		return Defs[ Clamp(i, 0, (INT)ARRAY_COUNT(Defs)-1) ];
 	}
-	enum { NUM_STANDINS = 9 };
+	enum { NUM_STANDINS = 10 };
 
 	// Retail voice lines each stand-in may call out (AllDialog ids).
 	static const TCHAR* StandInLines( INT i )
@@ -55,6 +56,7 @@
 			TEXT("PC_Spr_HerbDiffTeach_06|PC_Spr_Chal3Diff_22|PC_Spr_Chal3Diff_07"),
 			TEXT("PC_Owd_GoToQuid_00|PC_Owd_GoToQuid2_04|PC_Owd_QuidTut1_27"),
 			TEXT("PC_HDW_BUMPLINES_349|PC_HDW_BUMPLINES_352|PC_HDW_BUMPLINES_560|PC_HDW_BUMPLINES_355|PC_HDW_BUMPLINES_971"),
+			TEXT("PC_SNP_BUMPLINES_973|PC_SNP_BUMPLINES_974|PC_SNP_BUMPLINES_1004|PC_SNP_BUMPLINES_967"),
 		};
 		return Lines[ Clamp(i, 0, (INT)NUM_STANDINS-1) ];
 	}

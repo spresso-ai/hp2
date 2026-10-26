@@ -661,6 +661,7 @@
 		{
 			if( bGameplay )
 			{
+				DrawClockHud( Harry );
 				DrawQuestHud( Harry );
 				DrawLessonHud( Harry );
 			}
@@ -676,6 +677,10 @@
 			DrawShop( Engine, Harry );
 		else if( Menu==MENU_Book )
 			DrawBook( Engine, Harry );
+		else if( Menu==MENU_Timetable )
+			DrawTimetable( Engine, Harry );
+		else if( Menu==MENU_Brew )
+			DrawBrew( Engine, Harry );
 		if( Menu!=MENU_None )
 			DrawFeed();
 		Ui.End();
@@ -1285,7 +1290,7 @@
 		const FRpgRect Body(Pad+NavW+Gap,Top,Max(Ui.P(80.f),Ui.C->ClipX-Pad*2-NavW-Gap),ContentH);
 		Ui.Text(TitleFont,Body.X,Pad-Ui.P(6.f),RpgGoldBright,GBookTabNames[BookTab],RALIGN_Left);
 		Ui.Text(Ui.FontBody,Body.X,Pad+TitleH,RpgMuted,
-			*Ui.FitText(Ui.FontBody,*FString::Printf(TEXT("Level %i   |   %i skill points   |   School day %i"),State.Level,State.SkillPoints,State.Day),Body.W),RALIGN_Left,0);
+			*Ui.FitText(Ui.FontBody,*FString::Printf(TEXT("Level %i   |   %i skill points   |   %s, week %i"),State.Level,State.SkillPoints,*ClockText(),WeekNum()),Body.W),RALIGN_Left,0);
 		Ui.Rect(FRpgRect(Body.X,Top-Ui.P(10.f),Body.W,Max(1.f,Ui.P(1.f))),FColor(70,62,40,255));
 
 		switch( BookTab )
@@ -2024,6 +2029,9 @@
 			FRpgArg JustTalk = FRpgArg::I( 1 );
 			CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
 		}
+		// Lessons and quests speak through the panel: show the speaker's face.
+		if( DialogLeft>0.f && !DialogMesh.Len() && Npc->Mesh )
+			DialogMesh = Npc->Mesh->GetPathName();
 		const FString Key = (LastLevel ? LastLevel->URL.Map : FString()) + TEXT(":") + Npc->GetName();
 		if( TalkedToday.FindItemIndex(Key)==INDEX_NONE )
 		{
@@ -2081,6 +2089,11 @@
 				OpenMenu( Engine, MENU_Book );
 				return 1;
 			}
+			if( Key==IK_T && IsFreeGameplay(Engine,Harry) )
+			{
+				OpenTimetable( Engine );
+				return 1;
+			}
 			if( Key==IK_B && IsFreeGameplay(Engine,Harry) )
 			{
 				if( NearNpc && NearVendor>=0 && IsInLevel(NearNpc) )
@@ -2116,6 +2129,12 @@
 
 		// A menu is open: it owns all input, except releases, so keys held
 		// when the menu opened are not left stuck down.
+		if( Menu==MENU_Brew && Key==IK_LeftMouse && Action==IST_Release )
+		{
+			bBrewMouseDown = 0;
+			bBrewReleased = 1;
+			return 0;
+		}
 		if( Action==IST_Release )
 			return 0;
 		if( Key==IK_MouseWheelUp || Key==IK_MouseWheelDown )
@@ -2134,14 +2153,22 @@
 		if( Key==IK_LeftMouse )
 		{
 			Ui.bClickPending = 1;
+			if( Menu==MENU_Brew )
+				bBrewMouseDown = 1;
 			return 1;
 		}
+		if( Menu==MENU_Brew )
+			return BrewKey( Engine, Key );
+		if( Menu==MENU_Timetable && TimetableInput( Engine, Key ) )
+			return 1;
 		const UBOOL bClose = Key==IK_Escape || Key==IK_Backspace || (Menu==MENU_Shop && Key==IK_B) || (Menu==MENU_Book && Key==IK_K);
 		if( bClose )
 		{
 			CloseMenu( Engine );
 			return 1;
 		}
+		if( Menu==MENU_Timetable )
+			return 1;
 		const INT Cols = (Menu==MENU_Shop || (Menu==MENU_Book && (BookTab==BOOK_Wardrobe || BookTab==BOOK_Trophies))) ? 3 : 1;
 		if( Key==IK_Q || Key==IK_E )
 		{

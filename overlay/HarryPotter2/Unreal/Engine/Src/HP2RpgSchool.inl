@@ -11,7 +11,7 @@
 	is left. A Brewing Cauldron brews one Wiggenweld Potion a school day.
 =============================================================================*/
 
-	enum ELessonKind { LES_Charms, LES_Herbology, LES_Potions, LES_Defence, LES_Transfig, LES_MAX };
+	enum ELessonKind { LES_Charms, LES_Herbology, LES_Potions, LES_Defence, LES_Transfig, LES_Quidditch, LES_MAX };
 
 	struct FLessonDef
 	{
@@ -37,6 +37,8 @@
 				TEXT("I've hidden four dark marks around here. Use Revelio, find them all - just as I would!"), 4, 120.f },
 			{ TEXT("ProfMcGonagall"), TEXT("Professor McGonagall"), TEXT("Transfiguration"),
 				TEXT("Practical work today: transfigure two students. No points will be taken - this time."), 2, 120.f },
+			{ TEXT("OliverWood"), TEXT("Oliver Wood"), TEXT("Quidditch Practice"),
+				TEXT("Five Snitches are loose on the grounds, Harry. Catch them all before time's up!"), 5, 150.f },
 		};
 		return Defs[ Clamp(k,0,LES_MAX-1) ];
 	}
@@ -67,14 +69,17 @@
 	FLOAT NeedlePos, NeedleDir;
 	FLOAT LessonFxTimer;
 
+	// The class on the timetable that is on now, else the next one today
+	// (-1: no more classes today).
 	INT TodaysLesson()
 	{
-		return (INT)(State.Day % LES_MAX);
+		return NextSlotKind();
 	}
 
 	UBOOL LessonAvailableFrom( AActor* Npc )
 	{
-		return LessonKind<0 && State.LessonDay!=State.Day && Npc && NpcIs( Npc, Lesson(TodaysLesson()).Teacher );
+		const INT k = OpenSlotKind();
+		return LessonKind<0 && k>=0 && Npc && NpcIs( Npc, Lesson(k).Teacher );
 	}
 
 	void ClearLessonItems( UGameEngine* Engine )
@@ -91,13 +96,11 @@
 	{
 		if( !LessonAvailableFrom(Npc) )
 			return 0;
-		const INT k = TodaysLesson();
+		const INT k = OpenSlotKind( &ActiveSlot );
 		const FLessonDef& L = Lesson( k );
-		if( k==LES_Potions && (SellCount(Harry,CON_WBark)<1 || SellCount(Harry,CON_FMucus)<1) )
-		{
-			Say( L.TeacherName, TEXT("You come to my class without ingredients? Bring one Wiggentree bark and one Flobberworm mucus, Potter.") );
-			return 1;
-		}
+		// Potions is brewed at a cauldron of its own.
+		if( k==LES_Potions )
+			return StartBrew( Engine, Harry, Npc );
 		LessonKind = k;
 		LessonLeft = L.Time;
 		LessonProgress = LessonMisses = 0;
@@ -113,8 +116,8 @@
 				FLOAT BestScore = 1e9f;
 				for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 				{
-					APathNode* N = Cast<APathNode>( Engine->GLevel->Actors(i) );
-					if( !N )
+					AActor* N = Engine->GLevel->Actors(i);
+					if( !IsWalkPoint(N) )
 						continue;
 					const FLOAT D = (N->Location - Npc->Location).Size();
 					const FLOAT Score = Abs( D-350.f );
@@ -147,11 +150,24 @@
 				}
 				break;
 			}
-			case LES_Potions:
-				ApplyConsumable( Harry, CON_WBark, -1 );
-				ApplyConsumable( Harry, CON_FMucus, -1 );
-				NeedlePos = 0.f;
-				NeedleDir = 1.f;
+			case LES_Quidditch:
+				// Golden Snitches hovering about the grounds.
+				for( INT i=0; i<L.Count; i++ )
+				{
+					FVector Where;
+					if( !PickSpot( Engine, (DWORD)(State.Day*61 + i*43 + 11), Where ) )
+						continue;
+					Where.Z += 55.f;
+					AActor* A = SpawnPickup( Engine, TEXT("HPModels.skSnitchMesh"), Where, 2.f );
+					if( !A )
+						A = SpawnPickup( Engine, TEXT("HProps.skChallengeStarMesh"), Where, 0.5f );
+					if( A )
+					{
+						A->AmbientGlow = 200;
+						LessonItems.AddItem( A );
+						LessonItemShown.AddItem( 1 );
+					}
+				}
 				break;
 			case LES_Defence:
 				for( INT i=0; i<L.Count; i++ )
@@ -198,6 +214,7 @@
 		static const INT Xp[6] = { 0, 0, 40, 80, 120, 160 };
 		static const INT Beans[6] = { 0, 0, 10, 25, 40, 60 };
 		State.LessonDay = State.Day;
+		MarkSlotAttended();
 		State.LessonGrades[k] = Max( State.LessonGrades[k], Grade );
 		AddHousePoints( Harry, HOUSE_Gryffindor, Points[Grade] );
 		if( Xp[Grade] )
@@ -211,31 +228,16 @@
 		RpgLog( TEXT("lesson %s graded %s"), L.Subject, GradeLetter(Grade) );
 	}
 
-	// Potions: E stirs.
+	// Potions is brewed in its own screen (HP2RpgBrew.inl); no key input here.
 	UBOOL LessonInput( UGameEngine* Engine, APlayerPawn* Harry, EInputKey Key, EInputAction Action )
 	{
-		if( LessonKind!=LES_Potions || Key!=IK_E || Action!=IST_Press )
-			return 0;
-		if( NeedlePos>0.62f && NeedlePos<0.80f )
-		{
-			LessonProgress++;
-			SpawnFx( Engine, TEXT("Potion_sparkle"), Harry->Location + Harry->Rotation.Vector()*60.f, 1.f );
-			Ui.Play( RSND_Buy, Harry );
-		}
-		else
-		{
-			LessonMisses++;
-			Ui.Play( RSND_Deny, Harry );
-		}
-		if( LessonProgress>=Lesson(LES_Potions).Count || LessonMisses>=4 )
-			FinishLesson( Engine, Harry, 0 );
-		return 1;
+		return 0;
 	}
 
 	void UpdateLesson( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
 	{
-		if( LessonKind<0 )
-			return;
+		if( LessonKind<0 || LessonKind==LES_Potions )
+			return; // Potions runs in the brewing screen
 		const FLessonDef& L = Lesson( LessonKind );
 		LessonLeft -= DeltaSeconds;
 		if( LessonLeft<=0.f )
@@ -281,6 +283,7 @@
 			}
 			case LES_Herbology:
 			case LES_Defence:
+			case LES_Quidditch:
 				for( INT i=LessonItems.Num()-1; i>=0; i-- )
 				{
 					AActor* A = LessonItems(i);
@@ -299,11 +302,6 @@
 						Ui.Play( RSND_Buy, Harry );
 					}
 				}
-				break;
-			case LES_Potions:
-				NeedlePos += NeedleDir*DeltaSeconds*(0.9f + 0.25f*LessonProgress);
-				if( NeedlePos>1.f ) { NeedlePos = 1.f; NeedleDir = -1.f; }
-				if( NeedlePos<0.f ) { NeedlePos = 0.f; NeedleDir = 1.f; }
 				break;
 			case LES_Transfig:
 				LessonProgress = State.Counters[CNT_Transfigs] - LessonBase;
@@ -342,13 +340,23 @@
 		UCanvas* C = Ui.C;
 		const FColor Blue( 120,170,255,255 ), Text1( 240,238,230,255 ), GoldHi( 255,222,130,255 );
 		// Teacher marker for today's class.
-		if( LessonKind<0 && State.LessonDay!=State.Day && TodaysTeacher && IsInLevel(TodaysTeacher)
+		if( LessonKind<0 && TodaysLesson()>=0 && TodaysTeacher && IsInLevel(TodaysTeacher)
 			&& (TodaysTeacher->Location-Harry->Location).SizeSquared() < 3000.f*3000.f )
 		{
 			FLOAT SX, SY;
 			if( WorldToScreen( TodaysTeacher->Location + FVector(0,0,TodaysTeacher->CollisionHeight+30.f), SX, SY ) )
 			{
-				const FString T = FString::Printf( TEXT("%s class"), Lesson(TodaysLesson()).Subject );
+				FTimeSlot Slots[TT_SLOTS];
+				const INT NS = DaySlots( WeekDay(), Slots );
+				INT Start = 0;
+				for( INT s=0; s<NS; s++ )
+					if( Slots[s].Kind==TodaysLesson() && !SlotResolved(s) )
+					{
+						Start = Slots[s].Start;
+						break;
+					}
+				const FString T = OpenSlotKind()>=0 ? FString::Printf( TEXT("%s class - now"), Lesson(TodaysLesson()).Subject )
+					: FString::Printf( TEXT("%s at %02i:%02i"), Lesson(TodaysLesson()).Subject, Start/60, Start%60 );
 				const FLOAT W = Ui.TextWidth( Ui.FontCaption, *T ) + Ui.P(16.f), H = Ui.TextHeight( Ui.FontCaption ) + Ui.P(8.f);
 				const FRpgRect R( SX-W*0.5f, SY-H, W, H );
 				Ui.Glass( R );
@@ -372,26 +380,13 @@
 			if( WorldToScreen( LessonSpot+FVector(0,0,20.f), SX, SY ) )
 				Ui.Brackets( FRpgRect(SX-Ui.P(30.f), SY-Ui.P(20.f), Ui.P(60.f), Ui.P(40.f)), Ui.P(12.f), Max(1.f,Ui.P(2.f)), GoldHi );
 		}
-		if( LessonKind==LES_Herbology || LessonKind==LES_Defence )
+		if( LessonKind==LES_Herbology || LessonKind==LES_Defence || LessonKind==LES_Quidditch )
 			for( INT i=0; i<LessonItems.Num(); i++ )
 			{
 				FLOAT SX, SY;
 				if( LessonItemShown(i) && IsInLevel(LessonItems(i)) && WorldToScreen(LessonItems(i)->Location+FVector(0,0,30.f), SX, SY) )
 					Ui.Brackets( FRpgRect(SX-Ui.P(10.f), SY-Ui.P(10.f), Ui.P(20.f), Ui.P(20.f)), Ui.P(6.f), Max(1.f,Ui.P(2.f)), Blue );
 			}
-		if( LessonKind==LES_Potions )
-		{
-			// Stirring bar: hit E while the needle is in the gold.
-			const FLOAT BW = Ui.P(360.f), BH = Ui.P(14.f);
-			const FRpgRect Bar( (C->ClipX-BW)*0.5f, C->ClipY*0.62f, BW, BH );
-			Ui.Rect( Bar, FColor(20,27,54,255) );
-			Ui.Rect( FRpgRect(Bar.X+BW*0.62f, Bar.Y, BW*0.18f, BH), FColor(201,162,74,255) );
-			Ui.Border( Bar, Max(1.f,Ui.P(1.f)), FColor(46,56,96,255) );
-			Ui.Rect( FRpgRect(Bar.X+BW*NeedlePos-Ui.P(2.f), Bar.Y-Ui.P(6.f), Ui.P(4.f), BH+Ui.P(12.f)), Text1 );
-			const TCHAR* Keys[1] = { TEXT("E") };
-			const TCHAR* Verbs[1] = { TEXT("Stir") };
-			Ui.Prompt( C->ClipX*0.5f, Bar.Y+BH+Ui.P(14.f), Keys, Verbs, 1 );
-		}
 	}
 
 	/*-------------------------------------------------------------------------

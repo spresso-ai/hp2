@@ -82,6 +82,7 @@
 	{
 		DialogSpeaker = Speaker;
 		DialogText = Text;
+		DialogMesh = TEXT("");
 		DialogLeft = Clamp( 2.5f + appStrlen(Text)*0.05f, 3.f, 7.f );
 	}
 
@@ -400,7 +401,7 @@
 				AActor* A = StandIns(si).Actor;
 				if( !A || A->bDeleteMe )
 					continue;
-				if( !TodaysTeacher && NpcIs(A, Lesson(TodaysLesson()).Teacher) )
+				if( !TodaysTeacher && TodaysLesson()>=0 && NpcIs(A, Lesson(TodaysLesson()).Teacher) )
 					TodaysTeacher = A;
 				for( INT g=0; g<GNumQuests && g<MAX_QUESTS; g++ )
 					if( IsGiverOf(A,g) )
@@ -414,7 +415,7 @@
 				AActor* A = Engine->GLevel->Actors(i);
 				if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || !A->IsA(APawn::StaticClass()) )
 					continue;
-				if( !TodaysTeacher && NpcIs(A, Lesson(TodaysLesson()).Teacher) && IsOutAndAbout(Engine,A) )
+				if( !TodaysTeacher && TodaysLesson()>=0 && NpcIs(A, Lesson(TodaysLesson()).Teacher) && IsOutAndAbout(Engine,A) )
 					TodaysTeacher = A;
 				for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 					if( IsGiverOf(A,q) )
@@ -513,6 +514,12 @@
 			Ui.Rect( FRpgRect(R.X, R.Y, Max(1.f,Ui.P(2.f)), R.H), RpgGold );
 			Ui.Text( NameFont, R.X+Ui.P(18.f), R.Y+Ui.P(6.f), GoldHi, *DialogSpeaker, RALIGN_Left, 0 );
 			Ui.TextWrapped( Ui.FontBody, FRpgRect(R.X+Ui.P(18.f), R.Y+Ui.P(10.f)+Ui.TextHeight(NameFont), R.W-Ui.P(36.f), LineH*Lines+Ui.P(4.f)), Text1, *DialogText );
+			// The speaker's face beside the panel.
+			if( DialogMesh.Len() )
+			{
+				const FLOAT PS = Max( R.H, Ui.P(84.f) );
+				DrawPortrait( FRpgRect(R.X+R.W+Ui.P(10.f), R.Y+R.H-PS, PS, PS), *DialogMesh );
+			}
 		}
 	}
 

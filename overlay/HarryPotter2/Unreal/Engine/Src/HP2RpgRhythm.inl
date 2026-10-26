@@ -300,7 +300,8 @@
 		MateVoiceFree = RpgClock + Secs + 2.f;
 		LastTalkTime = RpgClock + Secs - 4.f;   // IsTalking() while the line plays
 		static const TCHAR* Talks[4] = { TEXT("talk_bothhands"), TEXT("talkbothhands"), TEXT("talk_rhand"), TEXT("talk1") };
-		for( INT t=0; t<4; t++ )
+		// Harry himself only lends his voice (a teacher calling from afar).
+		for( INT t=0; t<4 && !Speaker->IsA(APlayerPawn::StaticClass()); t++ )
 		{
 			const FName Talk = FindSeq( Speaker->SkelAnim, Talks[t] );
 			if( Talk!=NAME_None )

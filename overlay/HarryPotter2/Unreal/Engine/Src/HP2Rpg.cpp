@@ -472,6 +472,8 @@ struct FRpgState
 	INT RhythmPhase;               // ERpgPhase of the school day
 	INT RhythmDay;                 // school day the phase belongs to
 	INT RhythmEventDay;            // school day a story challenge was finished
+	INT SlotDay;                   // school day SlotBits belongs to
+	INT SlotBits;                  // timetable: attended / missed / excused per class
 
 	void Reset()
 	{
@@ -534,7 +536,7 @@ enum EActorFlag
 	AF_Harvested = 1<<9,
 };
 
-enum EMenu { MENU_None, MENU_Shop, MENU_Book };
+enum EMenu { MENU_None, MENU_Shop, MENU_Book, MENU_Timetable, MENU_Brew };
 enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Journal, BOOK_Room, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
 static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Journal"), TEXT("Room"), TEXT("Trophies"), TEXT("House"), TEXT("Post"), TEXT("Status") };
 
@@ -927,6 +929,7 @@ public:
 		Text += FString(TEXT("Grades=")) + IntList(State.LessonGrades,8) + TEXT("\r\n");
 		Text += FString(TEXT("DecorOwned=")) + IntList(State.DecorOwned,32) + TEXT("\r\n");
 		Text += FString::Printf(TEXT("RhythmPhase=%i RhythmDay=%i RhythmEventDay=%i\r\n"), State.RhythmPhase, State.RhythmDay, State.RhythmEventDay);
+		Text += FString::Printf(TEXT("SlotDay=%i SlotBits=%i\r\n"), State.SlotDay, State.SlotBits);
 		Text += FString(TEXT("Decor=")) + SaveDecor() + TEXT("\r\n");
 		{
 			FString Opened;
@@ -1045,6 +1048,8 @@ public:
 				Parse( S, TEXT("RhythmPhase="), State.RhythmPhase );
 				Parse( S, TEXT("RhythmDay="), State.RhythmDay );
 				Parse( S, TEXT("RhythmEventDay="), State.RhythmEventDay );
+				Parse( S, TEXT("SlotDay="), State.SlotDay );
+				Parse( S, TEXT("SlotBits="), State.SlotBits );
 				LoadDecor( S );
 				OpenedTreasure.Empty();
 				SplitNames( S, TEXT("Opened="), OpenedTreasure );
@@ -3863,6 +3868,7 @@ public:
 				CheckCardRewards( Harry );
 				CheckTrophies( Harry );
 				CheckQuests( Harry );
+				UpdateTimetable( Harry );
 				if( bBaselineValid )
 					UpdateTasks( Harry );
 			}
@@ -3978,6 +3984,7 @@ public:
 		EndWorld();
 		EndPickups( Engine );
 		EndDecor( Engine );
+		EndBrew( Engine );
 		EndStandIns( Engine );
 		EndSchoolmates( Engine );
 		ClearLessonItems( Engine );
@@ -4023,6 +4030,7 @@ public:
 		HarryAnim = NULL;
 		ForgetQuests();
 		ForgetDecor();
+		ForgetBrew();
 		ForgetStandIns();
 		ForgetSchoolmates();
 		LessonItems.Empty();
@@ -4061,6 +4069,8 @@ public:
 	#include "HP2RpgSchool.inl"
 	#include "HP2RpgCastle.inl"
 	#include "HP2RpgRhythm.inl"
+	#include "HP2RpgTimetable.inl"
+	#include "HP2RpgBrew.inl"
 };
 
 static FHP2Rpg GRpg;
