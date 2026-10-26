@@ -393,32 +393,60 @@
 		Room of Requirement: furniture you place and move yourself.
 	-------------------------------------------------------------------------*/
 
-	struct FDecorDef { const TCHAR* Name; const TCHAR* Mesh; INT Price; FLOAT Scale; };
+	enum EDecorCat { DC_Furniture, DC_Storage, DC_Statues, DC_Games, DC_Curiosities, DC_Plants, DC_Lights, DC_MAX };
 
+	static const TCHAR* DecorCatName( INT c )
+	{
+		static const TCHAR* Names[DC_MAX] = { TEXT("Furniture"), TEXT("Storage"), TEXT("Statues"), TEXT("Games"), TEXT("Curiosities"), TEXT("Plants"), TEXT("Lights") };
+		return Names[ Clamp(c,0,DC_MAX-1) ];
+	}
+
+	struct FDecorDef { const TCHAR* Name; const TCHAR* Mesh; INT Price; FLOAT Scale; INT Cat; };
+
+	// Append-only: placed furniture and DecorOwned are saved by index.
 	static const FDecorDef& Decor( INT i )
 	{
 		static const FDecorDef Defs[] =
 		{
-			{ TEXT("Brewing Cauldron"), TEXT("HProps.skCauldronTeacherMesh"), 400, 1.f },
-			{ TEXT("Red Armchair"), TEXT("HProps.skChairsRedComfyMesh"), 120, 1.f },
-			{ TEXT("Red Couch"), TEXT("HProps.skChairsRedCouchMesh"), 220, 1.f },
-			{ TEXT("Gryffindor Bed"), TEXT("HProps.skBedGryffindorMesh"), 350, 1.f },
-			{ TEXT("Bookcase"), TEXT("HProps.skBookcaseGlassDoorsMesh"), 260, 1.f },
-			{ TEXT("Christmas Tree"), TEXT("HProps.skChristmasTreeMesh"), 300, 1.f },
-			{ TEXT("Telescope"), TEXT("HProps.skTelescopeMesh"), 240, 1.f },
-			{ TEXT("Owl Statue"), TEXT("HProps.skStatueOwlMesh"), 180, 1.f },
-			{ TEXT("Round Table"), TEXT("HProps.skTableWoodRoundMesh"), 150, 1.f },
-			{ TEXT("Hogwarts Trunk"), TEXT("HProps.skTrunkHogwarts1Mesh"), 100, 1.f },
-			{ TEXT("Candelabra"), TEXT("HProps.skCandlesFloorTrippleCandleMesh"), 90, 1.f },
-			{ TEXT("Red Flowers"), TEXT("HProps.skPlantsFlowerRedMesh"), 60, 1.f },
-			{ TEXT("Easel"), TEXT("HProps.skEaselMesh"), 110, 1.f },
-			{ TEXT("Suit of Armour"), TEXT("HProps.skArmorWholeSuitMesh"), 500, 1.f },
+			{ TEXT("Brewing Cauldron"), TEXT("HProps.skCauldronTeacherMesh"), 400, 1.f, DC_Curiosities },
+			{ TEXT("Red Armchair"), TEXT("HProps.skChairsRedComfyMesh"), 120, 1.f, DC_Furniture },
+			{ TEXT("Red Couch"), TEXT("HProps.skChairsRedCouchMesh"), 220, 1.f, DC_Furniture },
+			{ TEXT("Gryffindor Bed"), TEXT("HProps.skBedGryffindorMesh"), 350, 1.f, DC_Furniture },
+			{ TEXT("Bookcase"), TEXT("HProps.skBookcaseGlassDoorsMesh"), 260, 1.f, DC_Storage },
+			{ TEXT("Christmas Tree"), TEXT("HProps.skChristmasTreeMesh"), 300, 1.f, DC_Plants },
+			{ TEXT("Telescope"), TEXT("HProps.skTelescopeMesh"), 240, 1.f, DC_Curiosities },
+			{ TEXT("Owl Statue"), TEXT("HProps.skStatueOwlMesh"), 180, 1.f, DC_Statues },
+			{ TEXT("Round Table"), TEXT("HProps.skTableWoodRoundMesh"), 150, 1.f, DC_Furniture },
+			{ TEXT("School Trunk"), TEXT("HProps.skTrunkHogwarts1Mesh"), 100, 1.f, DC_Storage },
+			{ TEXT("Candelabra"), TEXT("HProps.skCandlesFloorTrippleCandleMesh"), 90, 1.f, DC_Lights },
+			{ TEXT("Red Flowers"), TEXT("HProps.skPlantsFlowerRedMesh"), 60, 1.f, DC_Plants },
+			{ TEXT("Easel"), TEXT("HProps.skEaselMesh"), 110, 1.f, DC_Curiosities },
+			{ TEXT("Suit of Armour"), TEXT("HProps.skArmorWholeSuitMesh"), 500, 1.f, DC_Statues },
+			// --- Appended (v6.0) ---------------------------------------------
+			{ TEXT("Armoire"), TEXT("HProps.skArmoireMesh"), 200, 1.f, DC_Storage },
+			{ TEXT("Old Trunk"), TEXT("HProps.skTrunkMesh"), 80, 1.f, DC_Storage },
+			{ TEXT("Dresser"), TEXT("HProps.skDresserMesh"), 160, 1.f, DC_Storage },
+			{ TEXT("Dragon Statue"), TEXT("HProps.skStatueDragonMesh"), 300, 1.f, DC_Statues },
+			{ TEXT("Gregory the Smarmy"), TEXT("HProps.skStatueGregorySmarmyMesh"), 260, 1.f, DC_Statues },
+			{ TEXT("Hunchback Witch"), TEXT("HProps.skStatueHunchbackWitchMesh"), 260, 1.f, DC_Statues },
+			{ TEXT("Gargoyle"), TEXT("HPModels.skgargoyleMesh"), 320, 1.f, DC_Statues },
+			{ TEXT("Quidditch Board"), TEXT("HProps.skBlackboardQuidditchMesh"), 200, 1.f, DC_Games },
+			{ TEXT("Duelling Board"), TEXT("HProps.skBlackboardWizDuelMesh"), 200, 1.f, DC_Games },
+			{ TEXT("Dragon Skull"), TEXT("HProps.skDragonSkullMesh"), 400, 1.f, DC_Curiosities },
+			{ TEXT("Flying Car"), TEXT("HProps.skFordAngliaMesh"), 1500, 1.f, DC_Curiosities },
+			{ TEXT("Sorting Stool"), TEXT("HProps.skStoolsSortingHatMesh"), 150, 1.f, DC_Curiosities },
+			{ TEXT("Stone Urn"), TEXT("HProps.skVaseUrnMesh"), 90, 1.f, DC_Curiosities },
+			{ TEXT("Crystal Ball"), TEXT("HProps.skCrystalBallMesh"), 140, 1.f, DC_Curiosities },
+			{ TEXT("Slytherin Couch"), TEXT("HProps.skCouchSlytherinMesh"), 220, 1.f, DC_Furniture },
+			{ TEXT("Footstool"), TEXT("HProps.skFootStoolMesh"), 40, 1.f, DC_Furniture },
+			{ TEXT("Table Lamp"), TEXT("HProps.sktablelampMesh"), 60, 1.f, DC_Lights },
+			{ TEXT("Cactus"), TEXT("HProps.skPlantsCactus1Mesh"), 50, 1.f, DC_Plants },
 		};
 		return Defs[ Clamp(i, 0, (INT)ARRAY_COUNT(Defs)-1) ];
 	}
-	enum { NUM_DECOR = 14 };
+	enum { NUM_DECOR = 32 };
 
-	struct FDecorPlaced { FString Map; INT Id; FVector Loc; INT Yaw; AActor* Actor; };
+	struct FDecorPlaced { FString Map; INT Id; FVector Loc; INT Yaw; AActor* Actor; INT Size; };   // Size in percent
 	TArray<FDecorPlaced> Placed;
 	UBOOL bDecorSpawned;
 
@@ -440,7 +468,7 @@
 			D.Actor = NULL;
 			if( D.Map!=Map )
 				continue;
-			AActor* A = SpawnPickup( Engine, Decor(D.Id).Mesh, D.Loc, Decor(D.Id).Scale );
+			AActor* A = SpawnPickup( Engine, Decor(D.Id).Mesh, D.Loc, Decor(D.Id).Scale*Clamp(D.Size,50,200)*0.01f );
 			if( A )
 			{
 				A->AmbientGlow = 0;
@@ -492,6 +520,7 @@
 		D->Loc = Where;
 		D->Yaw = A->Rotation.Yaw;
 		D->Actor = A;
+		D->Size = 100;
 		State.DecorOwned[Id]--;
 		SpawnFx( Engine, TEXT("SmokeExplo_01"), Where, 1.f );
 		RpgLog( TEXT("decor placed: %s"), Decor(Id).Name );
@@ -573,7 +602,7 @@
 		for( INT i=0; i<Placed.Num(); i++ )
 		{
 			const FDecorPlaced& D = Placed(i);
-			Out += FString::Printf( TEXT("%s,%i,%i,%i,%i,%i;"), *D.Map, D.Id, appRound(D.Loc.X), appRound(D.Loc.Y), appRound(D.Loc.Z), D.Yaw );
+			Out += FString::Printf( TEXT("%s,%i,%i,%i,%i,%i,%i;"), *D.Map, D.Id, appRound(D.Loc.X), appRound(D.Loc.Y), appRound(D.Loc.Z), D.Yaw, D.Size );
 		}
 		return Out;
 	}
@@ -591,8 +620,8 @@
 			FString Map;
 			while( *P && *P!=',' && *P!='\r' && *P!='\n' )
 				Map += FString::Printf( TEXT("%c"), *P++ );
-			INT V[5] = { 0, 0, 0, 0, 0 };
-			for( INT k=0; k<5 && *P==','; k++ )
+			INT V[6] = { 0, 0, 0, 0, 0, 100 };   // older saves have no size
+			for( INT k=0; k<6 && *P==','; k++ )
 			{
 				P++;
 				V[k] = appAtoi( P );
@@ -608,6 +637,7 @@
 				D->Id = V[0];
 				D->Loc = FVector( V[1], V[2], V[3] );
 				D->Yaw = V[4];
+				D->Size = Clamp( V[5], 50, 200 );
 				D->Actor = NULL;
 			}
 		}
@@ -621,7 +651,7 @@
 			TEXT("Place furniture in a hub; move it with Wingardium Leviosa. Brewing Cauldron: one potion per school day (E).") );
 		const FLOAT Top = Area.Y + Ui.TextHeight(Ui.FontBody)*3 + 10*S;
 		const FLOAT RowH = Ui.TextHeight(Ui.FontBody) + 10*S;
-		const INT Visible = Max( 1, appFloor((Area.Y+Area.H-Top-RowH*2.f)/RowH) );
+		const INT Visible = Max( 1, appFloor((Area.Y+Area.H-Top-RowH*3.2f)/RowH) );
 		Sel = Clamp( Sel, 0, NUM_DECOR-1 );
 		ApplyWheel( NUM_DECOR, 1, Visible );
 		ClampSelection( NUM_DECOR, 1, Visible );
@@ -659,6 +689,13 @@
 		}
 		if( Ui.Button( FRpgRect(Area.X+(BW+9*S)*2, BY, BW, RowH-2*S), TEXT("Pick up nearest"), Placed.Num()>0, &State.BrewDay ) )
 			PickUpDecor( Engine, Harry );
+		// The full decorating mode: top-down view, grid and categories.
+		if( Ui.Button( FRpgRect(Area.X, BY-RowH-4*S, Area.W, RowH-2*S), TEXT("Decorate here (room view)"), bHub, &bDecorSpawned ) )
+		{
+			CloseMenu( Engine );
+			OpenRoom( Engine, Harry );
+			return;
+		}
 		if( !bHub )
 			Ui.Text( Ui.FontSmall, Area.X, BY-Ui.TextHeight(Ui.FontSmall)-2*S, RpgMuted, TEXT("Furniture can only be placed in the hubs.") );
 	}

@@ -37,7 +37,7 @@
 
 	static const TCHAR* BrewJarMesh( INT j )
 	{
-		static const TCHAR* Meshes[BREW_JARS] = { TEXT("HProps.skJarBeansMesh"), TEXT("HProps.skBottlePotionGreen1Mesh"), TEXT("HProps.skBottlePotionOrangeMesh"), TEXT("HProps.skBottlePotionPurpleMesh") };
+		static const TCHAR* Meshes[BREW_JARS] = { TEXT("HProps.skJarWiggentreeBarkMesh"), TEXT("HProps.skJarFlobberwormMucusMesh"), TEXT("HProps.skJarPotionIngredient1Mesh"), TEXT("HProps.skJarPotionIngredient2Mesh") };
 		return Meshes[ Clamp(j,0,BREW_JARS-1) ];
 	}
 

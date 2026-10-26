@@ -681,6 +681,8 @@
 			DrawTimetable( Engine, Harry );
 		else if( Menu==MENU_Brew )
 			DrawBrew( Engine, Harry );
+		else if( Menu==MENU_Room )
+			DrawRoom( Engine, Harry );
 		if( Menu!=MENU_None )
 			DrawFeed();
 		Ui.End();
@@ -2135,6 +2137,12 @@
 			bBrewReleased = 1;
 			return 0;
 		}
+		if( Menu==MENU_Room && Key==IK_LeftMouse && Action==IST_Release )
+		{
+			bRoomMouseDown = 0;
+			bRoomReleased = 1;
+			return 0;
+		}
 		if( Action==IST_Release )
 			return 0;
 		if( Key==IK_MouseWheelUp || Key==IK_MouseWheelDown )
@@ -2155,10 +2163,14 @@
 			Ui.bClickPending = 1;
 			if( Menu==MENU_Brew )
 				bBrewMouseDown = 1;
+			if( Menu==MENU_Room )
+				bRoomMouseDown = 1;
 			return 1;
 		}
 		if( Menu==MENU_Brew )
 			return BrewKey( Engine, Key );
+		if( Menu==MENU_Room )
+			return RoomKey( Engine, Key );
 		if( Menu==MENU_Timetable && TimetableInput( Engine, Key ) )
 			return 1;
 		const UBOOL bClose = Key==IK_Escape || Key==IK_Backspace || (Menu==MENU_Shop && Key==IK_B) || (Menu==MENU_Book && Key==IK_K);

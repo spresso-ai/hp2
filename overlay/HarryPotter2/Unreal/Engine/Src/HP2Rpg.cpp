@@ -536,7 +536,7 @@ enum EActorFlag
 	AF_Harvested = 1<<9,
 };
 
-enum EMenu { MENU_None, MENU_Shop, MENU_Book, MENU_Timetable, MENU_Brew };
+enum EMenu { MENU_None, MENU_Shop, MENU_Book, MENU_Timetable, MENU_Brew, MENU_Room };
 enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Journal, BOOK_Room, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
 static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Journal"), TEXT("Room"), TEXT("Trophies"), TEXT("House"), TEXT("Post"), TEXT("Status") };
 
@@ -3896,6 +3896,7 @@ public:
 		UpdateStandIns( Engine, Harry, DeltaSeconds );
 		UpdateSchoolmates( Engine, Harry, DeltaSeconds );
 		UpdatePhoto( Harry );
+		UpdateRoomCam( Harry );
 	}
 
 	void OnLevelChanged( UGameEngine* Engine )
@@ -4071,6 +4072,7 @@ public:
 	#include "HP2RpgRhythm.inl"
 	#include "HP2RpgTimetable.inl"
 	#include "HP2RpgBrew.inl"
+	#include "HP2RpgRoom.inl"
 };
 
 static FHP2Rpg GRpg;

@@ -1,5 +1,22 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v6.0 – Schoolklok, lesrooster, echte toverdrankles, je eigen kamer
+**Klok en lesrooster**
+- Bovenin beeld staat nu de **schoolklok** ("Monday, 08:39"). Een schooldag loopt van 07:00 tot 22:00; schooldag 1 is een maandag.
+- **Lesrooster (T)**: per dag twee of drie lessen (Toverdranken, Bezweringen, Kruidenkunde, Verweer, Gedaanteverwisselingen) en soms **Zwerkbaltraining** bij Oliver Plank. Zondag is vrij. Met links/rechts kijk je naar andere dagen; bij elke les zie je tijd, leraar, plek en de status (Upcoming / Now - go! / Attended / Missed).
+- Een les begin je door met de leraar te praten (E) vanaf een half uur vóór tot drie kwartier ná de les. Je krijgt een melding als een les begint.
+- **Spijbelen kost punten**: ben je niet geweest en was je toen gewoon in het kasteel of op het terrein, dan hoor je de leraar (met eigen stem) en gaan er punten van Griffoendor af. Zat je in een uitdaging van het verhaal, dan ben je verontschuldigd.
+- **Zwerkbaltraining** (nieuw): vang vijf Snaaien op het terrein voor de tijd om is.
+- **Professor Sneep** loopt nu ook rond in de Hal.
+**Toverdranken als echte les**
+- Bij Sneep verschijnen een ketel en vier potjes voor je. Volg het recept (linksboven): **sleep een potje in de ketel**, **houd de muis op de ketel en draai rondjes** om te roeren (met de klok mee of tegen de klok in - de richting telt!), en maak de drank af.
+- Fout potje of verkeerde kant op geroerd = een fout. Aan het eind zie je de kwaliteit, de punten en Sneeps oordeel. Bij een goede drank krijg je een Wiggenweld-drankje.
+**Je eigen kamer**
+- Boek → Room → **Decorate here**: de camera kijkt van bovenaf, met een raster op de vloer. Rechts kies je per categorie (Meubels, Opbergen, Beelden, Spellen, Curiosa, Planten, Licht) uit **32 voorwerpen uit het spel** – o.a. kleerkast, hutkoffer, drakenbeeld, Gregorius de Gladde, de Bultige Heks, waterspuwer, drakenschedel, Sorteerkruk, Zwerkbalbord en de **vliegende Ford Anglia**.
+- Klik een vakje om iets neer te zetten, klik je meubel om het te verslepen, **Turn** draait, **Size** maakt groter/kleiner, **Remove** zet het terug in je opslag. Q/E draait het beeld, het muiswiel zoomt.
+**Gesprekken**
+- Naast het gespreksvak zie je nu het **gezicht van wie er praat**.
+
 ## v5.6 – Praten met je maatjes, zichtbare relschoppers
 - **Praat met je vriend of huisdier**: kijk ze aan en druk op **E**. Vrienden zeggen een echte zin uit het spel (Ron, Hermelien, Ginny, Fred, George, Hagrid, Dobby); uilen, varkens en kikkers maken hun eigen geluid.
 - **Spreuken op je maatjes**: met **Wingardium Leviosa** til je ze een paar seconden op, met **Transfiguratie** verander je je vriend even in een dier. Ze reageren met een stemregel uit het spel. Daar krijg je geen straf voor.
