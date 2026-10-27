@@ -545,6 +545,41 @@
 
 	FLOAT NightCheck;
 
+	/*-------------------------------------------------------------------------
+		Fan maps: "Average Day Through Hogwarts" by David Kapitan, converted
+		to the retail package format (AverageDayHogwarts.unr). Its exit
+		leads to the bean reward room; here it leads back to the Entrance
+		Hall instead, so the book's Leave button works too.
+	-------------------------------------------------------------------------*/
+
+	UBOOL bConfirmFanMap;
+
+	static UBOOL IsFanMap( const TCHAR* Map )
+	{
+		return MapHas( Map, TEXT("AverageDayHogwarts") );
+	}
+
+	void UpdateFanMap( UGameEngine* Engine )
+	{
+		if( !LastLevel || !IsFanMap(*LastLevel->URL.Map) )
+			return;
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AActor* A = Engine->GLevel->Actors(i);
+			if( !A || A->bDeleteMe || !ClassChainIs(A,TEXT("TriggerChangeLevel")) )
+				continue;
+			if( UStrProperty* P = FindField<UStrProperty>( A->GetClass(), TEXT("NewMapName") ) )
+			{
+				FString& To = *(FString*)((BYTE*)A + P->Offset);
+				if( !MapHas(*To,TEXT("_hub")) )
+				{
+					RpgLog( TEXT("fan map exit %s: %s -> Entryhall_hub"), A->GetName(), *To );
+					To = TEXT("Entryhall_hub.unr");
+				}
+			}
+		}
+	}
+
 	static UBOOL NightGroundsAllowed( INT GS )
 	{
 		return GS!=10 && GS!=80 && GS!=150 && GS!=160;
@@ -556,6 +591,7 @@
 		if( NightCheck>0.f || !LastLevel )
 			return;
 		NightCheck = 1.f;
+		UpdateFanMap( Engine );
 		// The door to your room glitters when Harry is near.
 		if( MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) && (Harry->Location-RoomGateSpot()).SizeSquared() < 900.f*900.f )
 			SpawnFx( Engine, TEXT("GoldSparkle01"), RoomGateSpot() + FVector(-40.f,-40.f,40.f), 1.2f );

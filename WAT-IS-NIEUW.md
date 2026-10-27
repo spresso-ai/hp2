@@ -1,5 +1,11 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v6.3 – Fan-map "Average Day Through Hogwarts"
+- De mod **Average Day Through Hogwarts** van David Kapitan (gemaakt voor Metallicafan212's versie van HP2) is **omgezet naar het formaat van het originele spel** en staat naast je gewone spel – er is niets vervangen. Je verkent een Zweinstein vol geheimen: Sneeps toverdrankenlokaal, de kas van Stronk, binnenplaatsen, lange gangen met afgronden, een bibliotheek en vijanden.
+- **Zo kom je er**: in een hub het boek openen (K) en twee keer op **Fan map: Average Day** klikken. Terug: de uitgang van de map of **Leave challenge** in het boek brengt je naar de Hal.
+- Tip van de maker: loop niet het hele buitenterrein af, daar staan zoveel voorwerpen dat het spel kan vastlopen. Gebruik een save die stuk mag.
+- Wat er is aangepast om het te laten werken: de bouw van het level (nieuwer opslagformaat), 202 textures (BC7, nu gewone kleuren), en drie speciale onderdelen van Metallicafan (zwevende bonen, toverketel) zijn vervangen door de gewone bonen en ketel van het spel. Het praatzinnenbestand kreeg alleen het extra blok "Ron_HappyBumps" (reservekopie: BumpSet.int.orig).
+
 ## v6.2 – Deur naar je kamer, geen flikkering, leven op het nachtterrein
 - **Geen geflikker meer**: de avond- en nachtkleur gebruikt nu dezelfde rustige "gloed" als de vervagingen in filmpjes, in plaats van te vechten met de schade-flits van het spel.
 - **De ongebruikte deur boven in de Griffoendor-leerlingenkamer** is nu je punt: hij glinstert als je in de buurt bent. **E** = naar je kamer, **Z** = slapen tot de ochtend (vanaf 20:00). (Het traliehek doet niets meer.)

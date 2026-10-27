@@ -23,6 +23,7 @@
 	{
 		Menu = NewMenu;
 		bConfirmLeave = 0;
+		bConfirmFanMap = 0;
 		Sel = 0;
 		Scroll = 0;
 		ConfirmIndex = -1;
@@ -1336,6 +1337,24 @@
 				CloseMenu(Engine);
 				ManualSave(Engine,Harry);
 				return;
+			}
+			// The converted fan map, from any hub (click twice).
+			if( LastLevel && MapHas(*LastLevel->URL.Map,TEXT("_hub")) )
+			{
+				const TCHAR* Go = bConfirmFanMap ? TEXT("Click again to go") : TEXT("Fan map: Average Day");
+				const FLOAT GoW = Ui.TextWidth(Ui.FontBody,Go)+Ui.P(40.f);
+				BX -= Ui.P(12.f)+GoW;
+				if( Ui.Button(FRpgRect(BX,BottomY,GoW,ButtonH),Go,1,&bConfirmFanMap) )
+				{
+					if( bConfirmFanMap )
+					{
+						bConfirmFanMap = 0;
+						CloseMenu(Engine);
+						TravelTo(Engine,Harry,TEXT("AverageDayHogwarts.unr"));
+						return;
+					}
+					bConfirmFanMap = 1;
+				}
 			}
 			if( HubExit(Engine) )
 			{
