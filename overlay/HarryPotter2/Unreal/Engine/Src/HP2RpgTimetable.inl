@@ -668,3 +668,197 @@
 			ClockMinutes()>=20*60 ? TEXT("Sleep until morning") : TEXT("Sleep (after 20:00)") };
 		Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, 2, bRoom ? TEXT("Your room") : TEXT("Dormitory") );
 	}
+
+	/*-------------------------------------------------------------------------
+		The door between the castle and the fan map: the Great Hall doors
+		in the Entrance Hall (closed all story long until the ending) open
+		onto "Average Day Through Hogwarts"; its own front doors, beside
+		where Harry arrives, lead back.
+	-------------------------------------------------------------------------*/
+
+	FLOAT FanTravelAt;       // the doors are opening: travel then
+	UBOOL bReturnFromFan;
+	FLOAT FanReturnAt;
+
+	static FVector GreatHallDoorSpot() { return FVector( -340.f, -1088.f, -262.f ); }
+	static FVector FanStartSpot() { return FVector( 4.f, -1.f, -83.f ); }
+
+	UBOOL AtGreatHallDoor( APlayerPawn* Harry )
+	{
+		return LastLevel && MapHas( *LastLevel->URL.Map, TEXT("Entryhall") ) && GameStateNum(Harry)<180
+			&& (Harry->Location-GreatHallDoorSpot()).SizeSquared() < 230.f*230.f;
+	}
+
+	UBOOL AtFanStart( APlayerPawn* Harry )
+	{
+		return LastLevel && IsFanMap( *LastLevel->URL.Map ) && (Harry->Location-FanStartSpot()).SizeSquared() < 220.f*220.f;
+	}
+
+	// Opens (or closes) the movers carrying Tag.
+	void ToggleDoors( UGameEngine* Engine, APlayerPawn* Harry, const TCHAR* Tag )
+	{
+		const FName T( Tag, FNAME_Find );
+		if( T==NAME_None )
+			return;
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AActor* A = Engine->GLevel->Actors(i);
+			if( A && !A->bDeleteMe && A->Tag==T && A->IsA(AMover::StaticClass()) )
+				A->eventTrigger( Harry, Harry );
+		}
+	}
+
+	UBOOL FanDoorInput( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		if( FanTravelAt>0.f )
+			return 1;
+		if( AtGreatHallDoor(Harry) )
+		{
+			ToggleDoors( Engine, Harry, TEXT("CloseGreatHall") );
+			PlaySfx( TEXT("HPSounds.Magic_sfx.Lumos_pass_through") );
+			FanTravelAt = RpgClock + 1.4f;
+			return 1;
+		}
+		if( AtFanStart(Harry) )
+		{
+			ToggleDoors( Engine, Harry, TEXT("Doors1") );
+			FanTravelAt = RpgClock + 0.6f;
+			return 1;
+		}
+		return 0;
+	}
+
+	void UpdateFanDoor( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		if( FanTravelAt>0.f && RpgClock>=FanTravelAt )
+		{
+			FanTravelAt = 0.f;
+			const UBOOL bInFan = LastLevel && IsFanMap( *LastLevel->URL.Map );
+			TravelTo( Engine, Harry, bInFan ? TEXT("Entryhall_hub.unr") : TEXT("AverageDayHogwarts.unr") );
+		}
+		// Back from the fan map: in front of the Great Hall doors, closed again.
+		if( bReturnFromFan && RpgClock>=FanReturnAt && LastLevel && MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) )
+		{
+			bReturnFromFan = 0;
+			Engine->GLevel->FarMoveActor( Harry, GreatHallDoorSpot() - FVector(60.f,0.f,0.f), 0, 1 );
+			Harry->Rotation = FRotator( 0, 32768, 0 );
+			Harry->ViewRotation = Harry->Rotation;
+			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+			{
+				AMover* M = Cast<AMover>( Engine->GLevel->Actors(i) );
+				if( M && !M->bDeleteMe && M->Tag==FName(TEXT("CloseGreatHall")) && M->KeyNum!=0 )
+					M->eventTrigger( Harry, Harry );
+			}
+		}
+	}
+
+	void DrawFanDoorPrompt( APlayerPawn* Harry )
+	{
+		const UBOOL bHall = AtGreatHallDoor( Harry ), bFan = AtFanStart( Harry );
+		if( (!bHall && !bFan) || FanTravelAt>0.f )
+			return;
+		const TCHAR* Keys[1] = { TEXT("E") };
+		const TCHAR* Verbs[1] = { bHall ? TEXT("Open the doors") : TEXT("Back to the Entrance Hall") };
+		Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, 1, bHall ? TEXT("Average Day Through Hogwarts") : TEXT("Entrance Hall") );
+	}
+
+	/*-------------------------------------------------------------------------
+		Spell spawners around the castle, as the fan map uses them: suits
+		of armour (Flipendo, beans), ingredient jars (Flobberworm mucus,
+		Wiggentree bark) and boxes that open with Alohomora. A few per hub
+		each school day; once emptied they stay empty that day, even after
+		loading a save.
+	-------------------------------------------------------------------------*/
+
+	enum { MAX_SPAWNERS = 5 };
+	struct FCastleSpawner { AActor* Actor; INT Index; };
+	FCastleSpawner Spawners[MAX_SPAWNERS];
+	INT NumSpawners;
+	UBOOL bSpawnersPlaced;
+	FLOAT SpawnerDelay, SpawnerCheck;
+
+	FString SpawnerKey( INT i )
+	{
+		return FString::Printf( TEXT("spawner:%s:%i:%i"), LastLevel ? *LastLevel->URL.Map : TEXT(""), State.Day, i );
+	}
+
+	void PlaceSpawners( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		bSpawnersPlaced = 1;
+		NumSpawners = 0;
+		if( !LastLevel || !MapHas(*LastLevel->URL.Map,TEXT("_hub")) )
+			return;
+		static const TCHAR* Kinds[8] = { TEXT("Knightspawn"), TEXT("MucusSpawn"), TEXT("BarkSpawn"), TEXT("JewelBoxSpawn"),
+			TEXT("MusicBoxSpawn"), TEXT("DecanterSpawn"), TEXT("Knightspawn"), TEXT("PlantPotSpawn") };
+		const INT Want = 3 + (State.Day % 2);
+		for( INT i=0; i<Want && NumSpawners<MAX_SPAWNERS; i++ )
+		{
+			if( OpenedTreasure.FindItemIndex(SpawnerKey(i))!=INDEX_NONE )
+				continue;
+			UClass* Class = FindClass( Kinds[ HashMix((DWORD)State.Day*31u, (DWORD)i) % 8u ] );
+			FVector Where;
+			if( !Class || !PickSpot( Engine, (DWORD)(State.Day*97 + i*389 + 17), Where ) || (Where-Harry->Location).SizeSquared() < 300.f*300.f )
+				continue;
+			AActor* Def = Class->GetDefaultActor();
+			Where.Z += Def ? Def->CollisionHeight - 18.f : 30.f;
+			AActor* A = TrySpawn( Engine, Class, Where, 0 );
+			if( !A )
+				continue;
+			A->Tag = FName( TEXT("HP2RpgActor") );   // never saved into the level
+			A->Rotation = FRotator( 0, RpgRand(65536), 0 );
+			Spawners[NumSpawners].Actor = A;
+			Spawners[NumSpawners].Index = i;
+			NumSpawners++;
+		}
+		if( NumSpawners )
+			RpgLog( TEXT("castle spawners: %i"), NumSpawners );
+	}
+
+	void UpdateSpawners( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
+	{
+		if( !bSpawnersPlaced )
+		{
+			SpawnerDelay -= DeltaSeconds;
+			if( SpawnerDelay<=0.f )
+				PlaceSpawners( Engine, Harry );
+			return;
+		}
+		SpawnerCheck -= DeltaSeconds;
+		if( SpawnerCheck>0.f )
+			return;
+		SpawnerCheck = 1.f;
+		for( INT s=0; s<NumSpawners; s++ )
+		{
+			AActor* A = Spawners[s].Actor;
+			if( !A )
+				continue;
+			// Used up (no lives left) or gone: remember it for today.
+			const UBOOL bGone = !IsInLevel(A);
+			if( bGone || GetIntProp(A,TEXT("Lives"),1)<=0 )
+			{
+				const FString Key = SpawnerKey( Spawners[s].Index );
+				if( OpenedTreasure.FindItemIndex(Key)==INDEX_NONE && OpenedTreasure.Num()<400 )
+					OpenedTreasure.AddItem( Key );
+				if( bGone )
+					Spawners[s].Actor = NULL;
+			}
+		}
+	}
+
+	void EndSpawners( UGameEngine* Engine )
+	{
+		for( INT s=0; s<NumSpawners; s++ )
+			DestroyActorSafe( Engine, Spawners[s].Actor );
+		NumSpawners = 0;
+		bSpawnersPlaced = 0;
+		SpawnerDelay = 1.f;
+	}
+
+	void ForgetSpawners()
+	{
+		for( INT s=0; s<MAX_SPAWNERS; s++ )
+			Spawners[s].Actor = NULL;
+		NumSpawners = 0;
+		bSpawnersPlaced = 0;
+		SpawnerDelay = 3.f;
+	}

@@ -3902,6 +3902,8 @@ public:
 		UpdateDayNight( Harry, DeltaSeconds );
 		UpdateNightGrounds( Engine, Harry, DeltaSeconds );
 		PlaceAfterRoom( Engine, Harry );
+		UpdateFanDoor( Engine, Harry );
+		UpdateSpawners( Engine, Harry, DeltaSeconds );
 		// The console prints "PRESS ESC TO EXIT" over a paused game; the
 		// mod's own screens pause it, so keep that message empty.
 		if( UObject* Console = Harry->Player ? Harry->Player->Console : NULL )
@@ -3980,6 +3982,8 @@ public:
 		RpgLog( TEXT("level %s, day %i"), MapName, State.Day );
 		bReturnFromRoom = IsRoomMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
 		ReturnAt = RpgClock + 0.6f;
+		bReturnFromFan = IsFanMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
+		FanReturnAt = RpgClock + 0.6f;
 		PrevMap = MapName;
 	}
 
@@ -4002,6 +4006,7 @@ public:
 		EndPickups( Engine );
 		EndDecor( Engine );
 		EndBrew( Engine );
+		EndSpawners( Engine );
 		EndStandIns( Engine );
 		EndSchoolmates( Engine );
 		ClearLessonItems( Engine );
@@ -4048,6 +4053,8 @@ public:
 		ForgetQuests();
 		ForgetDecor();
 		ForgetBrew();
+		ForgetSpawners();
+		FanTravelAt = 0.f;
 		ForgetStandIns();
 		ForgetSchoolmates();
 		LessonItems.Empty();

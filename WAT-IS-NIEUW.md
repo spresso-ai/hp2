@@ -1,5 +1,13 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v6.4 – Deur naar de fan-map, spreuk-spawners in het kasteel
+- **De deuren van de Grote Zaal** in de Hal (die het hele verhaal dicht blijven) zijn nu de doorgang naar **Average Day Through Hogwarts**: ga ervoor staan, druk **E**, de deuren zwaaien open en je bent er. In de fan-map brengen de **voordeuren naast je startplek** je met **E** terug – je staat dan weer voor de Grote Zaal (de deuren gaan weer dicht).
+- **Uit de fan-map overgenomen: spreuk-spawners.** Elke schooldag staan er in elke hub 3–4 op wisselende plekken:
+  - **harnassen** die na 3 keer Flipendo bonen laten vallen,
+  - **potjes Flubberwormslijm en Wiggentree-schors** – echte ingrediënten,
+  - **juwelenkistjes, muziekdoosjes, karaffen en bloempotten** die met Alohomora of Flipendo bonen geven.
+  Wat je leeghaalt blijft die dag leeg, ook na het laden van een save.
+
 ## v6.3 – Fan-map "Average Day Through Hogwarts"
 - De mod **Average Day Through Hogwarts** van David Kapitan (gemaakt voor Metallicafan212's versie van HP2) is **omgezet naar het formaat van het originele spel** en staat naast je gewone spel – er is niets vervangen. Je verkent een Zweinstein vol geheimen: Sneeps toverdrankenlokaal, de kas van Stronk, binnenplaatsen, lange gangen met afgronden, een bibliotheek en vijanden.
 - **Zo kom je er**: in een hub het boek openen (K) en twee keer op **Fan map: Average Day** klikken. Terug: de uitgang van de map of **Leave challenge** in het boek brengt je naar de Hal.
