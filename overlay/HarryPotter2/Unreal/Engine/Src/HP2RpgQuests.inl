@@ -29,6 +29,69 @@
 	INT PhotoFilter;
 	FLOAT PhotoYaw, PhotoPitch, PhotoDist;
 	UBOOL bPhotoHint;
+	UBOOL bPhotoDrag;            // left mouse held: the mouse orbits
+	FLOAT PhotoLastX, PhotoLastY;
+	INT PhotoPose;               // 0 = as he stood
+	FName PhotoOldSeq;
+	FLOAT PhotoOldFrame;
+	INT PhotoShot;               // frames until the picture is taken
+	FString PhotoSaved;
+	FLOAT PhotoSavedUntil;
+
+	static const TCHAR* PhotoPoseName( INT i )
+	{
+		static const TCHAR* Poses[] = { NULL, TEXT("celebrate"), TEXT("duel_idle"), TEXT("LeanOnWindow"), TEXT("look_mirror"), TEXT("MixPotion"),
+			TEXT("yawn"), TEXT("idlesleepy"), TEXT("look_frantic"), TEXT("throwhold"), TEXT("faint"), TEXT("Pickup") };
+		return Poses[ i % (INT)ARRAY_COUNT(Poses) ];
+	}
+	enum { PHOTO_POSES = 12 };
+
+	// Freezes Harry in the chosen pose (the world is paused).
+	void ApplyPhotoPose( APlayerPawn* Harry )
+	{
+		if( !Harry || !Harry->SkelAnim )
+			return;
+		if( PhotoPose==0 )
+		{
+			Harry->AnimSequence = PhotoOldSeq;
+			Harry->AnimFrame = PhotoOldFrame;
+			return;
+		}
+		const FName Seq = FindSeq( Harry->SkelAnim, PhotoPoseName(PhotoPose) );
+		if( Seq!=NAME_None )
+		{
+			Harry->AnimSequence = Seq;
+			Harry->AnimFrame = 0.45f;
+			Harry->AnimRate = 0.f;
+		}
+	}
+
+	// Saves the current frame as a .bmp in ~/Pictures/Harry Potter 2.
+	void TakePhoto( UGameEngine* Engine )
+	{
+		UViewport* Viewport = MainViewport( Engine );
+		const char* Home = getenv( "HOME" );
+		if( !Viewport || !Home )
+			return;
+		const FString Dir = FString(appFromAnsi(Home)) + TEXT("/Pictures/Harry Potter 2");
+		GFileManager->MakeDirectory( *Dir, 1 );
+		FString File;
+		for( INT i=1; i<10000; i++ )
+		{
+			File = FString::Printf( TEXT("%s/Photo %04i.bmp"), *Dir, i );
+			if( GFileManager->FileSize(*File) < 0 )
+				break;
+		}
+		if( Viewport->ScreenShot( *File ) )
+		{
+			PhotoSaved = FString::Printf( TEXT("Saved to Pictures > Harry Potter 2 > %s"), *File.Mid(Dir.Len()+1) );
+			Ui.Play( RSND_Reward, CurrentHarry() );
+			RpgLog( TEXT("photo saved: %s"), *File );
+		}
+		else
+			PhotoSaved = TEXT("The photo could not be saved.");
+		PhotoSavedUntil = RpgClock + 3.f;
+	}
 
 	/*-------------------------------------------------------------------------
 		Quest bookkeeping.
@@ -52,7 +115,7 @@
 
 	UBOOL IsGiverOf( AActor* A, INT q )
 	{
-		return A && ClassChainIsAny( A, GQuests[q].Giver );
+		return A && NpcIs( A, GQuests[q].Giver );
 	}
 
 	// The quest this NPC has for Harry right now: ready ones first.
@@ -82,7 +145,8 @@
 	{
 		DialogSpeaker = Speaker;
 		DialogText = Text;
-		DialogLeft = 7.f;
+		DialogMesh = TEXT("");
+		DialogLeft = Clamp( 2.5f + appStrlen(Text)*0.05f, 3.f, 7.f );
 	}
 
 	// Talking to a giver: returns 1 if a quest was given or completed.
@@ -154,6 +218,41 @@
 		return p>=0 && p<MAX_PAGES && (State.Pages[p>>5] & (1<<(p&31)))!=0;
 	}
 
+	// HP2 hubs have no PathNodes: NPCs walk between PatrolPoints. The
+	// points in the hidden people rooms (cutscene storage) don't count.
+	static UBOOL NearPeopleRoom( const FVector& L )
+	{
+		static const FVector PeopleRooms[4] = { FVector(-1050.f,410.f,-291.f), FVector(-280.f,-240.f,298.f), FVector(-3590.f,-1400.f,35.f), FVector(-2800.f,-1550.f,60.f) };
+		for( INT r=0; r<4; r++ )
+			if( (L-PeopleRooms[r]).SizeSquared() < 500.f*500.f )
+				return 1;
+		return 0;
+	}
+
+	static UBOOL IsWalkPoint( AActor* A )
+	{
+		if( !A || A->bDeleteMe || !(A->IsA(APathNode::StaticClass()) || ClassChainIs(A,TEXT("PatrolPoint"))) )
+			return 0;
+		return !NearPeopleRoom( A->Location );
+	}
+
+	// A character out in the open: not parked for a cutscene, and standing
+	// in sight of a point NPCs walk to (so Harry can get there too).
+	UBOOL IsOutAndAbout( UGameEngine* Engine, AActor* A )
+	{
+		if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || NearPeopleRoom(A->Location) )
+			return 0;
+		const FVector Eye = A->Location + FVector( 0, 0, 30.f );
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AActor* N = Engine->GLevel->Actors(i);
+			if( IsWalkPoint(N) && (N->Location-A->Location).SizeSquared() < 600.f*600.f
+				&& Engine->GLevel->Model->FastLineCheck( N->Location + FVector(0,0,30.f), Eye ) )
+				return 1;
+		}
+		return 0;
+	}
+
 	// A spot on the floor near a navigation point, picked by a stable hash.
 	UBOOL PickSpot( UGameEngine* Engine, DWORD Seed, FVector& Out )
 	{
@@ -161,12 +260,38 @@
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
 			ANavigationPoint* N = Cast<ANavigationPoint>( Engine->GLevel->Actors(i) );
-			if( N && !N->bDeleteMe && N->IsA(APathNode::StaticClass()) )
+			if( N && IsWalkPoint(N) )
 				Nav.AddItem( N );
 		}
 		if( !Nav.Num() )
 			return 0;
 		ANavigationPoint* N = Nav( HashMix(Seed,7919u) % (DWORD)Nav.Num() );
+		FCheckResult Hit;
+		const FVector Start = N->Location + FVector( 0, 0, 20.f );
+		if( !Engine->GLevel->SingleLineCheck( Hit, NULL, Start - FVector(0,0,300.f), Start, TRACE_VisBlocking, FVector(0,0,0) ) )
+			Out = Hit.Location + FVector( 0, 0, 22.f );
+		else
+			Out = N->Location;
+		return 1;
+	}
+
+	// A spot Harry can get to: a walk point he can see from where he stands,
+	// within Range (lesson items must never end up behind a wall).
+	UBOOL PickSpotNear( UGameEngine* Engine, APlayerPawn* Harry, FLOAT Range, DWORD Seed, FVector& Out )
+	{
+		TArray<AActor*> Nav;
+		const FVector Eye = Harry->Location + FVector( 0, 0, 40.f );
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AActor* N = Engine->GLevel->Actors(i);
+			if( !IsWalkPoint(N) || (N->Location-Harry->Location).SizeSquared() > Range*Range )
+				continue;
+			if( Engine->GLevel->Model->FastLineCheck( N->Location + FVector(0,0,40.f), Eye ) )
+				Nav.AddItem( N );
+		}
+		if( !Nav.Num() )
+			return PickSpot( Engine, Seed, Out );
+		AActor* N = Nav( HashMix(Seed,7919u) % (DWORD)Nav.Num() );
 		FCheckResult Hit;
 		const FVector Start = N->Location + FVector( 0, 0, 20.f );
 		if( !Engine->GLevel->SingleLineCheck( Hit, NULL, Start - FVector(0,0,300.f), Start, TRACE_VisBlocking, FVector(0,0,0) ) )
@@ -202,7 +327,7 @@
 		for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 		{
 			const FQuestDef& Q = GQuests[q];
-			if( Q.Type!=QT_Collect || State.QuestState[q]!=QS_Active || !Q.Map || !appStrstr(Map,Q.Map) )
+			if( Q.Type!=QT_Collect || State.QuestState[q]!=QS_Active || !Q.Map || !MapHas(Map,Q.Map) )
 				continue;
 			for( INT i=State.QuestBase[q]; i<Q.Count; i++ )
 			{
@@ -219,12 +344,16 @@
 		// Field Guide pages: hidden until Revelio.
 		for( INT g=0; g<GNumFieldPages && g<MAX_PAGES; g++ )
 		{
-			if( PageFound(g) || !appStrstr(Map,GFieldPages[g].Map) )
+			if( PageFound(g) || !MapHas(Map,GFieldPages[g].Map) )
 				continue;
 			FVector Where;
 			if( !PickSpot( Engine, (DWORD)(g*977 + 31), Where ) )
 				continue;
-			AActor* A = SpawnPickup( Engine, TEXT("HProps.skBooksSmallBookMesh"), Where, 0.8f );
+			// A little spellbook floating at chest height.
+			Where.Z += 34.f;
+			AActor* A = SpawnPickup( Engine, TEXT("HProps.skBooksSmallBookMesh"), Where, 1.6f );
+			if( !A )
+				A = SpawnPickup( Engine, TEXT("HProps.skSheetTest1Mesh"), Where, 1.4f );
 			if( !A )
 				continue;
 			A->bHidden = 1;
@@ -242,10 +371,12 @@
 		for( INT p=0; p<Pickups.Num(); p++ )
 		{
 			FWorldPickup& P = Pickups(p);
-			if( P.Page<0 || P.bRevealed || !IsInLevel(P.Actor) || (P.Base-Harry->Location).SizeSquared() > 2600.f*2600.f )
+			if( P.Page<0 || P.bRevealed || !IsInLevel(P.Actor) )
 				continue;
 			P.bRevealed = 1;
 			P.Actor->bHidden = 0;
+			P.Actor->AmbientGlow = 160;
+			SpawnFx( Engine, TEXT("WizCrackSparkle"), P.Base, 1.5f );
 			SpawnFx( Engine, TEXT("GoldSparkle01"), P.Base, 2.f );
 			FRevealEntry* E = new(Reveals) FRevealEntry;
 			E->Actor = P.Actor;
@@ -253,6 +384,8 @@
 			E->Kind = 4;
 			N++;
 		}
+		if( N )
+			PlaySfx( TEXT("HPSounds.Magic_sfx.vendor_spawn_WC") );
 		return N;
 	}
 
@@ -312,8 +445,10 @@
 			}
 			if( !P.bRevealed )
 				continue;
-			// Spin and bob so it reads as something to grab.
+			// Spin and bob so it reads as something to grab; pages glitter.
 			P.Actor->Rotation.Yaw += appRound( 16000.f*DeltaSeconds );
+			if( P.Page>=0 && appFmod(RpgClock+p*0.37f, 1.6f) < DeltaSeconds )
+				SpawnFx( Engine, TEXT("GoldSparkle01"), P.Base, 1.2f );
 			Engine->GLevel->FarMoveActor( P.Actor, P.Base + FVector(0,0,(FLOAT)appSin(RpgClock*2.5f + p)*6.f), 0, 1 );
 			const FVector D = Harry->Location - P.Base;
 			if( D.X*D.X + D.Y*D.Y < 75.f*75.f && Abs(D.Z) < 110.f )
@@ -350,17 +485,33 @@
 			GiverScanTimer = 2.f;
 			Givers.Empty();
 			TodaysTeacher = NULL;
+			for( INT si=0; si<StandIns.Num(); si++ )
+			{
+				AActor* A = StandIns(si).Actor;
+				if( !A || A->bDeleteMe )
+					continue;
+				if( !TodaysTeacher && TodaysLesson()>=0 && NpcIs(A, Lesson(TodaysLesson()).Teacher) )
+					TodaysTeacher = A;
+				for( INT g=0; g<GNumQuests && g<MAX_QUESTS; g++ )
+					if( IsGiverOf(A,g) )
+					{
+						Givers.AddItem( A );
+						break;
+					}
+			}
 			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 			{
 				AActor* A = Engine->GLevel->Actors(i);
 				if( !A || A->bDeleteMe || A->bHidden || IsHolding(A) || !A->IsA(APawn::StaticClass()) )
 					continue;
-				if( !TodaysTeacher && ClassChainIsAny(A, Lesson(TodaysLesson()).Teacher) )
+				if( !TodaysTeacher && TodaysLesson()>=0 && NpcIs(A, Lesson(TodaysLesson()).Teacher) && IsOutAndAbout(Engine,A) )
 					TodaysTeacher = A;
 				for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 					if( IsGiverOf(A,q) )
 					{
-						Givers.AddItem( A );
+						// Not one the story parked out of reach.
+						if( IsOutAndAbout(Engine,A) )
+							Givers.AddItem( A );
 						break;
 					}
 			}
@@ -379,7 +530,11 @@
 		for( INT g=0; g<Givers.Num(); g++ )
 		{
 			AActor* A = Givers(g);
-			if( !IsInLevel(A) || (A->Location-Harry->Location).SizeSquared() > 3000.f*3000.f )
+			if( !IsInLevel(A) || A->bHidden || (A->Location-Harry->Location).SizeSquared() > 3000.f*3000.f )
+				continue;
+			// Through walls only when close by.
+			if( (A->Location-Harry->Location).SizeSquared() > 900.f*900.f && LastLevel
+				&& !LastLevel->Model->FastLineCheck( Harry->Location + FVector(0,0,40.f), A->Location + FVector(0,0,A->CollisionHeight) ) )
 				continue;
 			const INT q = QuestFor( A, 0 );
 			if( q<0 )
@@ -405,34 +560,55 @@
 			Ui.Brackets( FRpgRect(SX-Ui.P(10.f), SY-Ui.P(10.f), Ui.P(20.f), Ui.P(20.f)), Ui.P(6.f), Max(1.f,Ui.P(2.f)), GoldHi );
 		}
 		// Tracker: active quests, shown after a change or with Tab.
-		if( TrackerTimer>0.f || bShowAllHud )
+		if( (TrackerTimer>0.f || bShowAllHud) && !IsTalking() && LessonKind<0 )
 		{
 			FLOAT Y = Ui.P(120.f);
 			const FLOAT X = C->ClipX - Ui.P(48.f);
+			const FLOAT W = Min(Ui.P(340.f),C->ClipX*0.34f);
+			INT Shown = 0, More = 0;
 			for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 			{
 				if( State.QuestState[q]!=QS_Active && State.QuestState[q]!=QS_Ready )
 					continue;
+				if( Shown>=2 )
+				{
+					More++;
+					continue;
+				}
+				Shown++;
 				const FQuestDef& Q = GQuests[q];
-				Ui.Text( Ui.FontModernBold, X, Y, GoldHi, Q.Title, RALIGN_Right );
+				Ui.Text( Ui.FontModernBold, X, Y, GoldHi, *Ui.FitText(Ui.FontModernBold,Q.Title,W), RALIGN_Right );
 				Y += Ui.TextHeight( Ui.FontModernBold );
 				const FString Line = State.QuestState[q]==QS_Ready
 					? FString::Printf( TEXT("Return to %s"), Q.GiverName )
 					: FString::Printf( TEXT("%s  %i/%i"), Q.Objective, QuestProgress(Harry,q), Q.Count );
-				Ui.Text( Ui.FontCaption, X, Y, State.QuestState[q]==QS_Ready ? FColor(120,220,140,255) : Text2, *Line, RALIGN_Right );
+				Ui.Text( Ui.FontCaption, X, Y, State.QuestState[q]==QS_Ready ? FColor(120,220,140,255) : Text2, *Ui.FitText(Ui.FontCaption,*Line,W), RALIGN_Right );
 				Y += Ui.TextHeight( Ui.FontCaption ) + Ui.P(8.f);
 			}
+			if( More>0 )
+				Ui.Text( Ui.FontCaption, X, Y, Text2, *FString::Printf(TEXT("+%i in Journal [K]"),More), RALIGN_Right );
 		}
-		// Quest dialogue: a parchment-toned panel above the hotbar.
+		// Quest dialogue: a slim subtitle-style panel low on the screen,
+		// only as tall as its text, the speaker in the game's ink letters.
 		if( DialogLeft>0.f && DialogText.Len() )
 		{
-			const FLOAT W = Min( Ui.P(820.f), C->ClipX*0.7f );
-			const FLOAT LineH = Ui.TextHeight( Ui.FontModern );
-			const FLOAT H = Ui.TextHeight(Ui.FontModernBold) + LineH*3 + Ui.P(28.f);
-			const FRpgRect R( (C->ClipX-W)*0.5f, C->ClipY - Ui.P(150.f) - H, W, H );
+			UFont* NameFont = Ui.FontItem ? Ui.FontItem : Ui.FontModernBold;
+			const FLOAT TextW = Ui.TextWidth( Ui.FontBody, *DialogText );
+			const FLOAT W = Clamp( TextW + Ui.P(40.f), Ui.P(320.f), Min( Ui.P(600.f), C->ClipX*0.55f ) );
+			const FLOAT LineH = Ui.TextHeight( Ui.FontBody );
+			const INT Lines = Clamp( appCeil( TextW/Max(1.f, W-Ui.P(36.f)) ), 1, 3 );
+			const FLOAT H = Ui.TextHeight(NameFont) + LineH*Lines + Ui.P(20.f);
+			const FRpgRect R( (C->ClipX-W)*0.5f, C->ClipY - Ui.P(36.f) - H, W, H );
 			Ui.Glass( R, 1 );
-			Ui.Text( Ui.FontModernBold, R.X+Ui.P(16.f), R.Y+Ui.P(10.f), GoldHi, *DialogSpeaker, RALIGN_Left, 0 );
-			Ui.TextWrapped( Ui.FontModern, FRpgRect(R.X+Ui.P(16.f), R.Y+Ui.P(14.f)+Ui.TextHeight(Ui.FontModernBold), R.W-Ui.P(32.f), LineH*3+Ui.P(4.f)), Text1, *DialogText );
+			Ui.Rect( FRpgRect(R.X, R.Y, Max(1.f,Ui.P(2.f)), R.H), RpgGold );
+			Ui.Text( NameFont, R.X+Ui.P(18.f), R.Y+Ui.P(6.f), GoldHi, *DialogSpeaker, RALIGN_Left, 0 );
+			Ui.TextWrapped( Ui.FontBody, FRpgRect(R.X+Ui.P(18.f), R.Y+Ui.P(10.f)+Ui.TextHeight(NameFont), R.W-Ui.P(36.f), LineH*Lines+Ui.P(4.f)), Text1, *DialogText );
+			// The speaker's face beside the panel.
+			if( DialogMesh.Len() )
+			{
+				const FLOAT PS = Max( R.H, Ui.P(84.f) );
+				DrawPortrait( FRpgRect(R.X+R.W+Ui.P(10.f), R.Y+R.H-PS, PS, PS), *DialogMesh );
+			}
 		}
 	}
 
@@ -444,7 +620,7 @@
 
 	void DrawJournalTab( APlayerPawn* Harry, const FRpgRect& Area )
 	{
-		const FLOAT S = Ui.S;
+		const FLOAT S = Ui.P(2.f);
 		static const TCHAR* Sections[3] = { TEXT("Quests"), TEXT("Field Guide"), TEXT("Duelling") };
 		const INT Clicked = DrawTabs( FRpgRect(Area.X, Area.Y, Area.W*0.8f, Ui.TextHeight(Ui.FontItem)+6*S), Sections, NULL, 3, JournalSection );
 		if( Clicked>=0 && Clicked!=JournalSection )
@@ -477,10 +653,13 @@
 				Ui.TextWrapped( Ui.FontBody, Body, RpgMuted, TEXT("No quests yet. Look for a gold ! above someone's head and talk to them (E).") );
 				return;
 			}
-			Sel = Clamp( Sel, 0, N-1 );
-			for( INT i=0; i<N; i++ )
+			const INT Visible = Max( 1, appFloor(Body.H/RowH) );
+			ApplyWheel( N, 1, Visible );
+			ClampSelection( N, 1, Visible );
+			for( INT v=0; v<Visible && Scroll+v<N; v++ )
 			{
-				const FRpgRect Row( Body.X, Body.Y + i*RowH, ListW, RowH-2*S );
+				const INT i = Scroll+v;
+				const FRpgRect Row( Body.X, Body.Y + v*RowH, ListW, RowH-2*S );
 				if( Row.Y+Row.H > Body.Y+Body.H )
 					break;
 				RowActivated( Row, i, &Order[i] );
@@ -515,8 +694,8 @@
 		const INT N = Min( GNumFieldPages, MAX_PAGES );
 		Sel = Clamp( Sel, 0, N-1 );
 		const INT Visible = Max( 1, appFloor(Body.H/RowH) );
-		if( Sel<Scroll ) Scroll = Sel;
-		if( Sel>=Scroll+Visible ) Scroll = Sel-Visible+1;
+		ApplyWheel( N, 1, Visible );
+		ClampSelection( N, 1, Visible );
 		INT Found = 0;
 		for( INT g=0; g<N; g++ )
 			Found += PageFound( g );
@@ -608,12 +787,22 @@
 			PhotoYaw = (FLOAT)appAtan2( Off.Y, Off.X );
 			PhotoPitch = (FLOAT)appAtan2( Off.Z, Max(1.f,Off.Size2D()) );
 			bPhotoHint = 1;
+			bPhotoDrag = 0;
+			PhotoPose = 0;
+			PhotoShot = 0;
+			PhotoOldSeq = Harry->AnimSequence;
+			PhotoOldFrame = Harry->AnimFrame;
+			// The cursor shows: drag with the left button to orbit.
+			Ui.SetMenuMouse( MainViewport(Engine), 1 );
 			RpgLog( TEXT("photo mode on (camera %s)"), Cam ? Cam->GetName() : TEXT("none") );
 		}
 		else
 		{
 			if( Info->Pauser==TEXT("HP2RpgPhoto") )
 				Info->Pauser = TEXT("");
+			PhotoPose = 0;
+			ApplyPhotoPose( Harry );
+			Ui.SetMenuMouse( MainViewport(Engine), 0 );
 			if( Hud )
 				SetBoolProp( Hud, TEXT("bHideStatus"), 0 );
 		}
@@ -643,9 +832,32 @@
 				PhotoPitch = Clamp( PhotoPitch - Delta*0.004f, -1.2f, 1.3f );
 			return 1;
 		}
+		if( Key==IK_LeftMouse )
+		{
+			bPhotoDrag = Action==IST_Press;
+			PhotoLastX = Ui.MouseX;
+			PhotoLastY = Ui.MouseY;
+			return 1;
+		}
 		if( Action!=IST_Press )
 			return 1;
-		if( Key==IK_P || Key==IK_Escape )
+		// Keys orbit too (in steps), for when the mouse doesn't reach us.
+		if( Key==IK_Left || Key==IK_A )
+			PhotoYaw -= 0.2f;
+		else if( Key==IK_Right || Key==IK_D )
+			PhotoYaw += 0.2f;
+		else if( Key==IK_Up || Key==IK_W )
+			PhotoPitch = Clamp( PhotoPitch + 0.15f, -1.2f, 1.3f );
+		else if( Key==IK_Down || Key==IK_S )
+			PhotoPitch = Clamp( PhotoPitch - 0.15f, -1.2f, 1.3f );
+		else if( Key==IK_Tab )
+		{
+			PhotoPose = (PhotoPose+1) % PHOTO_POSES;
+			ApplyPhotoPose( Harry );
+		}
+		else if( Key==IK_F || Key==IK_Enter )
+			PhotoShot = 1;
+		else if( Key==IK_P || Key==IK_Escape )
 			SetPhoto( Engine, Harry, 0 );
 		else if( Key==IK_MouseWheelUp )
 			PhotoDist = Max( 60.f, PhotoDist-20.f );
@@ -679,11 +891,34 @@
 				C->DrawTile( Ui.White, 0, 0, C->ClipX, C->ClipY, 0, 0, 1, 1, NULL, 1.f, FPlane(0.62f,0.72f,1.f,1.f), FPlane(0,0,0,0), PF_Modulated );
 				break;
 		}
+		// Dragging with the left button orbits the camera.
+		if( bPhotoDrag )
+		{
+			PhotoYaw += (Ui.MouseX-PhotoLastX)*0.008f;
+			PhotoPitch = Clamp( PhotoPitch + (Ui.MouseY-PhotoLastY)*0.006f, -1.2f, 1.3f );
+			PhotoLastX = Ui.MouseX;
+			PhotoLastY = Ui.MouseY;
+		}
+		// The picture: this frame, before any help is drawn.
+		if( PhotoShot>0 )
+		{
+			PhotoShot = 0;
+			TakePhoto( Ui.Engine );
+			return;
+		}
+		if( RpgClock<PhotoSavedUntil && PhotoSaved.Len() )
+		{
+			const FLOAT W = Ui.TextWidth( Ui.FontBody, *PhotoSaved ) + Ui.P(32.f), H = Ui.TextHeight( Ui.FontBody ) + Ui.P(14.f);
+			const FRpgRect R( (C->ClipX-W)*0.5f, Ui.P(24.f), W, H );
+			Ui.Glass( R );
+			Ui.Border( R, Max(1.f,Ui.P(1.f)), RpgGold );
+			Ui.Text( Ui.FontBody, C->ClipX*0.5f, R.Y+Ui.P(7.f), RpgGoldBright, *PhotoSaved, RALIGN_Center, 0 );
+		}
 		if( bPhotoHint )
 		{
-			static const TCHAR* Keys[5] = { TEXT("Mouse"), TEXT("Wheel"), TEXT("1-4"), TEXT("H"), TEXT("P") };
-			static const TCHAR* Verbs[5] = { TEXT("Orbit"), TEXT("Zoom"), TEXT("Filter"), TEXT("Hide help"), TEXT("Exit") };
-			Ui.Prompt( C->ClipX*0.5f, C->ClipY-Ui.P(72.f), Keys, Verbs, 5, TEXT("Photo mode") );
+			static const TCHAR* Keys[7] = { TEXT("Drag"), TEXT("Wheel"), TEXT("Tab"), TEXT("1-4"), TEXT("F"), TEXT("H"), TEXT("P") };
+			static const TCHAR* Verbs[7] = { TEXT("Orbit"), TEXT("Zoom"), TEXT("Pose"), TEXT("Filter"), TEXT("Take photo"), TEXT("Hide help"), TEXT("Exit") };
+			Ui.Prompt( C->ClipX*0.5f, C->ClipY-Ui.P(72.f), Keys, Verbs, 7, TEXT("Photo mode") );
 		}
 	}
 
@@ -746,3 +981,4 @@
 		}
 		Ui.Text( Ui.FontSmall, Body.X, Body.Y+Body.H-Ui.TextHeight(Ui.FontSmall), RpgMuted, TEXT("Challenge the next rank at the Duelling Club kiosk in the Entrance Hall.") );
 	}
+

@@ -11,7 +11,7 @@
 	is left. A Brewing Cauldron brews one Wiggenweld Potion a school day.
 =============================================================================*/
 
-	enum ELessonKind { LES_Charms, LES_Herbology, LES_Potions, LES_Defence, LES_Transfig, LES_MAX };
+	enum ELessonKind { LES_Charms, LES_Herbology, LES_Potions, LES_Defence, LES_Transfig, LES_Quidditch, LES_MAX };
 
 	struct FLessonDef
 	{
@@ -37,6 +37,8 @@
 				TEXT("I've hidden four dark marks around here. Use Revelio, find them all - just as I would!"), 4, 120.f },
 			{ TEXT("ProfMcGonagall"), TEXT("Professor McGonagall"), TEXT("Transfiguration"),
 				TEXT("Practical work today: transfigure two students. No points will be taken - this time."), 2, 120.f },
+			{ TEXT("OliverWood"), TEXT("Oliver Wood"), TEXT("Quidditch Practice"),
+				TEXT("Five Snitches are loose on the grounds, Harry. Catch them all before time's up!"), 5, 150.f },
 		};
 		return Defs[ Clamp(k,0,LES_MAX-1) ];
 	}
@@ -64,17 +66,22 @@
 	TArray<AActor*> LessonCounted;
 	TArray<AActor*> LessonLifted;    // Charms: levitated during the lesson
 	AActor* TodaysTeacher;
+	UBOOL bKnockReady;       // teacher behind a closed classroom door
+	UBOOL bKnocked;
 	FLOAT NeedlePos, NeedleDir;
 	FLOAT LessonFxTimer;
 
+	// The class on the timetable that is on now, else the next one today
+	// (-1: no more classes today).
 	INT TodaysLesson()
 	{
-		return (INT)(State.Day % LES_MAX);
+		return NextSlotKind();
 	}
 
 	UBOOL LessonAvailableFrom( AActor* Npc )
 	{
-		return LessonKind<0 && State.LessonDay!=State.Day && Npc && ClassChainIsAny( Npc, Lesson(TodaysLesson()).Teacher );
+		const INT k = OpenSlotKind();
+		return LessonKind<0 && k>=0 && Npc && NpcIs( Npc, Lesson(k).Teacher );
 	}
 
 	void ClearLessonItems( UGameEngine* Engine )
@@ -91,11 +98,24 @@
 	{
 		if( !LessonAvailableFrom(Npc) )
 			return 0;
-		const INT k = TodaysLesson();
+		const INT k = OpenSlotKind( &ActiveSlot );
 		const FLessonDef& L = Lesson( k );
-		if( k==LES_Potions && (SellCount(Harry,CON_WBark)<1 || SellCount(Harry,CON_FMucus)<1) )
+		// Potions is brewed at a cauldron of its own.
+		if( k==LES_Potions )
+			return StartBrew( Engine, Harry, Npc );
+		// Quidditch: once the story has had its first practice, Wood takes
+		// Harry to the real pitch - the game's own replayable match, on a
+		// broom, catching the Snitch (match 5, the final, is left alone).
+		const INT GS = GameStateNum( Harry );
+		if( k==LES_Quidditch && GS>=40 )
 		{
-			Say( L.TeacherName, TEXT("You come to my class without ingredients? Bring one Wiggentree bark and one Flobberworm mucus, Potter.") );
+			const INT Match = GS>=130 ? 4 : GS>=100 ? 3 : GS>=80 ? 2 : GS>=50 ? 1 : 0;
+			SetIntProp( Harry, TEXT("curQuidMatchNum"), Match );
+			State.LessonDay = State.Day;
+			MarkSlotAttended();
+			GiveXp( 60, TEXT("Quidditch practice") );
+			SayAs( L.TeacherName, TEXT("Right, Harry - onto your broom! Proper practice on the pitch today: find the Snitch and catch it."), LessonTeacherMesh(k) );
+			TravelTo( Engine, Harry, TEXT("Quidditch.unr") );
 			return 1;
 		}
 		LessonKind = k;
@@ -109,15 +129,17 @@
 			case LES_Charms:
 			{
 				// A circle on the floor a little way from the teacher.
-				FVector Best = Npc->Location;
+				// Knocked from the corridor: the circle comes out to Harry.
+				const FVector From = bKnocked ? Harry->Location : Npc->Location;
+				FVector Best = From;
 				FLOAT BestScore = 1e9f;
 				for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 				{
-					APathNode* N = Cast<APathNode>( Engine->GLevel->Actors(i) );
-					if( !N )
+					AActor* N = Engine->GLevel->Actors(i);
+					if( !IsWalkPoint(N) )
 						continue;
-					const FLOAT D = (N->Location - Npc->Location).Size();
-					const FLOAT Score = Abs( D-350.f );
+					const FLOAT D = (N->Location - From).Size();
+					const FLOAT Score = bKnocked ? D : Abs( D-350.f );
 					if( Score<BestScore )
 					{
 						BestScore = Score;
@@ -136,7 +158,7 @@
 				for( INT i=0; i<L.Count; i++ )
 				{
 					FVector Where;
-					if( !PickSpot( Engine, (DWORD)(State.Day*53 + i*29 + 7), Where ) )
+					if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*53 + i*29 + 7), Where ) )
 						continue;
 					AActor* A = SpawnPickup( Engine, Pots[i%3], Where, 0.9f );
 					if( A )
@@ -147,17 +169,30 @@
 				}
 				break;
 			}
-			case LES_Potions:
-				ApplyConsumable( Harry, CON_WBark, -1 );
-				ApplyConsumable( Harry, CON_FMucus, -1 );
-				NeedlePos = 0.f;
-				NeedleDir = 1.f;
+			case LES_Quidditch:
+				// Golden Snitches hovering about the grounds.
+				for( INT i=0; i<L.Count; i++ )
+				{
+					FVector Where;
+					if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*61 + i*43 + 11), Where ) )
+						continue;
+					Where.Z += 55.f;
+					AActor* A = SpawnPickup( Engine, TEXT("HPModels.skSnitchMesh"), Where, 2.f );
+					if( !A )
+						A = SpawnPickup( Engine, TEXT("HProps.skChallengeStarMesh"), Where, 0.5f );
+					if( A )
+					{
+						A->AmbientGlow = 200;
+						LessonItems.AddItem( A );
+						LessonItemShown.AddItem( 1 );
+					}
+				}
 				break;
 			case LES_Defence:
 				for( INT i=0; i<L.Count; i++ )
 				{
 					FVector Where;
-					if( !PickSpot( Engine, (DWORD)(State.Day*71 + i*37 + 3), Where ) )
+					if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*71 + i*37 + 3), Where ) )
 						continue;
 					AActor* A = SpawnPickup( Engine, TEXT("HProps.skChallengeStarMesh"), Where, 0.5f );
 					if( A )
@@ -198,6 +233,7 @@
 		static const INT Xp[6] = { 0, 0, 40, 80, 120, 160 };
 		static const INT Beans[6] = { 0, 0, 10, 25, 40, 60 };
 		State.LessonDay = State.Day;
+		MarkSlotAttended();
 		State.LessonGrades[k] = Max( State.LessonGrades[k], Grade );
 		AddHousePoints( Harry, HOUSE_Gryffindor, Points[Grade] );
 		if( Xp[Grade] )
@@ -211,31 +247,37 @@
 		RpgLog( TEXT("lesson %s graded %s"), L.Subject, GradeLetter(Grade) );
 	}
 
-	// Potions: E stirs.
+	// Potions is brewed in its own screen (HP2RpgBrew.inl); no key input here.
+	// The teacher is teaching in a classroom behind a closed door (the
+	// story keeps those shut): knocking starts the class from the corridor.
+	UBOOL TeacherBehindDoor( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		if( LessonKind>=0 || OpenSlotKind()<0 || NearNpc || !IsInLevel(TodaysTeacher) || !IsFreeGameplay(Engine,Harry) )
+			return 0;
+		const FVector D = TodaysTeacher->Location - Harry->Location;
+		if( D.X*D.X + D.Y*D.Y > 750.f*750.f || Abs(D.Z) > 220.f )
+			return 0;
+		FCheckResult Hit;
+		return !Engine->GLevel->SingleLineCheck( Hit, Harry, TodaysTeacher->Location, Harry->Location+FVector(0,0,30.f), TRACE_VisBlocking, FVector(0,0,0) );
+	}
+
 	UBOOL LessonInput( UGameEngine* Engine, APlayerPawn* Harry, EInputKey Key, EInputAction Action )
 	{
-		if( LessonKind!=LES_Potions || Key!=IK_E || Action!=IST_Press )
+		if( Key!=IK_E || Action!=IST_Press || !bKnockReady || !TeacherBehindDoor(Engine,Harry) )
 			return 0;
-		if( NeedlePos>0.62f && NeedlePos<0.80f )
-		{
-			LessonProgress++;
-			SpawnFx( Engine, TEXT("Potion_sparkle"), Harry->Location + Harry->Rotation.Vector()*60.f, 1.f );
-			Ui.Play( RSND_Buy, Harry );
-		}
-		else
-		{
-			LessonMisses++;
-			Ui.Play( RSND_Deny, Harry );
-		}
-		if( LessonProgress>=Lesson(LES_Potions).Count || LessonMisses>=4 )
-			FinishLesson( Engine, Harry, 0 );
-		return 1;
+		PlaySfx( TEXT("HPSounds.General.door_no_bump_wood") );
+		bKnocked = 1;
+		const UBOOL bStarted = LessonTalk( Engine, Harry, TodaysTeacher );
+		bKnocked = 0;
+		bKnockReady = 0;
+		return bStarted;
 	}
 
 	void UpdateLesson( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
 	{
-		if( LessonKind<0 )
-			return;
+		bKnockReady = TeacherBehindDoor( Engine, Harry );
+		if( LessonKind<0 || LessonKind==LES_Potions )
+			return; // Potions runs in the brewing screen
 		const FLessonDef& L = Lesson( LessonKind );
 		LessonLeft -= DeltaSeconds;
 		if( LessonLeft<=0.f )
@@ -281,6 +323,7 @@
 			}
 			case LES_Herbology:
 			case LES_Defence:
+			case LES_Quidditch:
 				for( INT i=LessonItems.Num()-1; i>=0; i-- )
 				{
 					AActor* A = LessonItems(i);
@@ -299,11 +342,6 @@
 						Ui.Play( RSND_Buy, Harry );
 					}
 				}
-				break;
-			case LES_Potions:
-				NeedlePos += NeedleDir*DeltaSeconds*(0.9f + 0.25f*LessonProgress);
-				if( NeedlePos>1.f ) { NeedlePos = 1.f; NeedleDir = -1.f; }
-				if( NeedlePos<0.f ) { NeedlePos = 0.f; NeedleDir = 1.f; }
 				break;
 			case LES_Transfig:
 				LessonProgress = State.Counters[CNT_Transfigs] - LessonBase;
@@ -339,16 +377,32 @@
 
 	void DrawLessonHud( APlayerPawn* Harry )
 	{
+		if( bKnockReady && LessonKind<0 && TodaysLesson()>=0 )
+		{
+			const TCHAR* Keys[1] = { TEXT("E") };
+			const TCHAR* Verbs[1] = { TEXT("Knock and join the class") };
+			Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, 1, *FString::Printf(TEXT("%s class"), Lesson(TodaysLesson()).Subject) );
+		}
 		UCanvas* C = Ui.C;
 		const FColor Blue( 120,170,255,255 ), Text1( 240,238,230,255 ), GoldHi( 255,222,130,255 );
 		// Teacher marker for today's class.
-		if( LessonKind<0 && State.LessonDay!=State.Day && TodaysTeacher && IsInLevel(TodaysTeacher)
+		if( LessonKind<0 && TodaysLesson()>=0 && TodaysTeacher && IsInLevel(TodaysTeacher)
 			&& (TodaysTeacher->Location-Harry->Location).SizeSquared() < 3000.f*3000.f )
 		{
 			FLOAT SX, SY;
 			if( WorldToScreen( TodaysTeacher->Location + FVector(0,0,TodaysTeacher->CollisionHeight+30.f), SX, SY ) )
 			{
-				const FString T = FString::Printf( TEXT("%s class"), Lesson(TodaysLesson()).Subject );
+				FTimeSlot Slots[TT_SLOTS];
+				const INT NS = DaySlots( WeekDay(), Slots );
+				INT Start = 0;
+				for( INT s=0; s<NS; s++ )
+					if( Slots[s].Kind==TodaysLesson() && !SlotResolved(s) )
+					{
+						Start = Slots[s].Start;
+						break;
+					}
+				const FString T = OpenSlotKind()>=0 ? FString::Printf( TEXT("%s class - now"), Lesson(TodaysLesson()).Subject )
+					: FString::Printf( TEXT("%s at %02i:%02i"), Lesson(TodaysLesson()).Subject, Start/60, Start%60 );
 				const FLOAT W = Ui.TextWidth( Ui.FontCaption, *T ) + Ui.P(16.f), H = Ui.TextHeight( Ui.FontCaption ) + Ui.P(8.f);
 				const FRpgRect R( SX-W*0.5f, SY-H, W, H );
 				Ui.Glass( R );
@@ -372,58 +426,73 @@
 			if( WorldToScreen( LessonSpot+FVector(0,0,20.f), SX, SY ) )
 				Ui.Brackets( FRpgRect(SX-Ui.P(30.f), SY-Ui.P(20.f), Ui.P(60.f), Ui.P(40.f)), Ui.P(12.f), Max(1.f,Ui.P(2.f)), GoldHi );
 		}
-		if( LessonKind==LES_Herbology || LessonKind==LES_Defence )
+		if( LessonKind==LES_Herbology || LessonKind==LES_Defence || LessonKind==LES_Quidditch )
 			for( INT i=0; i<LessonItems.Num(); i++ )
 			{
 				FLOAT SX, SY;
 				if( LessonItemShown(i) && IsInLevel(LessonItems(i)) && WorldToScreen(LessonItems(i)->Location+FVector(0,0,30.f), SX, SY) )
 					Ui.Brackets( FRpgRect(SX-Ui.P(10.f), SY-Ui.P(10.f), Ui.P(20.f), Ui.P(20.f)), Ui.P(6.f), Max(1.f,Ui.P(2.f)), Blue );
 			}
-		if( LessonKind==LES_Potions )
-		{
-			// Stirring bar: hit E while the needle is in the gold.
-			const FLOAT BW = Ui.P(360.f), BH = Ui.P(14.f);
-			const FRpgRect Bar( (C->ClipX-BW)*0.5f, C->ClipY*0.62f, BW, BH );
-			Ui.Rect( Bar, FColor(20,27,54,255) );
-			Ui.Rect( FRpgRect(Bar.X+BW*0.62f, Bar.Y, BW*0.18f, BH), FColor(201,162,74,255) );
-			Ui.Border( Bar, Max(1.f,Ui.P(1.f)), FColor(46,56,96,255) );
-			Ui.Rect( FRpgRect(Bar.X+BW*NeedlePos-Ui.P(2.f), Bar.Y-Ui.P(6.f), Ui.P(4.f), BH+Ui.P(12.f)), Text1 );
-			const TCHAR* Keys[1] = { TEXT("E") };
-			const TCHAR* Verbs[1] = { TEXT("Stir") };
-			Ui.Prompt( C->ClipX*0.5f, Bar.Y+BH+Ui.P(14.f), Keys, Verbs, 1 );
-		}
 	}
 
 	/*-------------------------------------------------------------------------
 		Room of Requirement: furniture you place and move yourself.
 	-------------------------------------------------------------------------*/
 
-	struct FDecorDef { const TCHAR* Name; const TCHAR* Mesh; INT Price; FLOAT Scale; };
+	enum EDecorCat { DC_Furniture, DC_Storage, DC_Statues, DC_Games, DC_Curiosities, DC_Plants, DC_Lights, DC_MAX };
 
+	static const TCHAR* DecorCatName( INT c )
+	{
+		static const TCHAR* Names[DC_MAX] = { TEXT("Furniture"), TEXT("Storage"), TEXT("Statues"), TEXT("Games"), TEXT("Curiosities"), TEXT("Plants"), TEXT("Lights") };
+		return Names[ Clamp(c,0,DC_MAX-1) ];
+	}
+
+	struct FDecorDef { const TCHAR* Name; const TCHAR* Mesh; INT Price; FLOAT Scale; INT Cat; };
+
+	// Append-only: placed furniture and DecorOwned are saved by index.
 	static const FDecorDef& Decor( INT i )
 	{
 		static const FDecorDef Defs[] =
 		{
-			{ TEXT("Brewing Cauldron"), TEXT("HProps.skCauldronTeacherMesh"), 400, 1.f },
-			{ TEXT("Red Armchair"), TEXT("HProps.skChairsRedComfyMesh"), 120, 1.f },
-			{ TEXT("Red Couch"), TEXT("HProps.skChairsRedCouchMesh"), 220, 1.f },
-			{ TEXT("Gryffindor Bed"), TEXT("HProps.skBedGryffindorMesh"), 350, 1.f },
-			{ TEXT("Bookcase"), TEXT("HProps.skBookcaseGlassDoorsMesh"), 260, 1.f },
-			{ TEXT("Christmas Tree"), TEXT("HProps.skChristmasTreeMesh"), 300, 1.f },
-			{ TEXT("Telescope"), TEXT("HProps.skTelescopeMesh"), 240, 1.f },
-			{ TEXT("Owl Statue"), TEXT("HProps.skStatueOwlMesh"), 180, 1.f },
-			{ TEXT("Round Table"), TEXT("HProps.skTableWoodRoundMesh"), 150, 1.f },
-			{ TEXT("Hogwarts Trunk"), TEXT("HProps.skTrunkHogwarts1Mesh"), 100, 1.f },
-			{ TEXT("Candelabra"), TEXT("HProps.skCandlesFloorTrippleCandleMesh"), 90, 1.f },
-			{ TEXT("Red Flowers"), TEXT("HProps.skPlantsFlowerRedMesh"), 60, 1.f },
-			{ TEXT("Easel"), TEXT("HProps.skEaselMesh"), 110, 1.f },
-			{ TEXT("Suit of Armour"), TEXT("HProps.skArmorWholeSuitMesh"), 500, 1.f },
+			{ TEXT("Brewing Cauldron"), TEXT("HProps.skCauldronTeacherMesh"), 400, 1.f, DC_Curiosities },
+			{ TEXT("Red Armchair"), TEXT("HProps.skChairsRedComfyMesh"), 120, 1.f, DC_Furniture },
+			{ TEXT("Red Couch"), TEXT("HProps.skChairsRedCouchMesh"), 220, 1.f, DC_Furniture },
+			{ TEXT("Gryffindor Bed"), TEXT("HProps.skBedGryffindorMesh"), 350, 1.f, DC_Furniture },
+			{ TEXT("Bookcase"), TEXT("HProps.skBookcaseGlassDoorsMesh"), 260, 1.f, DC_Storage },
+			{ TEXT("Christmas Tree"), TEXT("HProps.skChristmasTreeMesh"), 300, 1.f, DC_Plants },
+			{ TEXT("Telescope"), TEXT("HProps.skTelescopeMesh"), 240, 1.f, DC_Curiosities },
+			{ TEXT("Owl Statue"), TEXT("HProps.skStatueOwlMesh"), 180, 1.f, DC_Statues },
+			{ TEXT("Round Table"), TEXT("HProps.skTableWoodRoundMesh"), 150, 1.f, DC_Furniture },
+			{ TEXT("School Trunk"), TEXT("HProps.skTrunkHogwarts1Mesh"), 100, 1.f, DC_Storage },
+			{ TEXT("Candelabra"), TEXT("HProps.skCandlesFloorTrippleCandleMesh"), 90, 1.f, DC_Lights },
+			{ TEXT("Red Flowers"), TEXT("HProps.skPlantsFlowerRedMesh"), 60, 1.f, DC_Plants },
+			{ TEXT("Easel"), TEXT("HProps.skEaselMesh"), 110, 1.f, DC_Curiosities },
+			{ TEXT("Suit of Armour"), TEXT("HProps.skArmorWholeSuitMesh"), 500, 1.f, DC_Statues },
+			// --- Appended (v6.0) ---------------------------------------------
+			{ TEXT("Armoire"), TEXT("HProps.skArmoireMesh"), 200, 1.f, DC_Storage },
+			{ TEXT("Old Trunk"), TEXT("HProps.skTrunkMesh"), 80, 1.f, DC_Storage },
+			{ TEXT("Dresser"), TEXT("HProps.skDresserMesh"), 160, 1.f, DC_Storage },
+			{ TEXT("Dragon Statue"), TEXT("HProps.skStatueDragonMesh"), 300, 1.f, DC_Statues },
+			{ TEXT("Gregory the Smarmy"), TEXT("HProps.skStatueGregorySmarmyMesh"), 260, 1.f, DC_Statues },
+			{ TEXT("Hunchback Witch"), TEXT("HProps.skStatueHunchbackWitchMesh"), 260, 1.f, DC_Statues },
+			{ TEXT("Gargoyle"), TEXT("HPModels.skgargoyleMesh"), 320, 1.f, DC_Statues },
+			{ TEXT("Quidditch Board"), TEXT("HProps.skBlackboardQuidditchMesh"), 200, 1.f, DC_Games },
+			{ TEXT("Duelling Board"), TEXT("HProps.skBlackboardWizDuelMesh"), 200, 1.f, DC_Games },
+			{ TEXT("Dragon Skull"), TEXT("HProps.skDragonSkullMesh"), 400, 1.f, DC_Curiosities },
+			{ TEXT("Flying Car"), TEXT("HProps.skFordAngliaMesh"), 1500, 1.f, DC_Curiosities },
+			{ TEXT("Sorting Stool"), TEXT("HProps.skStoolsSortingHatMesh"), 150, 1.f, DC_Curiosities },
+			{ TEXT("Stone Urn"), TEXT("HProps.skVaseUrnMesh"), 90, 1.f, DC_Curiosities },
+			{ TEXT("Crystal Ball"), TEXT("HProps.skCrystalBallMesh"), 140, 1.f, DC_Curiosities },
+			{ TEXT("Slytherin Couch"), TEXT("HProps.skCouchSlytherinMesh"), 220, 1.f, DC_Furniture },
+			{ TEXT("Footstool"), TEXT("HProps.skFootStoolMesh"), 40, 1.f, DC_Furniture },
+			{ TEXT("Table Lamp"), TEXT("HProps.sktablelampMesh"), 60, 1.f, DC_Lights },
+			{ TEXT("Cactus"), TEXT("HProps.skPlantsCactus1Mesh"), 50, 1.f, DC_Plants },
 		};
 		return Defs[ Clamp(i, 0, (INT)ARRAY_COUNT(Defs)-1) ];
 	}
-	enum { NUM_DECOR = 14 };
+	enum { NUM_DECOR = 32 };
 
-	struct FDecorPlaced { FString Map; INT Id; FVector Loc; INT Yaw; AActor* Actor; };
+	struct FDecorPlaced { FString Map; INT Id; FVector Loc; INT Yaw; AActor* Actor; INT Size; };   // Size in percent
 	TArray<FDecorPlaced> Placed;
 	UBOOL bDecorSpawned;
 
@@ -445,7 +514,7 @@
 			D.Actor = NULL;
 			if( D.Map!=Map )
 				continue;
-			AActor* A = SpawnPickup( Engine, Decor(D.Id).Mesh, D.Loc, Decor(D.Id).Scale );
+			AActor* A = SpawnPickup( Engine, Decor(D.Id).Mesh, D.Loc, Decor(D.Id).Scale*Clamp(D.Size,50,200)*0.01f );
 			if( A )
 			{
 				A->AmbientGlow = 0;
@@ -497,6 +566,7 @@
 		D->Loc = Where;
 		D->Yaw = A->Rotation.Yaw;
 		D->Actor = A;
+		D->Size = 100;
 		State.DecorOwned[Id]--;
 		SpawnFx( Engine, TEXT("SmokeExplo_01"), Where, 1.f );
 		RpgLog( TEXT("decor placed: %s"), Decor(Id).Name );
@@ -515,7 +585,7 @@
 			}
 		if( Best<0 )
 		{
-			Notice = TEXT("Stand next to a piece of your furniture to pick it up.");
+			SetNotice( TEXT("Stand next to a piece of your furniture to pick it up.") );
 			return;
 		}
 		SpawnFx( Engine, TEXT("SmokeExplo_02"), Placed(Best).Actor->Location, 1.f );
@@ -578,7 +648,7 @@
 		for( INT i=0; i<Placed.Num(); i++ )
 		{
 			const FDecorPlaced& D = Placed(i);
-			Out += FString::Printf( TEXT("%s,%i,%i,%i,%i,%i;"), *D.Map, D.Id, appRound(D.Loc.X), appRound(D.Loc.Y), appRound(D.Loc.Z), D.Yaw );
+			Out += FString::Printf( TEXT("%s,%i,%i,%i,%i,%i,%i;"), *D.Map, D.Id, appRound(D.Loc.X), appRound(D.Loc.Y), appRound(D.Loc.Z), D.Yaw, D.Size );
 		}
 		return Out;
 	}
@@ -596,8 +666,8 @@
 			FString Map;
 			while( *P && *P!=',' && *P!='\r' && *P!='\n' )
 				Map += FString::Printf( TEXT("%c"), *P++ );
-			INT V[5] = { 0, 0, 0, 0, 0 };
-			for( INT k=0; k<5 && *P==','; k++ )
+			INT V[6] = { 0, 0, 0, 0, 0, 100 };   // older saves have no size
+			for( INT k=0; k<6 && *P==','; k++ )
 			{
 				P++;
 				V[k] = appAtoi( P );
@@ -613,6 +683,7 @@
 				D->Id = V[0];
 				D->Loc = FVector( V[1], V[2], V[3] );
 				D->Yaw = V[4];
+				D->Size = Clamp( V[5], 50, 200 );
 				D->Actor = NULL;
 			}
 		}
@@ -621,15 +692,15 @@
 	// Book tab: buy, place and pick up furniture.
 	void DrawRoomTab( UGameEngine* Engine, APlayerPawn* Harry, const FRpgRect& Area )
 	{
-		const FLOAT S = Ui.S;
-		Ui.TextWrapped( Ui.FontBody, FRpgRect(Area.X, Area.Y, Area.W, Ui.TextHeight(Ui.FontBody)*2), RpgMuted,
-			TEXT("Buy furniture, place it anywhere in a hub and move it with Wingardium Leviosa. It stays where you leave it. A Brewing Cauldron brews a potion every school day (E).") );
-		const FLOAT Top = Area.Y + Ui.TextHeight(Ui.FontBody)*2 + 10*S;
+		const FLOAT S = Ui.P(2.f);
+		Ui.TextWrapped( Ui.FontBody, FRpgRect(Area.X, Area.Y, Area.W, Ui.TextHeight(Ui.FontBody)*3), RpgMuted,
+			TEXT("Place furniture in a hub; move it with Wingardium Leviosa. Brewing Cauldron: one potion per school day (E).") );
+		const FLOAT Top = Area.Y + Ui.TextHeight(Ui.FontBody)*3 + 10*S;
 		const FLOAT RowH = Ui.TextHeight(Ui.FontBody) + 10*S;
-		const INT Visible = Max( 1, appFloor((Area.Y+Area.H-Top-RowH*1.5f)/RowH) );
+		const INT Visible = Max( 1, appFloor((Area.Y+Area.H-Top-RowH*3.2f)/RowH) );
 		Sel = Clamp( Sel, 0, NUM_DECOR-1 );
-		if( Sel<Scroll ) Scroll = Sel;
-		if( Sel>=Scroll+Visible ) Scroll = Sel-Visible+1;
+		ApplyWheel( NUM_DECOR, 1, Visible );
+		ClampSelection( NUM_DECOR, 1, Visible );
 		const INT Beans = GetBeans( Harry );
 		for( INT v=0; v<Visible && Scroll+v<NUM_DECOR; v++ )
 		{
@@ -648,13 +719,13 @@
 		const FLOAT BY = Area.Y+Area.H-RowH;
 		const FLOAT BW = Area.W/3.f - 6*S;
 		const FDecorDef& Dd = Decor( Sel );
-		const UBOOL bHub = LastLevel && appStrstr( *LastLevel->URL.Map, TEXT("_hub") );
+		const UBOOL bHub = LastLevel && (MapHas(*LastLevel->URL.Map,TEXT("_hub")) || IsRoomMap(*LastLevel->URL.Map));
 		if( Ui.Button( FRpgRect(Area.X, BY, BW, RowH-2*S), *FString::Printf(TEXT("Buy (%i)"), Dd.Price), Beans>=Dd.Price, &Placed ) )
 		{
 			GiveBeans( Harry, -Dd.Price );
 			State.DecorOwned[Sel]++;
 			Ui.Play( RSND_Buy, Harry );
-			Notice = FString::Printf( TEXT("%s bought - place it in a hub."), Dd.Name );
+			SetNotice( FString::Printf(TEXT("%s bought - place it in a hub."), Dd.Name) );
 		}
 		if( Ui.Button( FRpgRect(Area.X+BW+9*S, BY, BW, RowH-2*S), TEXT("Place here"), bHub && State.DecorOwned[Sel]>0, &State.DecorOwned[0] ) )
 		{
@@ -664,6 +735,14 @@
 		}
 		if( Ui.Button( FRpgRect(Area.X+(BW+9*S)*2, BY, BW, RowH-2*S), TEXT("Pick up nearest"), Placed.Num()>0, &State.BrewDay ) )
 			PickUpDecor( Engine, Harry );
+		// The full decorating mode: top-down view, grid and categories.
+		if( Ui.Button( FRpgRect(Area.X, BY-RowH-4*S, Area.W, RowH-2*S), TEXT("Decorate here (room view)"), bHub, &bDecorSpawned ) )
+		{
+			CloseMenu( Engine );
+			OpenRoom( Engine, Harry );
+			return;
+		}
 		if( !bHub )
 			Ui.Text( Ui.FontSmall, Area.X, BY-Ui.TextHeight(Ui.FontSmall)-2*S, RpgMuted, TEXT("Furniture can only be placed in the hubs.") );
 	}
+

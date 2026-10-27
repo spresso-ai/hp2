@@ -55,6 +55,19 @@ static DWORD HashString( const TCHAR* S )
 	Diagnostics: <SavePath>/HP2Rpg.log.
 -----------------------------------------------------------------------------*/
 
+// Map names come in either case ("Entryhall_hub" on travel, "EntryHall_Hub"
+// from a save), so map checks ignore case.
+static UBOOL MapHas( const TCHAR* Map, const TCHAR* Sub )
+{
+	if( !Map || !Sub )
+		return 0;
+	const INT N = appStrlen( Sub );
+	for( const TCHAR* P=Map; *P; P++ )
+		if( appStrnicmp(P,Sub,N)==0 )
+			return 1;
+	return 0;
+}
+
 static void VARARGS RpgLog( const TCHAR* Fmt, ... )
 {
 	TCHAR Buffer[1024];
@@ -271,12 +284,14 @@ struct FRpgArg
 	UObject* Obj;
 	FName Name;
 	FVector Vec;
-	FRpgArg() : Int(0), Float(0.f), Obj(NULL), Name(NAME_None), Vec(0,0,0) {}
+	const TCHAR* Str;
+	FRpgArg() : Int(0), Float(0.f), Obj(NULL), Name(NAME_None), Vec(0,0,0), Str(NULL) {}
 	static FRpgArg I( INT V ) { FRpgArg A; A.Int=V; A.Float=(FLOAT)V; return A; }
 	static FRpgArg F( FLOAT V ) { FRpgArg A; A.Float=V; return A; }
 	static FRpgArg O( UObject* V ) { FRpgArg A; A.Obj=V; return A; }
 	static FRpgArg N( FName V ) { FRpgArg A; A.Name=V; return A; }
 	static FRpgArg V( FVector V ) { FRpgArg A; A.Vec=V; return A; }
+	static FRpgArg S( const TCHAR* V ) { FRpgArg A; A.Str=V; return A; }
 };
 
 static void WriteArg( UProperty* P, BYTE* Addr, const FRpgArg& A )
@@ -326,19 +341,34 @@ static UBOOL CallScript( UObject* Obj, const TCHAR* FuncName, const FRpgArg* Arg
 	{
 		if( It->PropertyFlags & CPF_ReturnParm )
 			continue;
-		if( Cast<UStrProperty>(*It) && ArgIndex < NumArgs )
+		if( Cast<UStrProperty>(*It) && ArgIndex < NumArgs && !Args[ArgIndex].Str )
 			return 0;
+		ArgIndex++;
+	}
+	ArgIndex = 0;
+	for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & CPF_Parm); ++It )
+	{
+		if( It->PropertyFlags & CPF_ReturnParm )
+			continue;
 		if( ArgIndex < NumArgs )
-			WriteArg( *It, Parms + It->Offset, Args[ArgIndex] );
+		{
+			if( Cast<UStrProperty>(*It) )
+				*(FString*)(Parms + It->Offset) = FString( Args[ArgIndex].Str ); // zeroed memory is an empty FString
+			else
+				WriteArg( *It, Parms + It->Offset, Args[ArgIndex] );
+		}
 		ArgIndex++;
 	}
 
 	Obj->ProcessEvent( Function, Parms );
 
-	if( Ret )
-		for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & CPF_Parm); ++It )
-			if( It->PropertyFlags & CPF_ReturnParm )
-				ReadArg( *It, Parms + It->Offset, *Ret );
+	for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & CPF_Parm); ++It )
+	{
+		if( Ret && (It->PropertyFlags & CPF_ReturnParm) )
+			ReadArg( *It, Parms + It->Offset, *Ret );
+		if( Cast<UStrProperty>(*It) )
+			((FString*)(Parms + It->Offset))->Empty();
+	}
 	return 1;
 }
 
@@ -383,16 +413,19 @@ static UClass* LoadParticleClass( const TCHAR* Name )
 	Persistent RPG state.
 -----------------------------------------------------------------------------*/
 
-enum ERpgSkill { SKILL_Health, SKILL_Speed, SKILL_Jump, SKILL_Luck, SKILL_MAX };
+enum ERpgSkill { SKILL_Health, SKILL_Speed, SKILL_Jump, SKILL_Luck, SKILL_Wisdom, SKILL_Charm, SKILL_Focus, SKILL_MAX };
 enum { SKILL_MAX_PIPS = 5, MAX_TROPHIES = 32, MAX_MASTERED = 16 };
 
-static const TCHAR* GSkillNames[SKILL_MAX] = { TEXT("Health"), TEXT("Speed"), TEXT("Jump"), TEXT("Luck") };
+static const TCHAR* GSkillNames[SKILL_MAX] = { TEXT("Health"), TEXT("Speed"), TEXT("Jump"), TEXT("Luck"), TEXT("Wisdom"), TEXT("Charm"), TEXT("Focus") };
 static const TCHAR* GSkillDescs[SKILL_MAX] =
 {
 	TEXT("More maximum health: one extra health bar per point."),
 	TEXT("Harry runs faster: +8% per point."),
 	TEXT("Harry jumps higher and further: +10% per point."),
 	TEXT("Bonus beans on pickup and better prices."),
+	TEXT("Learn faster: +4% XP per point."),
+	TEXT("Students like you sooner (+20% reputation) and vendors give 2% off per point."),
+	TEXT("New spells recharge faster: -7% cooldown per point."),
 };
 
 struct FRpgState
@@ -426,6 +459,7 @@ struct FRpgState
 	INT Delivered[2];       // bit per letter id ever delivered (gifts are one-time)
 	INT DayPlaySeconds;     // play time since the school day began
 	INT DayTaskDone;        // a house task was completed today
+	INT GiftsPending;       // bit per inbox slot: gift not taken yet
 	INT Difficulty;         // ERpgDifficulty
 	INT Pages[MAX_PAGES/32];       // Field Guide pages found
 	INT QuestState[MAX_QUESTS];    // EQuestState
@@ -435,6 +469,11 @@ struct FRpgState
 	INT LessonGrades[8];           // best grade per lesson (1 T .. 5 O)
 	INT BrewDay;                   // last day the Brewing Cauldron brewed
 	INT DecorOwned[32];            // furniture in storage
+	INT RhythmPhase;               // ERpgPhase of the school day
+	INT RhythmDay;                 // school day the phase belongs to
+	INT RhythmEventDay;            // school day a story challenge was finished
+	INT SlotDay;                   // school day SlotBits belongs to
+	INT SlotBits;                  // timetable: attended / missed / excused per class
 
 	void Reset()
 	{
@@ -497,7 +536,7 @@ enum EActorFlag
 	AF_Harvested = 1<<9,
 };
 
-enum EMenu { MENU_None, MENU_Shop, MENU_Book };
+enum EMenu { MENU_None, MENU_Shop, MENU_Book, MENU_Timetable, MENU_Brew, MENU_Room };
 enum EBookTab { BOOK_Skills, BOOK_Spells, BOOK_Wardrobe, BOOK_Collection, BOOK_Journal, BOOK_Room, BOOK_Trophies, BOOK_HouseCup, BOOK_Letters, BOOK_Status, BOOK_MAX };
 static const TCHAR* GBookTabNames[BOOK_MAX] = { TEXT("Skills"), TEXT("Spells"), TEXT("Wardrobe"), TEXT("Collection"), TEXT("Journal"), TEXT("Room"), TEXT("Trophies"), TEXT("House"), TEXT("Post"), TEXT("Status") };
 
@@ -545,6 +584,7 @@ public:
 	UBOOL bLoadedFromSlot;
 	FString PrevMap;               // map before this one (new-game detection)
 	TArray<FString> TalkedToday;   // map:actor talked to this school day
+	TArray<FString> OpenedTreasure; // map:actor of chests/cauldrons already opened
 	INT RpgPoints[HOUSE_MAX];      // house points the mod itself just gave
 	FLOAT DayPlayAccum;
 	UBOOL bWasCutscene;
@@ -599,6 +639,35 @@ public:
 	INT BookTab;
 	INT Sel;
 	INT TryOn;          // cosmetic shown on Harry in the stage (-1: none)
+	struct FMeshBox { UMesh* Mesh; FVector Lo, Hi; };
+	TArray<FMeshBox> PreviewBoxes;   // standing bounds per mesh, measured once
+	FLOAT HarryRefH, HarryRefMinZ, QuidPivot;
+	FLOAT HarryRefFootZ;
+	UBOOL HarryRefFootValid;
+
+	// Lowest foot bone, relative to the actor's location.
+	static UBOOL FootZ( AActor* A, FLOAT& Out )
+	{
+		USkeletalMesh* Skel = Cast<USkeletalMesh>( A->Mesh );
+		if( !Skel )
+			return 0;
+		static const TCHAR* Bones[4] = { TEXT("Bip01 L Foot"), TEXT("Bip01 R Foot"), TEXT("Bip01 L Toe0"), TEXT("Bip01 R Toe0") };
+		UBOOL bAny = 0;
+		FLOAT Low = 0.f;
+		for( INT b=0; b<4; b++ )
+		{
+			const INT Bone = Skel->BoneIndex( FName(Bones[b],FNAME_Find) );
+			if( Bone<0 )
+				continue;
+			const FLOAT Z = Skel->GetBoneCoords( A, Bone ).Origin.Z - A->Location.Z;
+			Low = bAny ? Min(Low,Z) : Z;
+			bAny = 1;
+		}
+		if( bAny )
+			Out = Low;
+		return bAny;
+	}
+	UBOOL bConfirmLeave;
 	INT Scroll;
 	INT ShopTab;
 	INT WardrobeSlot;
@@ -859,7 +928,16 @@ public:
 		Text += FString::Printf(TEXT("DuelRank=%i LessonDay=%i BrewDay=%i\r\n"), State.DuelRank, State.LessonDay, State.BrewDay);
 		Text += FString(TEXT("Grades=")) + IntList(State.LessonGrades,8) + TEXT("\r\n");
 		Text += FString(TEXT("DecorOwned=")) + IntList(State.DecorOwned,32) + TEXT("\r\n");
+		Text += FString::Printf(TEXT("RhythmPhase=%i RhythmDay=%i RhythmEventDay=%i\r\n"), State.RhythmPhase, State.RhythmDay, State.RhythmEventDay);
+		Text += FString::Printf(TEXT("SlotDay=%i SlotBits=%i\r\n"), State.SlotDay, State.SlotBits);
 		Text += FString(TEXT("Decor=")) + SaveDecor() + TEXT("\r\n");
+		{
+			FString Opened;
+			for( INT o=0; o<OpenedTreasure.Num(); o++ )
+				Opened += OpenedTreasure(o) + TEXT("|");
+			Text += FString(TEXT("Opened=")) + Opened + TEXT("\r\n");
+		}
+		Text += FString::Printf(TEXT("GiftsPending=%i\r\n"), State.GiftsPending);
 		Text += FString(TEXT("QuestState=")) + IntList(State.QuestState,MAX_QUESTS) + TEXT("\r\n");
 		Text += FString(TEXT("QuestBase=")) + IntList(State.QuestBase,MAX_QUESTS) + TEXT("\r\n");
 		// By name too, so new table entries never shift what a save owns.
@@ -900,7 +978,15 @@ public:
 		bDecorSpawned = 0;
 		FString Text;
 		const FString Path = SidecarPath( Slot );
-		if( appLoadFileToString( Text, *Path ) )
+		UBOOL bLoaded = appLoadFileToString( Text, *Path );
+		if( !bLoaded )
+		{
+			const FString BakPath = Path + TEXT(".bak");
+			bLoaded = appLoadFileToString( Text, *BakPath );
+			if( bLoaded )
+				RpgLog( TEXT("restoring RPG progress for slot %i from %s"), Slot, *BakPath );
+		}
+		if( bLoaded )
 		{
 			const TCHAR* S = *Text;
 			INT Version = 1;
@@ -959,20 +1045,20 @@ public:
 				Parse( S, TEXT("BrewDay="), State.BrewDay );
 				ParseIntList( S, TEXT("Grades="), State.LessonGrades, 8 );
 				ParseIntList( S, TEXT("DecorOwned="), State.DecorOwned, 32 );
+				Parse( S, TEXT("RhythmPhase="), State.RhythmPhase );
+				Parse( S, TEXT("RhythmDay="), State.RhythmDay );
+				Parse( S, TEXT("RhythmEventDay="), State.RhythmEventDay );
+				Parse( S, TEXT("SlotDay="), State.SlotDay );
+				Parse( S, TEXT("SlotBits="), State.SlotBits );
 				LoadDecor( S );
+				OpenedTreasure.Empty();
+				SplitNames( S, TEXT("Opened="), OpenedTreasure );
+				Parse( S, TEXT("GiftsPending="), State.GiftsPending );
 				ParseIntList( S, TEXT("QuestState="), State.QuestState, MAX_QUESTS );
 				ParseIntList( S, TEXT("QuestBase="), State.QuestBase, MAX_QUESTS );
 				if( Version>=3 )
 					LoadNames( S );
 			}
-		}
-		else
-		{
-			// A save made before the mod (or a lost sidecar): try the backup.
-			FString Bak;
-			const FString BakPath = Path + TEXT(".bak");
-			if( appLoadFileToString( Bak, *BakPath ) )
-				RpgLog( TEXT("sidecar missing for slot %i; a backup exists at %s.bak"), Slot, *Path );
 		}
 		// Letters already in the inbox count as delivered.
 		for( INT i=0; i<MAX_INBOX; i++ )
@@ -1072,15 +1158,18 @@ public:
 				State.TaskDay = 0; // re-roll
 		for( INT h=0; h<4; h++ )
 			State.Rep[h] = Clamp( State.Rep[h], -100, 100 );
-		INT Kept = 0, Read = 0;
+		INT Kept = 0, Read = 0, Gifts = 0;
 		for( INT i=0; i<MAX_INBOX; i++ )
 			if( State.Inbox[i]>0 && State.Inbox[i]<=GNumLetters )
 			{
 				if( State.LettersRead & (1<<i) )
 					Read |= 1<<Kept;
+				if( State.GiftsPending & (1<<i) )
+					Gifts |= 1<<Kept;
 				State.Inbox[Kept++] = State.Inbox[i];
 			}
 		State.LettersRead = Read;
+		State.GiftsPending = Gifts;
 		for( INT i=Kept; i<MAX_INBOX; i++ )
 			State.Inbox[i] = 0;
 		for( INT s=0; s<RSLOT_MAX; s++ )
@@ -1150,9 +1239,11 @@ public:
 			if( (State.CardRewards & (1<<r)) && GCardRewards[r].Stat==Stat )
 				Total += GCardRewards[r].StatValue;
 		if( Stat==STAT_Discount )
-			Total += 2*State.Skill[SKILL_Luck];
+			Total += 2*State.Skill[SKILL_Luck] + 2*State.Skill[SKILL_Charm];
 		if( Stat==STAT_BeanFind )
 			Total += 8*State.Skill[SKILL_Luck];
+		if( Stat==STAT_XpGain )
+			Total += 4*State.Skill[SKILL_Wisdom];
 		if( State.FelixSeconds>0 && (Stat==STAT_BeanFind || Stat==STAT_XpGain) )
 			Total += 100;
 		return Total;
@@ -1539,9 +1630,36 @@ public:
 		if( Id<64 )
 			State.Delivered[Id>>5] |= 1<<(Id&31);
 		State.LettersRead = (State.LettersRead<<1) & ((1<<MAX_INBOX)-1);
+		State.GiftsPending = (State.GiftsPending<<1) & ((1<<MAX_INBOX)-1);
 		const FLetterDef& L = GLetters[Id];
+		// Gifts wait in the letter until Harry opens them in the Post tab.
+		if( bGift && L.Gift!=GIFT_None )
+		{
+			State.GiftsPending |= 1;
+			AddFeed( FString::Printf(TEXT("Owl post from %s"), L.From), FColor(230,210,170,255), TOAST_Reward, TEXT("A gift is waiting - open Post in your book (K)") );
+			return;
+		}
+		AddFeed( FString::Printf(TEXT("Owl post from %s"), L.From), FColor(230,210,170,255), TOAST_Reward, L.Subject );
+	}
+
+	// What a letter's gift is, in words.
+	static FString GiftText( const FLetterDef& L )
+	{
+		switch( L.Gift )
+		{
+			case GIFT_Beans:      return FString::Printf( TEXT("%i beans"), L.GiftAmount );
+			case GIFT_Potion:     return TEXT("a Wiggenweld Potion");
+			case GIFT_ChocFrog:   return TEXT("a Chocolate Frog");
+			case GIFT_BronzeCard: return TEXT("a Wizard Card");
+			case GIFT_SkillPoint: return TEXT("a skill point");
+			default:              return TEXT("");
+		}
+	}
+
+	void GrantGift( APlayerPawn* Harry, const FLetterDef& L )
+	{
 		FString Gift;
-		switch( bGift ? L.Gift : (INT)GIFT_None )
+		switch( L.Gift )
 		{
 			case GIFT_Beans:      GiveBeans( Harry, L.GiftAmount ); Gift = FString::Printf( TEXT("  +%i beans"), L.GiftAmount ); break;
 			case GIFT_Potion:     ApplyConsumable( Harry, CON_Potion, L.GiftAmount ); Gift = TEXT("  +Wiggenweld potion"); break;
@@ -1550,7 +1668,8 @@ public:
 			case GIFT_SkillPoint: State.SkillPoints += L.GiftAmount; Gift = TEXT("  +1 skill point"); break;
 			default: break;
 		}
-		AddFeed( FString::Printf(TEXT("Owl post from %s"), L.From), FColor(230,210,170,255), TOAST_Reward, *(FString(L.Subject) + Gift) );
+		AddFeed( FString::Printf(TEXT("Gift from %s"), L.From), FColor(255,222,130,255), TOAST_Reward, *GiftText(L) );
+		Ui.Play( RSND_Reward, Harry );
 	}
 
 	static const TCHAR* RepTier( INT Rep )
@@ -1566,6 +1685,8 @@ public:
 
 	void AddRep( INT House, INT Amount )
 	{
+		if( Amount>0 )
+			Amount = appRound( Amount*(1.f + 0.2f*State.Skill[SKILL_Charm]) );
 		const TCHAR* Before = RepTier( State.Rep[House] );
 		State.Rep[House] = Clamp( State.Rep[House]+Amount, -100, 100 );
 		const TCHAR* After = RepTier( State.Rep[House] );
@@ -1814,6 +1935,16 @@ public:
 
 	FString NpcName( AActor* Actor )
 	{
+		if( FStandIn* S = FindStandIn(Actor) )
+			return StandInDef(S->Def).Name;
+		if( MateIndex(Actor)>=0 )
+			return MateDef( MateIndex(Actor) ).Name;
+		if( Actor && Actor==FriendActor )
+			return GCosmetics[State.Equip[RSLOT_Friend]].Name;
+		if( Actor && Actor==PetActor )
+			return GCosmetics[State.Equip[RSLOT_Pet]].Name;
+		if( IsStaff(Actor) )
+			return StaffName( Actor );
 		const INT V = VendorFor( Actor );
 		if( V>=0 && V<VEN_StudentGryffindor )
 			return GVendors[V].Name;
@@ -1864,7 +1995,7 @@ public:
 			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden || !Actor->IsA(HChar) )
 				continue;
 			const INT Vendor = VendorFor( Actor );
-			if( Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) )
+			if( Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) && !IsStoryNpc(Actor) )
 				continue;
 			const FLOAT Dist = (Actor->Location - Harry->Location).Size();
 			if( Dist < Nearest )
@@ -1874,6 +2005,51 @@ public:
 				NearVendor = Vendor;
 			}
 		}
+		// Stand-ins walking the castle.
+		AActor* Stand = NearestStandIn( Harry, Nearest );
+		if( Stand )
+		{
+			Nearest = (Stand->Location - Harry->Location).Size();
+			NearNpc = Stand;
+			NearVendor = -1;
+		}
+		// Schoolmates of the school rhythm, and Harry's own companions.
+		for( INT m=0; m<MATE_MAX+2; m++ )
+		{
+			AActor* A = m<MATE_MAX ? Mates[m].Actor : (m==MATE_MAX ? FriendActor : PetActor);
+			if( !A || A->bHidden || A->bDeleteMe )
+				continue;
+			// A companion is always close by: only when Harry turns to it.
+			if( m>=MATE_MAX )
+			{
+				FVector D = A->Location - Harry->Location;
+				D.Z = 0.f;
+				const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
+				if( D.SizeSquared() > 160.f*160.f || (D.SafeNormal() | FVector((FLOAT)appCos(HarryYaw),(FLOAT)appSin(HarryYaw),0.f)) < 0.6f )
+					continue;
+			}
+			const FLOAT Dist = (A->Location - Harry->Location).Size();
+			if( Dist < Nearest )
+			{
+				Nearest = Dist;
+				NearNpc = A;
+				NearVendor = -1;
+			}
+		}
+	}
+
+	// Quest givers and teachers can always be talked to.
+	UBOOL IsStoryNpc( AActor* A )
+	{
+		if( IsHolding(A) )
+			return 0;
+		for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
+			if( ClassChainIsAny(A,GQuests[q].Giver) )
+				return 1;
+		for( INT k=0; k<LES_MAX; k++ )
+			if( ClassChainIsAny(A,Lesson(k).Teacher) )
+				return 1;
+		return 0;
 	}
 
 	/*-------------------------------------------------------------------------
@@ -1919,6 +2095,8 @@ public:
 			if( ShieldLeft>0.f || IsFrozen(Caller) || IsFrozen(ParmObj(Function,Locals,1)) )
 			{
 				*Damage = 0;
+				if( ShieldLeft>0.f && HasPerk(PERK_PerfectGuard) && Caller && Caller->IsA(AActor::StaticClass()) && CreatureType((AActor*)Caller)>=0 && CreatureType((AActor*)Caller)!=CR_Boss )
+					QueueRedispatch( (AActor*)Caller, 13 );
 				if( ShieldLeft>0.f )
 					PlaySfx( TEXT("HPSounds.Magic_sfx.Dueling_EXP_smack") );
 				return;
@@ -1989,6 +2167,7 @@ public:
 		}
 		if( Name==N_ChallengeScores )
 		{
+			State.RhythmEventDay = State.Day;   // a story challenge ends: free time next
 			UStrProperty* UrlP = Cast<UStrProperty>( ParmByName(Function,TEXT("strLevelURL")) );
 			UIntProperty* HighP = Cast<UIntProperty>( ParmByName(Function,TEXT("nHighScore")) );
 			UIntProperty* MaxP = Cast<UIntProperty>( ParmByName(Function,TEXT("nMaxScore")) );
@@ -2066,6 +2245,16 @@ public:
 	{
 		if( !bEnabled || bLevelTransition || !Self->IsA(AActor::StaticClass()) )
 			return;
+		// Remember opened chests and cauldrons, so Revelio stops pointing at them.
+		{
+			static FName Turnover( TEXT("turnover") ), StillOpen( TEXT("stillOpen") );
+			if( (NewState==Turnover || NewState==StillOpen) && ClassChainIsAny(Self,TEXT("chestbronze|bronzecauldron")) && LastLevel )
+			{
+				const FString Key = LastLevel->URL.Map + TEXT(":") + Self->GetName();
+				if( OpenedTreasure.FindItemIndex(Key)==INDEX_NONE && OpenedTreasure.Num()<400 )
+					OpenedTreasure.AddItem( Key );
+			}
+		}
 		if( NewState==N_CaughtHarry )
 		{
 			if( RpgClock-LastCaughtTime > 10.f )
@@ -2258,6 +2447,29 @@ public:
 			}
 			if( HasPerk(PERK_Harvest) && (Type==CR_Bowtruckle || Type==CR_SpikyPlant || Type==CR_Tentacula || Type==CR_Horklump) && !TestAndSet(Target,AF_Harvested) )
 				QueueBeans( Target->Location, 2 );
+			// Severing Charm: the cut carries on along the line of the cast
+			// and severs up to three Diffindo targets behind this one.
+			APlayerPawn* Harry = CurrentHarry();
+			if( HasPerk(PERK_Severing) && Harry && Target->XLevel )
+			{
+				FVector Dir = Target->Location - Harry->Location;
+				Dir.Z = 0.f;
+				Dir = Dir.SafeNormal();
+				INT Count = 0;
+				for( INT i=0; i<Target->XLevel->Actors.Num() && Count<3; i++ )
+				{
+					AActor* Other = Target->XLevel->Actors(i);
+					if( !Other || Other==Target || Other->bDeleteMe || Other->bHidden || GetByteProp(Other,TEXT("eVulnerableToSpell"),0)!=19 )
+						continue;
+					FVector D = Other->Location - Target->Location;
+					D.Z = 0.f;
+					const FLOAT Along = D | Dir;
+					if( Along<=0.f || Along>600.f || (D - Dir*Along).SizeSquared() > 90.f*90.f )
+						continue;
+					QueueRedispatch( Other, 19 );
+					Count++;
+				}
+			}
 			return;
 		}
 
@@ -2592,6 +2804,44 @@ public:
 				Body->MultiSkins[0] = S0;
 				Body->MultiSkins[1] = S1;
 				Body->DrawScale = BaseDrawScale*O.Scale;
+				if( bIsHarry && QuidPivot!=0.f )
+				{
+					Body->PrePivot.Z -= QuidPivot;
+					QuidPivot = 0.f;
+				}
+				// The Quidditch mesh is built bigger and higher (for flying):
+				// bring it to Harry's height with his feet on the floor.
+				if( bIsHarry && IsQuidMesh(Mesh) && HarryRefH>10.f )
+				{
+					const FCoords B = Body->GetRenderBoundingBox( 1 );
+					const FLOAT QH = Abs( B.ZAxis.Z );
+					if( QH>10.f )
+					{
+						const FLOAT K = HarryRefH/QH;
+						Body->DrawScale *= K;
+						const FLOAT QMin = (Min(B.Origin.Z, B.Origin.Z+B.ZAxis.Z) - Body->Location.Z)*K;
+						const FLOAT Pivot0 = Body->PrePivot.Z;
+						Body->PrePivot.Z += HarryRefMinZ - QMin;
+						// The box of the flying mesh doesn't end at its feet: put
+						// its foot bones where Harry's are, checking the result
+						// so the correction can't go the wrong way.
+						FLOAT Foot = 0.f;
+						if( HarryRefFootValid && FootZ(Body,Foot) )
+						{
+							const FLOAT Delta = HarryRefFootZ - Foot;
+							Body->PrePivot.Z += Delta;
+							FLOAT After = 0.f;
+							if( FootZ(Body,After) && Abs(HarryRefFootZ-After) > Abs(Delta)*0.5f )
+							{
+								Body->PrePivot.Z -= 2.f*Delta;
+								FootZ( Body, After );
+							}
+							RpgLog( TEXT("quidditch robes: feet %.1f -> %.1f (harry %.1f)"), Foot, After, HarryRefFootZ );
+						}
+						QuidPivot = Body->PrePivot.Z - Pivot0;
+						RpgLog( TEXT("quidditch robes: height %.1f -> %.1f, pivot %.1f"), QH, HarryRefH, QuidPivot );
+					}
+				}
 				if( bIsHarry )
 					RpgLog( TEXT("costume on: %s"), Mesh->GetPathName() );
 			}
@@ -2600,6 +2850,11 @@ public:
 		}
 		else if( Body->Mesh!=HarryMesh )
 		{
+			if( bIsHarry && QuidPivot!=0.f )
+			{
+				Body->PrePivot.Z -= QuidPivot;
+				QuidPivot = 0.f;
+			}
 			Body->Mesh = HarryMesh;
 			for( INT i=0; i<8; i++ )
 				Body->MultiSkins[i] = NULL;
@@ -2682,7 +2937,7 @@ public:
 		// Only while our costume is in use, never in the real Quidditch match.
 		{
 			const TCHAR* Map = LastLevel ? *LastLevel->URL.Map : TEXT("");
-			SetQuidFix( IsQuidMesh(LoadMesh(GCosmetics[State.Equip[RSLOT_Outfit]].Mesh)) && !appStrstr(Map,TEXT("uidditch")) );
+			SetQuidFix( IsQuidMesh(LoadMesh(GCosmetics[State.Equip[RSLOT_Outfit]].Mesh)) && !MapHas(Map,TEXT("uidditch")) );
 		}
 		// The game swaps Harry's mesh for cutscenes and Polyjuice; never fight it.
 		if( Harry->Mesh!=HarryMesh && (!CostumeApplied || Harry->Mesh!=CostumeApplied) )
@@ -2691,7 +2946,17 @@ public:
 		if( RpgClock-HarrySince < 1.f )
 			return;
 		if( Harry->Mesh==HarryMesh && Harry->SkelAnim )
+		{
 			HarryAnim = Harry->SkelAnim;
+			// Reference size for costumes that come at another scale.
+			const FCoords B = Harry->GetRenderBoundingBox( 1 );
+			if( Abs(B.ZAxis.Z)>10.f )
+			{
+				HarryRefH = Abs( B.ZAxis.Z );
+				HarryRefMinZ = Min( B.Origin.Z, B.Origin.Z+B.ZAxis.Z ) - Harry->Location.Z;
+				HarryRefFootValid = FootZ( Harry, HarryRefFootZ );
+			}
+		}
 		SetCostume( Harry, State.Equip[RSLOT_Outfit], 1 );
 		// Keep Harry's own moves on the costume: if the linked set lacks the
 		// sequence being played the mesh falls back to its bind (T) pose.
@@ -2716,6 +2981,11 @@ public:
 	void RestoreCostume( APlayerPawn* Harry )
 	{
 		SetQuidFix( 0 );
+		if( Harry && QuidPivot!=0.f )
+		{
+			Harry->PrePivot.Z -= QuidPivot;
+			QuidPivot = 0.f;
+		}
 		if( Harry && CostumeApplied && Harry->Mesh==CostumeApplied && HarryMesh )
 		{
 			Harry->Mesh = HarryMesh;
@@ -2789,6 +3059,16 @@ public:
 		A->bCollideWorld = 0;
 		A->Physics = PHYS_None;
 		A->Tag = FName( TEXT("HP2RpgActor") );
+		// The render class is a Fragment: left in its auto state it turns to
+		// 'Dying' after five seconds and destroys itself once unseen, which
+		// made pets, friends and characters vanish and respawn.
+		if( !Class )
+		{
+			A->GotoState( NAME_None );
+			A->TimerRate = 0.f;
+			A->TimerCounter = 0.f;
+			A->RotationRate = FRotator( 0, 0, 0 );
+		}
 		return A;
 	}
 
@@ -2912,6 +3192,69 @@ public:
 			Pet->PlayAnim( N, true, Rate, 0.2f );
 	}
 
+	// Following like a real companion: it walks after Harry until it is a
+	// few steps away and then stays put, so it never swings round him when
+	// he turns. Pets potter about while Harry stands still.
+	struct FFollow
+	{
+		UBOOL bChase;
+		FLOAT Idle;
+		FLOAT WanderTime;
+		UBOOL bWanderSet;
+		FVector Wander;
+	};
+	FFollow PetFollow, FriendFollow;
+
+	FVector FollowStep( UGameEngine* Engine, APlayerPawn* Harry, FFollow& F, const FVector& Old, FLOAT Gap, FLOAT Side, UBOOL bWander, FLOAT DeltaSeconds )
+	{
+		FVector D = Harry->Location - Old;
+		D.Z = 0.f;
+		const FLOAT Dist = D.Size();
+		if( Dist > Gap+70.f )
+			F.bChase = 1;
+		else if( Dist < Gap+10.f )
+			F.bChase = 0;
+		FVector Goal = Old;
+		FLOAT Speed = 0.f;
+		if( F.bChase && Dist>1.f )
+		{
+			const FVector Dir = D/Dist;
+			const FVector Perp( -Dir.Y, Dir.X, 0.f );
+			Goal = Harry->Location - Dir*Gap + Perp*Side;
+			Speed = Clamp( (Dist-Gap)*2.2f, 140.f, 650.f );
+			F.Idle = 0.f;
+			F.bWanderSet = 0;
+			F.WanderTime = 1.5f + RpgRand(3);
+		}
+		else
+		{
+			F.Idle += DeltaSeconds;
+			if( bWander && F.Idle>2.5f )
+			{
+				F.WanderTime -= DeltaSeconds;
+				if( F.WanderTime<=0.f )
+				{
+					F.WanderTime = 4.f + RpgRand(5);
+					const FLOAT A = RpgRand(628)*0.01f;
+					const FVector Spot = Harry->Location + FVector( (FLOAT)appCos(A), (FLOAT)appSin(A), 0.f )*(Gap*0.6f + RpgRand(appRound(Gap*0.6f)+1));
+					F.bWanderSet = Engine->GLevel->Model->FastLineCheck( Harry->Location, Spot ) && Engine->GLevel->Model->FastLineCheck( Old + FVector(0,0,20.f), Spot );
+					F.Wander = Spot;
+				}
+				if( F.bWanderSet )
+				{
+					Goal = F.Wander;
+					Speed = 55.f;
+				}
+			}
+		}
+		FVector Step = Goal - Old;
+		Step.Z = 0.f;
+		const FLOAT L = Step.Size();
+		if( L<2.f || Speed<=0.f )
+			return Old;
+		return Old + Step/L*Min( L, Speed*DeltaSeconds );
+	}
+
 	UBOOL UpdateCompanion( UGameEngine* Engine, APlayerPawn* Harry, AActor* Pet, const FCosmetic& Spec, FLOAT DeltaSeconds )
 	{
 		const FPetStyle& St = PetStyle( Spec.Mesh );
@@ -2934,32 +3277,29 @@ public:
 			RpgLog( TEXT("companion %s: anims %s, floor %.1f"), Spec.Name, Anim ? Anim->GetName() : TEXT("none"), PetFloor );
 		}
 		Pet->DrawScale = St.Scale*Harry->DrawScale/Max(0.01f,BaseDrawScale);
+		if( HoldCompanion( Engine, Pet, PetLift, PetLiftZ, DeltaSeconds ) )
+			return 1;
 
-		// Where it wants to be: flyers circle above Harry's shoulder,
-		// walkers trot a little behind and to the side.
+		// It walks (or flies) after Harry and waits a few steps away.
 		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
 		const FVector Fwd( (FLOAT)appCos(HarryYaw), (FLOAT)appSin(HarryYaw), 0.f );
-		const FVector Right( -Fwd.Y, Fwd.X, 0.f );
-		FVector Want;
-		if( St.bFly )
-		{
-			PetAngle += DeltaSeconds*0.9f;
-			Want = Harry->Location + FVector( (FLOAT)appCos(PetAngle)*75.f, (FLOAT)appSin(PetAngle)*75.f, Harry->CollisionHeight*0.9f + (FLOAT)appSin(PetAngle*2.3f)*12.f );
-		}
-		else
-			Want = Harry->Location - Fwd*55.f + Right*45.f;
-
 		const FVector Old = Pet->Location;
-		FVector Delta = Want - Old;
-		const FLOAT Dist = Delta.Size();
-		// Lost (teleports, doors, falling): pop back next to Harry.
-		if( Dist>700.f || (Dist>200.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
+		const FLOAT Dist = (Harry->Location - Old).Size();
+		// Lost (teleports, doors, falling): back behind Harry.
+		if( Dist>700.f || (Dist>220.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
 		{
-			Engine->GLevel->FarMoveActor( Pet, Want, 0, 1 );
+			PetFollow.bChase = 0;
+			Engine->GLevel->FarMoveActor( Pet, Harry->Location - Fwd*70.f + FVector(0,0,St.bFly ? Harry->CollisionHeight*0.9f : 0.f), 0, 1 );
 			return 1;
 		}
-		FVector New = Old + Delta*Min( 1.f, DeltaSeconds*(St.bFly ? 3.f : 4.f) );
-		if( !St.bFly )
+		FVector New = FollowStep( Engine, Harry, PetFollow, Old, St.bFly ? 80.f : 70.f, 35.f, 1, DeltaSeconds );
+		if( St.bFly )
+		{
+			PetAngle += DeltaSeconds;
+			const FLOAT WantZ = Harry->Location.Z + Harry->CollisionHeight*0.9f + (FLOAT)appSin(PetAngle*2.3f)*10.f;
+			New.Z = Old.Z + (WantZ-Old.Z)*Min( 1.f, DeltaSeconds*3.f );
+		}
+		else
 		{
 			// Stand on the floor under the new spot.
 			FCheckResult Hit;
@@ -3003,6 +3343,7 @@ public:
 
 	FLOAT FriendFloor;
 	FLOAT FriendIdle;
+	FLOAT FriendNextAct;    // next idle gesture (apparating friends)
 	AActor* FriendLinked;
 	AActor* FriendActor;
 	INT FriendActorKind;
@@ -3011,6 +3352,57 @@ public:
 	{
 		const FName N( Name, FNAME_Find );
 		return (N!=NAME_None && Anim && Anim->GetAnimSeq(N)) ? N : NAME_None;
+	}
+
+	// A house-elf doesn't walk along: Dobby stays put and, once Harry has
+	// moved on, disapparates and pops up beside him again.
+	UBOOL UpdateApparating( UGameEngine* Engine, APlayerPawn* Harry, AActor* F, const FVector& Fwd, const FVector& Right, FLOAT DeltaSeconds )
+	{
+		const FVector Old = F->Location;
+		FVector D = Harry->Location - Old;
+		D.Z = 0.f;
+		const UBOOL bLost = D.Size()>320.f || D.Size()<40.f || !Engine->GLevel->Model->FastLineCheck( Harry->Location, Old );
+		if( bLost && IsFreeGameplay(Engine,Harry) )
+		{
+			FVector Want = Harry->Location - Fwd*90.f - Right*60.f;
+			if( !Engine->GLevel->Model->FastLineCheck( Harry->Location, Want ) )
+				Want = Harry->Location - Fwd*70.f;
+			FCheckResult Hit;
+			const FVector Top = Want + FVector( 0, 0, 80.f );
+			if( !Engine->GLevel->SingleLineCheck( Hit, F, Top - FVector(0,0,300.f), Top, TRACE_VisBlocking, FVector(0,0,0) ) )
+				Want.Z = Hit.Location.Z + FriendFloor;
+			else
+				Want.Z = Harry->Location.Z - Harry->CollisionHeight + FriendFloor;
+			if( D.Size()<2000.f )
+				SpawnFx( Engine, TEXT("WizCrackSparkle"), Old, 1.f );
+			Engine->GLevel->FarMoveActor( F, Want, 0, 1 );
+			SpawnFx( Engine, TEXT("WizCrackSparkle"), Want, 1.f );
+			PlaySfx( TEXT("HPSounds.PrivetDr.Dobby_appears") );
+			const FName Appear = FindSeq( F->SkelAnim, TEXT("appear") );
+			if( Appear!=NAME_None )
+				F->PlayAnim( Appear, false, 1.f, 0.f );
+			FriendNextAct = RpgClock + 8.f + RpgRand(8);
+		}
+		// Face Harry; idle, now and then a little gesture.
+		FVector Face = Harry->Location - F->Location;
+		Face.Z = 0.f;
+		if( Face.SizeSquared()>1.f )
+		{
+			const INT Diff = ((Face.Rotation().Yaw - F->Rotation.Yaw + 32768) & 65535) - 32768;
+			F->Rotation = FRotator( 0, F->Rotation.Yaw + appRound(Diff*Min(1.f,DeltaSeconds*5.f)), 0 );
+		}
+		const FName Idle = FindSeq( F->SkelAnim, TEXT("Idle") );
+		if( RpgClock>=FriendNextAct )
+		{
+			static const TCHAR* Gestures[3] = { TEXT("talk1"), TEXT("talk3"), TEXT("slapInTheHead") };
+			const FName G = FindSeq( F->SkelAnim, Gestures[RpgRand(3)] );
+			if( G!=NAME_None )
+				F->PlayAnim( G, false, 1.f, 0.2f );
+			FriendNextAct = RpgClock + 10.f + RpgRand(10);
+		}
+		else if( Idle!=NAME_None && F->AnimSequence!=Idle && (F->bAnimLoop || !F->IsAnimating()) )
+			F->PlayAnim( Idle, true, 1.f, 0.3f );
+		return 1;
 	}
 
 	UBOOL UpdateFriend( UGameEngine* Engine, APlayerPawn* Harry, AActor* F, const FCosmetic& Spec, FLOAT DeltaSeconds )
@@ -3029,21 +3421,24 @@ public:
 			Engine->GLevel->FarMoveActor( F, Harry->Location, 0, 1 );
 			RpgLog( TEXT("friend %s: anims %s, floor %.1f"), Spec.Name, Anim ? Anim->GetName() : TEXT("none"), FriendFloor );
 		}
+		if( HoldCompanion( Engine, F, FriendLift, FriendLiftZ, DeltaSeconds ) )
+			return 1;
 		const FLOAT HarryYaw = Harry->Rotation.Yaw*(2.f*PI/65536.f);
 		const FVector Fwd( (FLOAT)appCos(HarryYaw), (FLOAT)appSin(HarryYaw), 0.f );
 		const FVector Right( -Fwd.Y, Fwd.X, 0.f );
-		// Beside Harry on his left, a step back (behind him is where the
-		// camera is). The pet keeps the right.
-		const FVector Want = Harry->Location - Fwd*(bBig ? 30.f : 15.f) - Right*(bBig ? 120.f : 80.f);
+		// Walks after Harry and waits a few steps away (the pet keeps the
+		// other side).
 		const FVector Old = F->Location;
-		const FVector Delta = Want - Old;
-		const FLOAT Dist = Delta.Size();
-		if( Dist>800.f || (Dist>250.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
+		const FLOAT Dist = (Harry->Location - Old).Size();
+		if( FindSeq(F->SkelAnim,TEXT("Walk"))==NAME_None )
+			return UpdateApparating( Engine, Harry, F, Fwd, Right, DeltaSeconds );
+		if( Dist>800.f || (Dist>260.f && !Engine->GLevel->Model->FastLineCheck(Harry->Location, Old)) )
 		{
-			Engine->GLevel->FarMoveActor( F, Want, 0, 1 );
+			FriendFollow.bChase = 0;
+			Engine->GLevel->FarMoveActor( F, Harry->Location - Fwd*(bBig ? 150.f : 110.f) - Right*40.f, 0, 1 );
 			return 1;
 		}
-		FVector New = Old + Delta*Min( 1.f, DeltaSeconds*3.f );
+		FVector New = FollowStep( Engine, Harry, FriendFollow, Old, bBig ? 150.f : 110.f, -40.f, 0, DeltaSeconds );
 		FCheckResult Hit;
 		const FVector Top = New + FVector( 0, 0, 80.f );
 		if( !Engine->GLevel->SingleLineCheck( Hit, F, Top - FVector(0,0,300.f), Top, TRACE_VisBlocking, FVector(0,0,0) ) )
@@ -3080,6 +3475,118 @@ public:
 		}
 		if( Want2!=NAME_None && (F->AnimSequence!=Want2 || !F->bAnimLoop) )
 			F->PlayAnim( Want2, true, Rate, 0.2f );
+		return 1;
+	}
+
+	/*-------------------------------------------------------------------------
+		Companions: talking (E) and spells cast on them.
+	-------------------------------------------------------------------------*/
+
+	FLOAT FriendLift, PetLift;      // seconds of Wingardium Leviosa left
+	FLOAT FriendLiftZ, PetLiftZ;    // floor height when lifted
+	INT FriendLineIndex;
+
+	// Retail voice lines a friend says when Harry talks to them, or when he
+	// casts a spell on them.
+	static const TCHAR* CompanionLines( const TCHAR* Mesh, UBOOL bReact )
+	{
+		if( !Mesh )
+			return NULL;
+		if( MapHas(Mesh,TEXT("skronMesh")) )
+			return bReact ? TEXT("PC_Ron_FlyingCar_44|PC_Ron_DiaryStolen_04|PC_Ron_FlyingCar_41|PC_Ron_FlyingCar_35")
+				: TEXT("PC_Ron_GoToDADA_00|PC_Ron_DiaryStolen_01|PC_Ron_CrimeScene_57|PC_Ron_FinishQuidditch_02|PC_Ron_BitOfGoyle_32");
+		if( MapHas(Mesh,TEXT("skhermioneMesh")) )
+			return bReact ? TEXT("PC_Her_Trans2Goyle_21|PC_Her_FollowVoice_54|PC_Her_Password_05")
+				: TEXT("PC_HER_BUMPLINES_600|PC_Her_DuelOpen_09|PC_HER_BUMPLINES_1014|PC_Her_GoToDADA_02|PC_Her_FinishQuidditch_05");
+		if( MapHas(Mesh,TEXT("skGinnyMesh")) )
+			return bReact ? TEXT("PC_GFG_BUMPLINES_526|PC_GFG_BUMPLINES_252")
+				: TEXT("PC_GFG_BUMPLINES_838|PC_GFG_BUMPLINES_383|PC_GFG_BUMPLINES_690|PC_GFG_BUMPLINES_781");
+		if( MapHas(Mesh,TEXT("skFredWeasleyMesh")) )
+			return bReact ? TEXT("PC_Frd_Vendor_14") : TEXT("PC_Frd_Vendor_26|PC_Frd_Password_15|PC_Frd_Vendor_68");
+		if( MapHas(Mesh,TEXT("skGeorgeWeasleyMesh")) )
+			return bReact ? TEXT("PC_Grg_Vendor_15") : TEXT("PC_Grg_Password_19|PC_Grg_Vendor_27|PC_Grg_Password_26");
+		if( MapHas(Mesh,TEXT("skHagridMesh")) )
+			return bReact ? TEXT("PC_Hdw_HagArrest_24|PC_Hdw_HagArrest_31")
+				: TEXT("PC_HDW_BUMPLINES_349|PC_HDW_BUMPLINES_352|PC_HDW_BUMPLINES_355|PC_HDW_BUMPLINES_646|PC_HDW_BUMPLINES_350");
+		if( MapHas(Mesh,TEXT("skdobbyMesh")) )
+			return bReact ? TEXT("PC_Dob_PrivetIntro_61") : TEXT("PC_Dob_PrivetIntro_62|PC_Dob_PrivetIntro_63|PC_Dob_PrivetIntro_61");
+		return NULL;
+	}
+
+	// An animal's own sound, if the game has one.
+	static const TCHAR* PetSound( const TCHAR* Mesh )
+	{
+		if( !Mesh )
+			return NULL;
+		if( MapHas(Mesh,TEXT("owl")) )
+			return RpgRand(2) ? TEXT("HPSounds.Critters_sfx.owl_hoot01") : TEXT("HPSounds.Critters_sfx.owl_hoot02");
+		if( MapHas(Mesh,TEXT("Pig")) )
+			return TEXT("HPSounds.Critters_sfx.Pig_snort01");
+		if( MapHas(Mesh,TEXT("Frog")) || MapHas(Mesh,TEXT("Toad")) )
+			return TEXT("HPSounds.Critters_sfx.frog_ribbit");
+		return NULL;
+	}
+
+	UBOOL IsCompanion( AActor* A )
+	{
+		return A && (A==FriendActor || A==PetActor);
+	}
+
+	// Friend or pet reacts: a voice line (friends) or its own sound (pets).
+	void CompanionReact( AActor* A, UBOOL bSpell )
+	{
+		UGameEngine* Engine = Ui.Engine;
+		if( A==FriendActor )
+		{
+			const FCosmetic& Spec = GCosmetics[State.Equip[RSLOT_Friend]];
+			if( RpgClock>=MateVoiceFree && SpeakLine( A, CompanionLines(Spec.Mesh,bSpell), FriendLineIndex )>0.f )
+				return;
+			if( !bSpell )
+				Say( Spec.Name, Spec.Desc );
+		}
+		else if( A==PetActor )
+		{
+			const FCosmetic& Spec = GCosmetics[State.Equip[RSLOT_Pet]];
+			if( const TCHAR* Snd = PetSound(Spec.Mesh) )
+				PlaySfx( Snd );
+			if( Engine )
+				SpawnFx( Engine, TEXT("GoldSparkle01"), A->Location + FVector(0,0,30.f), 1.f );
+		}
+	}
+
+	// Wingardium Leviosa on a companion: up it goes for a few seconds.
+	UBOOL LiftCompanion( AActor* A )
+	{
+		if( A==FriendActor && FriendLift<=0.f )
+		{
+			FriendLift = 3.5f;
+			FriendLiftZ = A->Location.Z;
+		}
+		else if( A==PetActor && PetLift<=0.f )
+		{
+			PetLift = 3.5f;
+			PetLiftZ = A->Location.Z;
+		}
+		else
+			return 0;
+		if( Ui.Engine )
+			SpawnFx( Ui.Engine, TEXT("Levitate_hold"), A->Location, 2.f );
+		CompanionReact( A, 1 );
+		return 1;
+	}
+
+	// While lifted (or transfigured) a companion floats or waits in place.
+	UBOOL HoldCompanion( UGameEngine* Engine, AActor* A, FLOAT& Lift, FLOAT BaseZ, FLOAT DeltaSeconds )
+	{
+		if( IsTransfigured(A) )
+			return 1;
+		if( Lift<=0.f )
+			return 0;
+		Lift = Max( 0.f, Lift-DeltaSeconds );
+		const FLOAT T = 3.5f - Lift;
+		const FLOAT Up = Min( 1.f, T/0.5f )*Min( 1.f, Lift/0.5f )*90.f + (FLOAT)appSin(T*4.f)*6.f;
+		Engine->GLevel->FarMoveActor( A, FVector(A->Location.X, A->Location.Y, BaseZ + Up), 0, 1 );
+		A->Rotation.Yaw += appRound( 9000.f*DeltaSeconds );
 		return 1;
 	}
 
@@ -3141,7 +3648,8 @@ public:
 			bPlaced = UpdateFriend( Engine, Harry, Actor, Spec, FrameDelta );
 		else
 			Engine->GLevel->FarMoveActor( Actor, Harry->Location + FVector(0,0,Spec.Up), 0, 1 );
-		Actor->bHidden = Harry->bHidden || !bPlaced;
+		// Out of the picture while brewing at a desk or decorating.
+		Actor->bHidden = Harry->bHidden || !bPlaced || Menu==MENU_Brew || Menu==MENU_Room;
 		Actor->ScaleGlow = Harry->ScaleGlow;
 	}
 
@@ -3311,13 +3819,16 @@ public:
 			bWasCutscene = bCut;
 		}
 
+		const UBOOL bDeferFeed = Menu==MENU_None && (IsTalking() || !IsFreeGameplay(Engine,Harry));
 		for( INT i=Feed.Num()-1; i>=0; i-- )
 		{
-			Feed(i).Age += DeltaSeconds;
+			if( !bDeferFeed )
+				Feed(i).Age += DeltaSeconds;
 			if( Feed(i).Age > 4.2f )
 				Feed.Remove( i );
 		}
-		BannerAge += DeltaSeconds;
+		if( !bDeferFeed )
+			BannerAge += DeltaSeconds;
 		HouseHudTimer = Max( 0.f, HouseHudTimer-DeltaSeconds );
 		XpFloatAge += DeltaSeconds;
 		XpShowTimer = Max( 0.f, XpShowTimer-DeltaSeconds );
@@ -3358,6 +3869,7 @@ public:
 				CheckCardRewards( Harry );
 				CheckTrophies( Harry );
 				CheckQuests( Harry );
+				UpdateTimetable( Harry );
 				if( bBaselineValid )
 					UpdateTasks( Harry );
 			}
@@ -3382,7 +3894,25 @@ public:
 		UpdateQuests( Engine, Harry, DeltaSeconds );
 		UpdateLesson( Engine, Harry, DeltaSeconds );
 		UpdateDecor( Engine, Harry, DeltaSeconds );
+		UpdateStandIns( Engine, Harry, DeltaSeconds );
+		UpdateSchoolmates( Engine, Harry, DeltaSeconds );
 		UpdatePhoto( Harry );
+		UpdateRoomCam( Harry );
+		UpdateBrewCam( Harry );
+		UpdateDayNight( Harry, DeltaSeconds );
+		UpdateNightGrounds( Engine, Harry, DeltaSeconds );
+		PlaceAfterRoom( Engine, Harry );
+		UpdateFanDoor( Engine, Harry );
+		UpdateSpawners( Engine, Harry, DeltaSeconds );
+		// The console prints "PRESS ESC TO EXIT" over a paused game; the
+		// mod's own screens pause it, so keep that message empty.
+		if( UObject* Console = Harry->Player ? Harry->Player->Console : NULL )
+			if( UStrProperty* P = FindField<UStrProperty>( Console->GetClass(), TEXT("PausedMessage") ) )
+			{
+				FString* Msg = (FString*)((BYTE*)Console + P->Offset);
+				if( Msg->Len() )
+					*Msg = TEXT("");
+			}
 	}
 
 	void OnLevelChanged( UGameEngine* Engine )
@@ -3419,18 +3949,20 @@ public:
 		}
 
 		const TCHAR* MapName = Engine->GLevel->URL.Map.Len() ? *Engine->GLevel->URL.Map : TEXT("");
+		const UBOOL bFromSave = bLoadedFromSlot;
 		if( bLoadedFromSlot )
 			bLoadedFromSlot = 0;
 		else if( (appStrfind(MapName,TEXT("PrivetDr")) || appStrfind(MapName,TEXT("privetdr")))
-			&& (PrevMap.Len()==0 || appStrstr(*PrevMap,TEXT("Startup")) || appStrstr(*PrevMap,TEXT("startup"))) )
+			&& (PrevMap.Len()==0 || MapHas(*PrevMap,TEXT("Startup")) || MapHas(*PrevMap,TEXT("startup"))) )
 		{
 			State.Reset();
 			Placed.Empty();
+			OpenedTreasure.Empty();
 			Sanitize();
 			SpellsKnownNotified = -1;
 			RpgLog( TEXT("new game, RPG progress reset") );
 		}
-		else if( appStrstr(MapName,TEXT("_hub")) && RpgClock-LastDayClock > 300.f
+		else if( MapHas(MapName,TEXT("_hub")) && RpgClock-LastDayClock > 300.f
 			&& (State.DayPlaySeconds>=1200 || (State.DayTaskDone && State.DayPlaySeconds>=420)) )
 		{
 			// A new school day starts back in a hub after real play: 20 minutes,
@@ -3441,12 +3973,17 @@ public:
 			State.DayTaskDone = 0;
 			TalkedToday.Empty();
 		}
+		StepRhythm( MapName, bFromSave );
 		if( State.StockDay!=State.Day )
 		{
 			State.StockDay = State.Day;
 			appMemzero( State.StockUsed, sizeof(State.StockUsed) );
 		}
 		RpgLog( TEXT("level %s, day %i"), MapName, State.Day );
+		bReturnFromRoom = IsRoomMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
+		ReturnAt = RpgClock + 0.6f;
+		bReturnFromFan = IsFanMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
+		FanReturnAt = RpgClock + 0.6f;
 		PrevMap = MapName;
 	}
 
@@ -3468,6 +4005,10 @@ public:
 		EndWorld();
 		EndPickups( Engine );
 		EndDecor( Engine );
+		EndBrew( Engine );
+		EndSpawners( Engine );
+		EndStandIns( Engine );
+		EndSchoolmates( Engine );
 		ClearLessonItems( Engine );
 		LessonKind = -1;
 		SetPhoto( Engine, GetHarry(Engine), 0 );
@@ -3511,11 +4052,17 @@ public:
 		HarryAnim = NULL;
 		ForgetQuests();
 		ForgetDecor();
+		ForgetBrew();
+		ForgetSpawners();
+		FanTravelAt = 0.f;
+		ForgetStandIns();
+		ForgetSchoolmates();
 		LessonItems.Empty();
 		LessonItemShown.Empty();
 		LessonCounted.Empty();
 		LessonLifted.Empty();
 		TodaysTeacher = NULL;
+		bKnockReady = bKnocked = 0;
 		LessonKind = -1;
 		bPhoto = 0;
 		HatActor = PetActor = AuraActor = NULL;
@@ -3545,6 +4092,11 @@ public:
 	#include "HP2RpgWorld.inl"
 	#include "HP2RpgQuests.inl"
 	#include "HP2RpgSchool.inl"
+	#include "HP2RpgCastle.inl"
+	#include "HP2RpgRhythm.inl"
+	#include "HP2RpgTimetable.inl"
+	#include "HP2RpgBrew.inl"
+	#include "HP2RpgRoom.inl"
 };
 
 static FHP2Rpg GRpg;
@@ -3647,3 +4199,4 @@ void HP2RpgOnLoadedSlot( UGameEngine* Engine, INT Slot )
 	}
 	unguard;
 }
+

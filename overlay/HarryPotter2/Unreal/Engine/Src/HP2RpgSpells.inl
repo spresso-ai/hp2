@@ -27,7 +27,7 @@
 		static const FSpell2Def Defs[SP2_MAX] =
 		{
 			{ TEXT("Accio"), TEXT("Summon beans, cards, stars and ingredients nearby."), 2, 8.f, TEXT("SpellShapes.Shapes.SPSalohomora"), FColor(255,214,100,255) },
-			{ TEXT("Revelio"), TEXT("Reveal secrets, chests and collectibles for 8 seconds."), 3, 12.f, TEXT("SpellShapes.Shapes.SPSlumos"), FColor(150,220,255,255) },
+			{ TEXT("Revelio"), TEXT("While exploring the castle: reveal secrets, chests, collectibles and lost pages."), 3, 4.f, TEXT("SpellShapes.Shapes.SPSlumos"), FColor(150,220,255,255) },
 			{ TEXT("Protego"), TEXT("A shield that blocks all damage for 4 seconds."), 4, 25.f, TEXT("SpellShapes.Shapes.SPSexpelliarmus"), FColor(140,200,255,255) },
 			{ TEXT("Wingardium Leviosa"), TEXT("Lift a creature, student or vase and steer it with the mouse. Release to drop, click to throw."), 6, 10.f, TEXT("SpellShapes.Shapes.SPSspongify"), FColor(220,240,160,255) },
 			{ TEXT("Glacius"), TEXT("Freeze a creature solid for 5 seconds."), 8, 12.f, TEXT("SpellShapes.Shapes.SPSmimble"), FColor(170,230,255,255) },
@@ -39,7 +39,7 @@
 
 	struct FPullEntry   { AActor* Actor; BYTE OldPhysics; FLOAT Age; };
 	struct FRevealEntry { AActor* Actor; FVector Location; INT Kind; };
-	struct FLiftEntry   { AActor* Actor; BYTE OldRole; BYTE OldPhysics; FVector Base; FLOAT Age; UBOOL bDropped; UBOOL bProp; UBOOL bControlled; UBOOL bThrown; FLOAT HoldDist; };
+	struct FLiftEntry   { AActor* Actor; BYTE OldRole; BYTE OldPhysics; FVector Base; FLOAT Age; UBOOL bDropped; UBOOL bProp; UBOOL bControlled; UBOOL bThrown; FLOAT HoldDist; FLOAT LastSpeed; AActor* Struck[4]; INT NumStruck; };
 	struct FFreezeEntry { AActor* Actor; FLOAT Left; UBOOL OldEnviro; UTexture* OldTexture; BYTE OldFatness; FLOAT OldScaleGlow; };
 
 	FLOAT SpellCooldown[SP2_MAX];
@@ -201,6 +201,12 @@
 			AddFeed( FString::Printf(TEXT("%s is recharging"), D.Name), FColor(180,180,200,255), TOAST_Info, *FString::Printf(TEXT("Ready in %i s"), appCeil(SpellCooldown[i])) );
 			return;
 		}
+		// Revelio is an exploring spell: the hubs only, not story levels.
+		if( i==SP2_Revelio && !(LastLevel && MapHas(*LastLevel->URL.Map,TEXT("_hub"))) && !(LastLevel && MapHas(*LastLevel->URL.Map,TEXT("GreatHall"))) )
+		{
+			AddFeed( TEXT("Revelio"), D.Color, TOAST_Info, TEXT("Works while exploring the castle grounds and halls") );
+			return;
+		}
 		if( SpellNeedsTarget(i) && !Target )
 		{
 			PlaySfx( TEXT("HPSounds.Magic_sfx.spell_dud") );
@@ -213,7 +219,7 @@
 			case SP2_Accio:    bCast = CastAccio( Engine, Harry ); break;
 			case SP2_Revelio:  bCast = CastRevelio( Engine, Harry ); break;
 			case SP2_Protego:  bCast = CastProtego( Engine, Harry ); break;
-			case SP2_Leviosa:  bCast = CastLeviosa( Engine, Harry, Target ); break;
+			case SP2_Leviosa:  bCast = IsCompanion(Target) ? LiftCompanion( Target ) : CastLeviosa( Engine, Harry, Target ); break;
 			case SP2_Glacius:  bCast = CastGlacius( Engine, Harry, Target ); break;
 			case SP2_Arresto:  bCast = CastArresto( Engine, Harry ); break;
 			case SP2_Transfig: bCast = CastTransfig( Engine, Harry, Target ); break;
@@ -225,7 +231,7 @@
 			RpgLog( TEXT("cast %s: no target"), D.Name );
 			return;
 		}
-		SpellCooldown[i] = D.Cooldown;
+		SpellCooldown[i] = D.Cooldown * Max( 0.4f, 1.f - 0.07f*State.Skill[SKILL_Focus] ) * (i==SP2_Accio && HasPerk(PERK_QuickSummons) ? 0.5f : 1.f);
 		LastCastClock = RpgClock;
 		State.Counters[CNT_WheelCasts]++;
 		if( i==SP2_Leviosa ) State.Counters[CNT_Levitations]++;
@@ -248,7 +254,8 @@
 			static FName PickupProp( TEXT("PickupProp") );
 			if( GetStateName(A)==PickupProp || !GetBoolProp(A,TEXT("bPickupOnTouch")) )
 				continue;
-			if( (A->Location - Harry->Location).SizeSquared() > 700.f*700.f || !Harry->LineOfSightTo(A) )
+			const FLOAT Reach = HasPerk(PERK_LongReach) ? 1200.f : 700.f;
+			if( (A->Location - Harry->Location).SizeSquared() > Reach*Reach || !Harry->LineOfSightTo(A) )
 				continue;
 			UBOOL bAlready = 0;
 			for( INT p=0; p<Pulls.Num(); p++ )
@@ -309,21 +316,38 @@
 		}
 	}
 
+	// A chest or cauldron that was already opened. Cauldrons never set
+	// bOpened, and an opened one can come back from a save in its auto
+	// state, so look at what it shows: no spell taken any more, or the
+	// tipped/open animation.
+	UBOOL IsOpenedTreasure( AActor* A )
+	{
+		static FName WaitForSpell( TEXT("waitforspell") );
+		if( GetBoolProp(A,TEXT("bOpened")) || GetStateName(A)!=WaitForSpell )
+			return 1;
+		if( GetByteProp(A,TEXT("eVulnerableToSpell"),1)==0 )
+			return 1;
+		const FString Seq = *A->AnimSequence;
+		if( Seq==TEXT("tipped") || Seq==TEXT("tipover") || Seq==TEXT("end") || Seq==TEXT("open") )
+			return 1;
+		return LastLevel && OpenedTreasure.FindItemIndex(LastLevel->URL.Map + TEXT(":") + A->GetName())!=INDEX_NONE;
+	}
+
 	UBOOL CastRevelio( UGameEngine* Engine, APlayerPawn* Harry )
 	{
 		Reveals.Empty();
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
 			AActor* A = Engine->GLevel->Actors(i);
-			if( !A || A->bDeleteMe || (A->Location - Harry->Location).SizeSquared() > 2600.f*2600.f )
+			const FLOAT Range = HasPerk(PERK_KeenEye) ? 6000.f : 2600.f;
+			if( !A || A->bDeleteMe || (A->Location - Harry->Location).SizeSquared() > Range*Range )
 				continue;
 			INT Kind = -1;
 			const FName S = GetStateName( A );
 			if( ClassChainIs(A,TEXT("SecretAreaMarker")) && !GetBoolProp(A,TEXT("bFound")) )
 				Kind = 0;
-			else if( ClassChainIsAny(A,TEXT("chestbronze|bronzecauldron")) && !GetBoolProp(A,TEXT("bOpened")) )
-				Kind = 1;
-			else if( ClassChainIs(A,TEXT("HFlipendo")) && S==FName(TEXT("waitforspell")) )
+			// Only chests and cauldrons still waiting for their spell.
+			else if( ClassChainIsAny(A,TEXT("chestbronze|bronzecauldron")) && !IsOpenedTreasure(A) )
 				Kind = 1;
 			else if( ClassChainIs(A,TEXT("WizardCardIcon")) && !A->Owner && !A->bHidden && S!=FName(TEXT("PickupProp")) )
 				Kind = 2;
@@ -340,7 +364,7 @@
 		}
 		RevealPages( Engine, Harry );
 		RevealLessonItems( Engine, Harry );
-		RevealLeft = 8.f;
+		RevealLeft = HasPerk(PERK_LingeringLight) ? 16.f : 8.f;
 		PlaySfx( TEXT("HPSounds.Magic_sfx.Lumos_pass_through") );
 		AddFeed( TEXT("Revelio"), Spell2(SP2_Revelio).Color, TOAST_Info, *FString::Printf(TEXT("%i hidden thing%s revealed"), Reveals.Num(), Reveals.Num()==1 ? TEXT("") : TEXT("s")) );
 		return 1;
@@ -348,7 +372,7 @@
 
 	UBOOL CastProtego( UGameEngine* Engine, APlayerPawn* Harry )
 	{
-		ShieldLeft = 4.f;
+		ShieldLeft = HasPerk(PERK_SturdyShield) ? 6.f : 4.f;
 		if( ShieldFx && IsInLevel(ShieldFx) )
 			Engine->GLevel->DestroyActor( ShieldFx );
 		ShieldFx = SpawnFx( Engine, TEXT("Exep_Shield"), Harry->Location, 4.2f );
@@ -373,6 +397,8 @@
 		E->bProp = !T->IsA(APawn::StaticClass());
 		E->bControlled = 1;
 		E->bThrown = 0;
+		E->LastSpeed = 0.f;
+		E->NumStruck = 0;
 		E->HoldDist = Clamp( (T->Location - Harry->Location).Size2D(), 160.f, 520.f );
 		if( LessonKind==LES_Charms && LessonLifted.FindItemIndex(T)==INDEX_NONE )
 			LessonLifted.AddItem( T );
@@ -396,6 +422,30 @@
 		return NULL;
 	}
 
+	// Damage from a Leviosa throw: one hit at walking pace up to four at
+	// full speed, spent on the creature's own hit counters, then its
+	// own spell reaction and a TakeDamage for creatures that have health.
+	void ThrowImpact( UGameEngine* Engine, AActor* C, FLOAT Speed, FVector Momentum )
+	{
+		const INT Hits = Clamp( appRound(Speed/450.f), 1, 4 );
+		const INT Type = CreatureType( C );
+		for( INT h=1; h<Hits; h++ )
+		{
+			if( Type==CR_SpiderLarge )
+				DecrementInt( C, TEXT("numSpells"), 1 );
+			else if( Type==CR_FireCrab )
+				DecrementInt( C, TEXT("iNumSpellHitsToFlip"), 1 );
+		}
+		const INT Vuln = GetByteProp( C, TEXT("eVulnerableToSpell"), 0 );
+		QueueRedispatch( C, Vuln>0 ? Vuln : 13 );
+		APlayerPawn* Harry = CurrentHarry();
+		FRpgArg Args[5] = { FRpgArg::I(Hits*10), FRpgArg::O(Harry), FRpgArg::V(C->Location), FRpgArg::V(Momentum*0.2f), FRpgArg::N(FName(TEXT("Thrown"))) };
+		CallScript( C, TEXT("TakeDamage"), Args, 5 );
+		SpawnFx( Engine, TEXT("Wing_hit"), C->Location, 1.f );
+		PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
+		RpgLog( TEXT("leviosa: %s hit at %.0f (%i)"), C->GetName(), Speed, Hits );
+	}
+
 	// Lets go of the levitated target: a drop, or a throw along the aim.
 	void ReleaseLift( UGameEngine* Engine, FLiftEntry& E, UBOOL bThrow )
 	{
@@ -408,7 +458,7 @@
 		if( bThrow && bCamValid )
 		{
 			E.bThrown = 1;
-			T->Velocity = CamDir*1100.f + FVector( 0, 0, 260.f );
+			T->Velocity = CamDir*(HasPerk(PERK_Hurl) ? 1700.f : 1100.f) + FVector( 0, 0, 260.f );
 			PlaySfx( TEXT("HPSounds.Magic_sfx.Dueling_EXP_swoosh") );
 			RpgLog( TEXT("leviosa: threw %s"), T->GetName() );
 		}
@@ -468,7 +518,31 @@
 				continue;
 			}
 			if( T->Physics==PHYS_Falling && E.Age < 8.f )
+			{
+				// A thrown thing hurts every creature it flies into.
+				const FLOAT Speed = T->Velocity.Size();
+				if( E.bThrown && Speed>250.f )
+				{
+					E.LastSpeed = Speed;
+					for( INT i=0; i<Engine->GLevel->Actors.Num() && E.NumStruck<4; i++ )
+					{
+						AActor* C = Engine->GLevel->Actors(i);
+						if( !C || C==T || C->bDeleteMe || C->bHidden || CreatureType(C)<0 )
+							continue;
+						const FLOAT Reach = T->CollisionRadius + C->CollisionRadius + 25.f;
+						if( (C->Location-T->Location).SizeSquared() > Reach*Reach )
+							continue;
+						UBOOL bAgain = 0;
+						for( INT k=0; k<E.NumStruck; k++ )
+							bAgain |= E.Struck[k]==C;
+						if( bAgain )
+							continue;
+						E.Struck[E.NumStruck++] = C;
+						ThrowImpact( Engine, C, Speed, T->Velocity );
+					}
+				}
 				continue;
+			}
 			// Landed: hand control back, and let props react like a Flipendo hit.
 			T->Role = E.OldRole;
 			if( E.bProp )
@@ -478,10 +552,14 @@
 			}
 			else if( E.OldPhysics!=PHYS_Walking && E.OldPhysics!=PHYS_None && E.OldPhysics!=PHYS_Falling )
 				T->setPhysics( E.OldPhysics );
+			// A thrown creature slams into the floor or a wall: the harder,
+			// the more it hurts.
+			if( E.bThrown && CreatureType(T)>=0 && E.LastSpeed>250.f )
+				ThrowImpact( Engine, T, E.LastSpeed*(HasPerk(PERK_Hurl) ? 1.3f : 1.f), FVector(0,0,0) );
 			const INT Vuln = GetByteProp( T, TEXT("eVulnerableToSpell"), 0 );
 			if( E.bProp && Vuln==13 )
 				QueueRedispatch( T, Vuln ); // only props a Flipendo would open
-			else if( CreatureType(T)>=0 )
+			else if( CreatureType(T)>=0 && !E.bThrown )
 				QueueRedispatch( T, 13 );
 			Lifts.Remove( l );
 		}
@@ -502,7 +580,7 @@
 			Ice = LoadTex( TEXT("HPParticle.hp_fx.General.EctoIce") );
 		FFreezeEntry* E = new(Freezes) FFreezeEntry;
 		E->Actor = T;
-		E->Left = 5.f;
+		E->Left = HasPerk(PERK_DeepFreeze) ? 9.f : 5.f;
 		E->OldEnviro = T->bMeshEnviroMap;
 		E->OldTexture = T->Texture;
 		E->OldFatness = T->Fatness;
@@ -517,6 +595,17 @@
 		T->Velocity = FVector( 0, 0, 0 );
 		SpawnFx( Engine, TEXT("Incend_hit"), T->Location, 1.5f );
 		PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
+		if( HasPerk(PERK_Shatter) )
+			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+			{
+				AActor* A = Engine->GLevel->Actors(i);
+				if( !A || A==T || A->bDeleteMe || CreatureType(A)<0 || CreatureType(A)==CR_Boss || IsFrozen(A) || (A->Location-T->Location).SizeSquared() > 260.f*260.f )
+					continue;
+				FFreezeEntry* N = new(Freezes) FFreezeEntry;
+				N->Actor = A; N->Left = 2.5f; N->OldEnviro = A->bMeshEnviroMap; N->OldTexture = A->Texture; N->OldFatness = A->Fatness; N->OldScaleGlow = A->ScaleGlow;
+				if( Ice ) { A->bMeshEnviroMap = 1; A->Texture = Ice; }
+				A->Velocity = FVector( 0, 0, 0 );
+			}
 		return 1;
 	}
 
@@ -544,7 +633,7 @@
 
 	UBOOL CastArresto( UGameEngine* Engine, APlayerPawn* Harry )
 	{
-		ArrestoLeft = 6.f;
+		ArrestoLeft = HasPerk(PERK_TimeSlip) ? 10.f : 6.f;
 		SpawnFx( Engine, TEXT("levitate_hit"), Harry->Location, 1.f );
 		PlaySfx( TEXT("HPSounds.Magic_sfx.Dueling_MIM_buildup") );
 		return 1;
@@ -577,7 +666,7 @@
 			return;
 		// Slow enemies: they only tick on two frames out of five.
 		SlowFrame = (SlowFrame+1) % 5;
-		if( SlowFrame>=2 )
+		if( SlowFrame >= (HasPerk(PERK_Stillness) ? 1 : 2) )
 		{
 			static UClass* Spell = NULL;
 			if( !Spell )
@@ -717,6 +806,7 @@
 		UTexture* OldSkin;
 		UTexture* OldMulti[8];
 		UAnimation* OldAnim;
+		FName OldSeq;
 		FLOAT OldScale;
 		BYTE OldRole;
 		FLOAT Left;
@@ -733,8 +823,9 @@
 
 	UBOOL CastTransfig( UGameEngine* Engine, APlayerPawn* Harry, AActor* T )
 	{
-		if( !T || !(IsStudent(T) || IsTroublemaker(T)) || IsTransfigured(T) )
+		if( !T || !(IsStudent(T) || IsTroublemaker(T) || T==FriendActor) || IsTransfigured(T) )
 			return 0;
+		const UBOOL bFriend = T==FriendActor;
 		// Mesh, animation set, idle sequence, height in units, name.
 		static const TCHAR* Forms[][5] =
 		{
@@ -768,9 +859,10 @@
 		for( INT i=0; i<8; i++ )
 			E->OldMulti[i] = T->MultiSkins[i];
 		E->OldAnim = T->SkelAnim;
+		E->OldSeq = T->AnimSequence;
 		E->OldScale = T->DrawScale;
 		E->OldRole = T->Role;
-		E->Left = 20.f;
+		E->Left = HasPerk(PERK_LastingChange) ? 40.f : 20.f;
 		const FVector Feet = T->Location - FVector( 0, 0, T->CollisionHeight );
 		T->Mesh = Mesh;
 		T->Skin = NULL;
@@ -800,7 +892,10 @@
 		AddFeed( TEXT("Transfiguration"), Spell2(SP2_Transfig).Color, TOAST_Info, *FString::Printf(TEXT("%s is now %s!"), *NpcName(T), Forms[F][4]) );
 		PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
 		RpgLog( TEXT("transfigured %s into %s"), T->GetName(), Mesh->GetName() );
-		StudentHitBySpell( T, 15, -10, TEXT("Transfiguring a student") );
+		if( bFriend )
+			CompanionReact( T, 1 );
+		else
+			StudentHitBySpell( T, 15, -10, TEXT("Transfiguring a student") );
 		return 1;
 	}
 
@@ -814,7 +909,18 @@
 		T->SkelAnim = E.OldAnim;
 		T->DrawScale = E.OldScale;
 		T->Role = E.OldRole;
+		// Back on its own animation, or it walks on in a frozen pose.
 		T->AnimSequence = NAME_None;
+		FName Seq = NAME_None;
+		if( T->SkelAnim )
+		{
+			if( E.OldSeq!=NAME_None && T->SkelAnim->GetAnimSeq(E.OldSeq) )
+				Seq = E.OldSeq;
+			else
+				Seq = FindSeq( T->SkelAnim, TEXT("Idle") );
+		}
+		if( Seq!=NAME_None )
+			T->PlayAnim( Seq, true, 1.f, 0.2f );
 		if( bEffects )
 		{
 			SpawnFx( Engine, TEXT("SmokeExplo_02"), T->Location, 1.5f );
@@ -868,8 +974,14 @@
 			return 0;
 		if( A->Event!=NAME_None || GetBoolProp(A,TEXT("bPersistent")) || GetByteProp(A,TEXT("eVulnerableToSpell"),0)!=0 )
 			return 0;
+		// Banners, flags and tapestries belong on their poles and walls.
+		{
+			const TCHAR* M = A->Mesh->GetName();
+			if( MapHas(M,TEXT("Banner")) || MapHas(M,TEXT("Flag")) || MapHas(M,TEXT("Tapestr")) || ClassChainIsAny(A,TEXT("Banner")) || MapHas(A->GetClass()->GetName(),TEXT("Banner")) )
+				return 0;
+		}
 		if( ClassChainIsAny( A, TEXT("Pig|GNOME|HProp") ) )
-			return A->CollisionRadius<=60.f && A->CollisionHeight<=90.f;
+			return HasPerk(PERK_StrongLift) ? (A->CollisionRadius<=110.f && A->CollisionHeight<=140.f) : (A->CollisionRadius<=60.f && A->CollisionHeight<=90.f);
 		return 0;
 	}
 
@@ -881,9 +993,9 @@
 		const UBOOL bStudent = (IsStudent(A) || IsTroublemaker(A)) && !IsHolding(A);
 		switch( Spell )
 		{
-			case SP2_Leviosa:  return bCreature || (bStudent && !IsTransfigured(A)) || IsLevitatable(A);
+			case SP2_Leviosa:  return bCreature || (bStudent && !IsTransfigured(A)) || IsLevitatable(A) || (IsCompanion(A) && !IsTransfigured(A));
 			case SP2_Glacius:  return bCreature;
-			case SP2_Transfig: return bStudent && !IsTransfigured(A);
+			case SP2_Transfig: return (bStudent || A==FriendActor) && !IsTransfigured(A);
 			default:           return 0;
 		}
 	}
@@ -1155,9 +1267,7 @@
 			bCamValid = 1;
 		}
 
-		// Arresto: blue wash over the world.
-		if( ArrestoLeft>0.f && Ui.White )
-			C->DrawTile( Ui.White, 0, 0, C->ClipX, C->ClipY, 0, 0, 1, 1, NULL, 1.f, FPlane(0.f,0.03f,0.12f,1.f), FPlane(0,0,0,0), PF_Translucent );
+		// Arresto is communicated by its timer, without a framebuffer wash.
 
 		// Revelio markers.
 		if( RevealLeft>0.f )
@@ -1201,10 +1311,10 @@
 			// Only spells you know are shown; the bar grows as you learn.
 			INT Shown[SP2_MAX], NumShown = 0;
 			for( INT i=0; i<SP2_MAX; i++ )
-				if( SpellUnlocked(i) )
+				if( SpellUnlocked(i) && (bShowAllHud || SelFlash>0.f || (bSelOurs && SelSpell==i) || SpellCooldown[i]>0.f) )
 					Shown[NumShown++] = i;
 			const FLOAT W = Slot + (NumShown ? Div + NumShown*Slot + (NumShown-1)*Gap : 0.f);
-			const FLOAT X0 = (C->ClipX-W)*0.5f, Y0 = C->ClipY - Slot - Ui.P(24.f);
+			const FLOAT X0 = Max(Ui.P(24.f),C->ClipX-W-Ui.P(32.f)), Y0 = C->ClipY - Slot - Ui.P(32.f);
 			for( INT k=-1; k<NumShown; k++ )
 			{
 				const UBOOL bWand = k<0;
@@ -1212,12 +1322,10 @@
 				const UBOOL bSel = bWand ? !bSelOurs : (bSelOurs && SelSpell==i);
 				FLOAT X = bWand ? X0 : X0 + Slot + Div + k*(Slot+Gap);
 				FRpgRect R( X, Y0 - (bSel ? Ui.P(6.f) : 0.f), Slot, Slot );
-				if( bSel && Ui.GlowGold )
-					Ui.Glow( Ui.GlowGold, FRpgRect(R.X-Slot*0.25f, R.Y-Slot*0.25f, Slot*1.5f, Slot*1.5f), 0.35f );
 				Ui.Chamfer( R, Ui.P(3.f), bSel ? FColor(44,56,104,255) : FColor(28,36,70,255) );
 				Ui.Border( R, bSel ? Max(1.f,Ui.P(2.f)) : Max(1.f,Ui.P(1.f)), bSel ? GoldHi : Line );
 				if( bSel )
-					Ui.Brackets( FRpgRect(R.X-Ui.P(4.f), R.Y-Ui.P(4.f), R.W+Ui.P(8.f), R.H+Ui.P(8.f)), Ui.P(8.f), Max(1.f,Ui.P(2.f)), GoldHi );
+					Ui.Brackets( FRpgRect(R.X-Ui.P(3.f), R.Y-Ui.P(3.f), R.W+Ui.P(6.f), R.H+Ui.P(6.f)), Ui.P(7.f), Max(1.f,Ui.P(2.f)), GoldHi );
 				UTexture* Icon = LoadTex( bWand ? TEXT("SpellShapes.Shapes.SPSflipendo") : Spell2(i).Icon );
 				const FLOAT Cool = bWand ? 0.f : SpellCooldown[i];
 				if( Icon )
@@ -1236,22 +1344,23 @@
 				{
 					const FString Key = FString::Printf( TEXT("%i"), (i+4)%10 );
 					UFont* F = Ui.FontCaption;
-					const FLOAT KS = Ui.P(14.f);
+					const FLOAT KS = Max(Ui.TextHeight(F),Ui.TextWidth(F,*Key))+Ui.P(6.f);
 					const FRpgRect KR( R.X+R.W-KS+Ui.P(4.f), R.Y+R.H-KS+Ui.P(4.f), KS, KS );
 					Ui.Chamfer( KR, Ui.P(2.f), Line );
 					Ui.Chamfer( KR.Inset(Max(1.f,Ui.P(1.f))), Ui.P(2.f), FColor(20,27,54,255) );
 					Ui.Text( F, KR.X+KS*0.5f, KR.Y+(KS-Ui.TextHeight(F))*0.5f, Text2, *Key, RALIGN_Center, 0 );
 				}
 				if( bSel && SelFlash>0.f )
-					Ui.Text( Ui.FontModernBold, R.X+R.W*0.5f, R.Y-Ui.TextHeight(Ui.FontModernBold)-Ui.P(10.f), GoldHi, bWand ? TEXT("Wand") : Spell2(i).Name, RALIGN_Center );
+					Ui.Text( Ui.FontModernBold, C->ClipX-Ui.P(32.f), Y0-Ui.TextHeight(Ui.FontModernBold)-Ui.P(10.f), GoldHi, *Ui.FitText(Ui.FontModernBold,bWand ? TEXT("Wand") : Spell2(i).Name,C->ClipX*0.4f), RALIGN_Right );
 			}
 			if( ShieldLeft>0.f || ArrestoLeft>0.f )
 			{
 				const UBOOL bShield = ShieldLeft>0.f;
 				const FString T = FString::Printf( TEXT("%s %.1f"), bShield ? TEXT("Protego") : TEXT("Arresto Momentum"), bShield ? ShieldLeft : ArrestoLeft );
-				Ui.Text( Ui.FontModernBold, C->ClipX*0.5f, Y0-Ui.P(46.f), Spell2(bShield ? SP2_Protego : SP2_Arresto).Color, *T, RALIGN_Center );
+				Ui.Text( Ui.FontModernBold, C->ClipX-Ui.P(32.f), Y0-Ui.TextHeight(Ui.FontModernBold)*2-Ui.P(18.f), Spell2(bShield ? SP2_Protego : SP2_Arresto).Color, *T, RALIGN_Right );
 			}
 		}
 		if( bAiming )
 			DrawAim( Harry );
 	}
+
