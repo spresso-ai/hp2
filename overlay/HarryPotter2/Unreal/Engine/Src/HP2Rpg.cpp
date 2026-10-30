@@ -94,7 +94,11 @@ static void VARARGS RpgLog( const TCHAR* Fmt, ... )
 
 static UClass* FindClass( const TCHAR* Name )
 {
-	return FindObject<UClass>( ANY_PACKAGE, Name );
+	// HP2's own classes first: Harry Potter 1's packages, when one of its
+	// levels is loaded, use many of the same class names (harry, baseSpell).
+	UPackage* HGame = FindObject<UPackage>( NULL, TEXT("HGame") );
+	UClass* Class = HGame ? FindObject<UClass>( HGame, Name ) : NULL;
+	return Class ? Class : FindObject<UClass>( ANY_PACKAGE, Name );
 }
 
 static UBOOL ClassChainIs( UObject* Obj, const TCHAR* Name )

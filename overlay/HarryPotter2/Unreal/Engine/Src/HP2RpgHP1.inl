@@ -289,9 +289,10 @@
 	}
 
 	// HP1's own Harry stands in every level; HP2's Harry is the one played.
-	static UBOOL IsH1Harry( AActor* A )
+	UBOOL IsH1Harry( AActor* A )
 	{
-		return A && !A->IsA(APlayerPawn::StaticClass()) && ClassChainIsAny( A, TEXT("baseHarry") );
+		return A && A!=CurrentHarry() && A->GetClass()->GetOuter() && appStricmp( A->GetClass()->GetOuter()->GetName(), TEXT("HGame") )!=0
+			&& ClassChainIsAny( A, TEXT("baseHarry") );
 	}
 
 	static INT H1PickupKind( AActor* A )
