@@ -68,6 +68,7 @@
 	AActor* TodaysTeacher;
 	UBOOL bKnockReady;       // teacher behind a closed classroom door
 	UBOOL bKnocked;
+	FLOAT H1LeeAt;
 	FLOAT NeedlePos, NeedleDir;
 	FLOAT LessonFxTimer;
 
@@ -346,6 +347,12 @@
 			case LES_Transfig:
 				LessonProgress = State.Counters[CNT_Transfigs] - LessonBase;
 				break;
+		}
+		// Lee Jordan commentates the Snitch hunt (Harry Potter 1 voice).
+		if( LessonKind==LES_Quidditch && RpgClock>=H1LeeAt && RpgClock>=MateVoiceFree )
+		{
+			H1LeeAt = RpgClock + 16.f;
+			SpeakH1( Harry, TEXT("Lee Jordan"), H1_Lee, 1, TEXT("Snitch|Seeker|Potter|Quidditch") );
 		}
 		if( LessonKind>=0 && LessonKind!=LES_Potions && LessonProgress>=L.Count )
 			FinishLesson( Engine, Harry, 0 );

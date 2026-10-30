@@ -169,6 +169,20 @@ static const FCosmetic GCosmetics[] =
 	{ RSLOT_Held, TEXT("Jar of Beans"), TEXT("Every flavour, for later."), 200, RAR_Rare, STAT_BeanFind, 5, 0, 0, TEXT("HProps.skJarBeansMesh"), 0.7f, 0,0,0, NULL, NULL },
 	{ RSLOT_Held, TEXT("Flitwick's Charm Book"), TEXT("Heavier than Professor Flitwick."), 260, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("HProps.skBooksBigFlitwickBookMesh"), 0.5f, 0,0,0, NULL, NULL },
 	{ RSLOT_Held, TEXT("Candle"), TEXT("For reading under the covers."), 50, RAR_Common, STAT_XpGain, 2, 0, 0, TEXT("HProps.skCandlesTableSingleCandleMesh"), 0.7f, 0,0,0, NULL, NULL },
+	// --- Appended (v7.0): from Harry Potter 1, when it is installed. -------
+	{ RSLOT_Pet, TEXT("Scabbers"), TEXT("Ron's rat. Sleeps a lot, bites sometimes."), 180, RAR_Common, STAT_BeanFind, 4, 0, 0, TEXT("HarryPotter.skratMesh"), 0.6f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Trevor"), TEXT("Neville's toad. Please don't lose him."), 160, RAR_Common, STAT_Jump, 4, 0, 0, TEXT("HarryPotter.skfrogMesh"), 0.6f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Rabbit"), TEXT("Hops after you, ears first."), 200, RAR_Common, STAT_Speed, 4, 0, 0, TEXT("HarryPotter.skrabbitMesh"), 0.6f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Canary"), TEXT("Sings when it's happy. Mostly."), 220, RAR_Rare, STAT_XpGain, 5, 0, 0, TEXT("HarryPotter.skcanaryMesh"), 0.6f, 8.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Horned Owl"), TEXT("A post owl that likes you a little too much."), 550, RAR_Epic, STAT_BeanFind, 9, 0, 0, TEXT("H1Models.skowlhornedMesh"), 0.3f, 6.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Doxy"), TEXT("Bites, but it's yours."), 300, RAR_Rare, STAT_SpellPower, 5, 0, 0, TEXT("H1Models.skdoxyMesh"), 0.6f, 8.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Bat"), TEXT("Hangs around after curfew."), 260, RAR_Rare, STAT_Speed, 5, 0, 0, TEXT("HarryPotter.skbatMesh"), 0.6f, 8.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Piglet"), TEXT("Hagrid swears it's an ordinary pig."), 240, RAR_Rare, STAT_DamageReduce, 5, 0, 0, TEXT("HarryPotter.skpigMesh"), 0.5f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Norbert"), TEXT("A Norwegian Ridgeback. Hagrid says he's harmless."), 1600, RAR_Legendary, STAT_SpellPower, 15, 0, 0, TEXT("H1Models.sknorbertMesh"), 0.5f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Friend, TEXT("Neville (Year One)"), TEXT("Still looking for Trevor."), 450, RAR_Rare, STAT_DamageReduce, 6, 0, 0, TEXT("HarryPotter.sknevilleMesh"), 1.f, 0,0,0, TEXT("HarryPotter.sknevilleAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Ron (Year One)"), TEXT("Before the flying car. Just as hungry."), 500, RAR_Epic, STAT_BeanFind, 8, 0, 0, TEXT("HarryPotter.skronMesh"), 1.f, 0,0,0, TEXT("HarryPotter.skronAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Hermione (Year One)"), TEXT("It's Levi-O-sa, not Levio-SA."), 600, RAR_Epic, STAT_XpGain, 8, 0, 0, TEXT("HarryPotter.skhermioneMesh"), 1.f, 0,0,0, TEXT("HarryPotter.skhermioneAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Nearly Headless Nick"), TEXT("Floats along, head mostly attached."), 900, RAR_Legendary, STAT_BeanFind, 12, 0, 0, TEXT("H1Models.skNHNickMesh"), 1.f, 0,0,0, TEXT("H1Models.skNHNickAnims"), NULL },
 };
 static const INT GNumCosmetics = (INT)ARRAY_COUNT(GCosmetics);
 enum { MAX_COSMETICS = 128 };
@@ -388,7 +402,7 @@ struct FCreatureDef
 
 static const FCreatureDef GCreatures[CR_MAX] =
 {
-	{ TEXT("Garden Gnome"), TEXT("GNOME"), TEXT("Pests of every wizarding garden. Swing them round and throw them over the hedge."), 15, TEXT("HPModels.skgnomeMesh") },
+	{ TEXT("Garden Gnome"), TEXT("GNOME|Tut1Gnome|tut1gnomegeneric"), TEXT("Pests of every wizarding garden. Swing them round and throw them over the hedge."), 15, TEXT("HPModels.skgnomeMesh") },
 	{ TEXT("Imp"), TEXT("Imp"), TEXT("Small, mischievous and fond of biting ankles."), 20, TEXT("HPModels.skimpMesh") },
 	{ TEXT("Cornish Pixie"), TEXT("CornishPixie"), TEXT("Electric blue and devilishly tricky. Lockhart's favourite disaster."), 20, TEXT("HPModels.skcornishpixieMesh") },
 	{ TEXT("Doxy"), TEXT("Doxie1"), TEXT("Biting fairy with venomous teeth. Keep a Doxycide handy."), 25, NULL },
@@ -398,8 +412,8 @@ static const FCreatureDef GCreatures[CR_MAX] =
 	{ TEXT("Bowtruckle"), TEXT("Bowtruckle"), TEXT("Tree guardian made of twigs. Bark is its treasure."), 15, TEXT("HPModels.skBowtruckleMesh") },
 	{ TEXT("Ectoplasm"), TEXT("Ectoplasma"), TEXT("What ghosts leave behind. Skurge cleans it right up."), 15, TEXT("HPModels.skEctoplasmaMesh") },
 	{ TEXT("Horklump"), TEXT("Horklumps"), TEXT("Fleshy pink mushroom. Gnomes love to eat them."), 10, TEXT("HPModels.skhorklumpsMesh") },
-	{ TEXT("Spiky Plant"), TEXT("SpikyPlant"), TEXT("Shoots spikes at passers-by. Diffindo keeps it trimmed."), 10, TEXT("HPModels.skSpikyPlantMesh") },
-	{ TEXT("Venomous Tentacula"), TEXT("Tentacula"), TEXT("A spiky dark red plant that grabs at anyone nearby."), 20, NULL },
+	{ TEXT("Spiky Plant"), TEXT("SpikyPlant|SpikyBush"), TEXT("Shoots spikes at passers-by. Diffindo keeps it trimmed."), 10, TEXT("HPModels.skSpikyPlantMesh") },
+	{ TEXT("Venomous Tentacula"), TEXT("Tentacula|VenomousTent1|VenomousTent2"), TEXT("A spiky dark red plant that grabs at anyone nearby."), 20, NULL },
 	{ TEXT("Bosses"), TEXT("baseBoss"), TEXT("Peeves, Aragog and the Basilisk. Legends of the castle."), 250, TEXT("HPModels.skpeevesMesh") },
 };
 

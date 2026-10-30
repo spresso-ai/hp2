@@ -21,6 +21,7 @@
 #include "HP2ScriptWatch.h"
 #include "HP2RpgUi.h"
 #include "HP2RpgData.h"
+#include "HP2RpgHP1Lines.h"
 
 namespace
 {
@@ -1935,6 +1936,11 @@ public:
 
 	FString NpcName( AActor* Actor )
 	{
+		if( IsH1Person(Actor) )
+		{
+			const FString H = H1PersonName( Actor );
+			return H.Len() ? H : FString(TEXT("Student"));
+		}
 		if( FStandIn* S = FindStandIn(Actor) )
 			return StandInDef(S->Def).Name;
 		if( MateIndex(Actor)>=0 )
@@ -1992,10 +1998,14 @@ public:
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
 			AActor* Actor = Engine->GLevel->Actors(i);
-			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden || !Actor->IsA(HChar) )
+			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden )
 				continue;
-			const INT Vendor = VendorFor( Actor );
-			if( Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) && !IsStoryNpc(Actor) )
+			// The people of a Harry Potter 1 level are not HP2 characters.
+			const UBOOL bH1 = IsH1Person( Actor );
+			if( !bH1 && !Actor->IsA(HChar) )
+				continue;
+			const INT Vendor = bH1 ? -1 : VendorFor( Actor );
+			if( !bH1 && Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) && !IsStoryNpc(Actor) )
 				continue;
 			const FLOAT Dist = (Actor->Location - Harry->Location).Size();
 			if( Dist < Nearest )
@@ -2303,6 +2313,7 @@ public:
 		Student->Velocity = Dir*(420.f*Boost) + FVector( 0.f, 0.f, 620.f*Boost );
 		State.Counters[CNT_Students]++;
 		StudentHitBySpell( Student, 12, -8, TEXT("Hexing a student") );
+		SpeakH1( Student, *NpcName(Student), H1_Student, 0, TEXT("Whoa|Watch it|Ow|Aah") );
 		RpgLog( TEXT("launched student %s"), Student->GetName() );
 	}
 
@@ -3169,6 +3180,15 @@ public:
 			{ TEXT("gnome"),         0, TEXT("runnormal"), TEXT("breath"),  0.55f },
 			{ TEXT("MrsNorris"),     0, TEXT("Walk"),      TEXT("Breathe"), 0.75f },
 			{ TEXT("SpiderSmall"),   0, TEXT("Walk"),      TEXT("Idle"),    1.2f  },
+			{ TEXT("skrat"),         0, TEXT("Walk"),      TEXT("sniff"),   1.0f  },
+			{ TEXT("skfrog"),        0, TEXT("Jump"),      TEXT("Breathe"), 0.9f  },
+			{ TEXT("skrabbit"),      0, TEXT("hop"),       TEXT("Idle"),    0.8f  },
+			{ TEXT("skpig"),         0, TEXT("breath"),    TEXT("breath"),  0.5f  },
+			{ TEXT("sknorbert"),     0, TEXT("Breathe"),   TEXT("lookaround1"), 0.45f },
+			{ TEXT("skowlhorned"),   1, TEXT("Fly"),       TEXT("soar"),    0.55f },
+			{ TEXT("skcanary"),      1, TEXT("Fly"),       TEXT("Fly"),     0.9f  },
+			{ TEXT("skbat"),         1, TEXT("Fly"),       TEXT("Fly"),     0.8f  },
+			{ TEXT("skdoxy"),        1, TEXT("Fly"),       TEXT("hover"),   0.9f  },
 			{ NULL,                  0, TEXT("Walk"),      TEXT("Idle"),    0.6f  },
 		};
 		INT i = 0;
@@ -3539,6 +3559,9 @@ public:
 		if( A==FriendActor )
 		{
 			const FCosmetic& Spec = GCosmetics[State.Equip[RSLOT_Friend]];
+			// Ron groans and laughs with his HP1 voice when a spell hits him.
+			if( bSpell && Spec.Mesh && appStrfind(Spec.Mesh,TEXT("skron")) && RpgClock>=MateVoiceFree && SpeakH1( A, Spec.Name, H1_EmoRon, 0 )>0.f )
+				return;
 			if( RpgClock>=MateVoiceFree && SpeakLine( A, CompanionLines(Spec.Mesh,bSpell), FriendLineIndex )>0.f )
 				return;
 			if( !bSpell )
@@ -3896,6 +3919,7 @@ public:
 		UpdateDecor( Engine, Harry, DeltaSeconds );
 		UpdateStandIns( Engine, Harry, DeltaSeconds );
 		UpdateSchoolmates( Engine, Harry, DeltaSeconds );
+		UpdateH1Chatter( Engine, Harry );
 		UpdatePhoto( Harry );
 		UpdateRoomCam( Harry );
 		UpdateBrewCam( Harry );
@@ -3903,6 +3927,7 @@ public:
 		UpdateNightGrounds( Engine, Harry, DeltaSeconds );
 		PlaceAfterRoom( Engine, Harry );
 		UpdateFanDoor( Engine, Harry );
+		UpdateH1Area( Engine, Harry );
 		UpdateSpawners( Engine, Harry, DeltaSeconds );
 		// The console prints "PRESS ESC TO EXIT" over a paused game; the
 		// mod's own screens pause it, so keep that message empty.
@@ -3982,7 +4007,7 @@ public:
 		RpgLog( TEXT("level %s, day %i"), MapName, State.Day );
 		bReturnFromRoom = IsRoomMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
 		ReturnAt = RpgClock + 0.6f;
-		bReturnFromFan = IsFanMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
+		bReturnFromFan = (IsFanMap(*PrevMap) || IsH1Map(*PrevMap)) && MapHas(MapName,TEXT("Entryhall"));
 		FanReturnAt = RpgClock + 0.6f;
 		PrevMap = MapName;
 	}
@@ -4057,6 +4082,8 @@ public:
 		FanTravelAt = 0.f;
 		ForgetStandIns();
 		ForgetSchoolmates();
+		ForgetH1();
+		ForgetH1Area();
 		LessonItems.Empty();
 		LessonItemShown.Empty();
 		LessonCounted.Empty();
@@ -4097,6 +4124,7 @@ public:
 	#include "HP2RpgTimetable.inl"
 	#include "HP2RpgBrew.inl"
 	#include "HP2RpgRoom.inl"
+	#include "HP2RpgHP1.inl"
 };
 
 static FHP2Rpg GRpg;

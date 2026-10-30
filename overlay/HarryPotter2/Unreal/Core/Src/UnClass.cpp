@@ -1503,7 +1503,15 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 	// free 0x46 slot; from EX_ObjectToBool (0x47) on both versions agree
 	// (HP1 Lev3_Intro baseProps.PreBeginPlay logs "Bound " $ Self with
 	// v76 0x56 = EX_ObjectToString).
-	if( Ar.Ver() <= 76 && Expr >= 0x38 && Expr <= 0x45 )
+	if( Ar.Ver() <= 76 && Expr == 0x46 )
+	{
+		// v76 0x46 is EX_StringToName, which HP2 moved to the end (0x5A):
+		// HP1 Lev4_Sneak's Filch turns strings into GotoLabel names.
+		Expr = EX_StringToName;
+		if( Ar.IsLoading() )
+			Script(iCode-1) = (BYTE)Expr;
+	}
+	else if( Ar.Ver() <= 76 && Expr >= 0x38 && Expr <= 0x45 )
 	{
 		// Pre-79 packages number the type-conversion opcodes one lower:
 		// v76 0x39 = EX_RotatorToVector, which collides with v79's

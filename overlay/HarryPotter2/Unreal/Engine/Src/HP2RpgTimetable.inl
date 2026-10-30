@@ -691,7 +691,8 @@
 
 	UBOOL AtFanStart( APlayerPawn* Harry )
 	{
-		return LastLevel && IsFanMap( *LastLevel->URL.Map ) && (Harry->Location-FanStartSpot()).SizeSquared() < 220.f*220.f;
+		return (LastLevel && IsFanMap( *LastLevel->URL.Map ) && (Harry->Location-FanStartSpot()).SizeSquared() < 220.f*220.f)
+			|| AtH1Start( Harry );
 	}
 
 	// Opens (or closes) the movers carrying Tag.
@@ -714,6 +715,7 @@
 			return 1;
 		if( AtGreatHallDoor(Harry) )
 		{
+			FixDoorDest( Harry );
 			ToggleDoors( Engine, Harry, TEXT("CloseGreatHall") );
 			PlaySfx( TEXT("HPSounds.Magic_sfx.Lumos_pass_through") );
 			FanTravelAt = RpgClock + 1.4f;
@@ -721,7 +723,9 @@
 		}
 		if( AtFanStart(Harry) )
 		{
+			FixDoorDest( Harry );
 			ToggleDoors( Engine, Harry, TEXT("Doors1") );
+			PlaySfx( TEXT("HPSounds.Magic_sfx.Lumos_pass_through") );
 			FanTravelAt = RpgClock + 0.6f;
 			return 1;
 		}
@@ -733,8 +737,8 @@
 		if( FanTravelAt>0.f && RpgClock>=FanTravelAt )
 		{
 			FanTravelAt = 0.f;
-			const UBOOL bInFan = LastLevel && IsFanMap( *LastLevel->URL.Map );
-			TravelTo( Engine, Harry, bInFan ? TEXT("Entryhall_hub.unr") : TEXT("AverageDayHogwarts.unr") );
+			FixDoorDest( Harry );
+			TravelTo( Engine, Harry, *(FString(DoorDestMap(DoorDest)) + TEXT(".unr")) );
 		}
 		// Back from the fan map: in front of the Great Hall doors, closed again.
 		if( bReturnFromFan && RpgClock>=FanReturnAt && LastLevel && MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) )
@@ -757,9 +761,10 @@
 		const UBOOL bHall = AtGreatHallDoor( Harry ), bFan = AtFanStart( Harry );
 		if( (!bHall && !bFan) || FanTravelAt>0.f )
 			return;
-		const TCHAR* Keys[1] = { TEXT("E") };
-		const TCHAR* Verbs[1] = { bHall ? TEXT("Open the doors") : TEXT("Back to the Entrance Hall") };
-		Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, 1, bHall ? TEXT("Average Day Through Hogwarts") : TEXT("Entrance Hall") );
+		FixDoorDest( Harry );
+		const TCHAR* Keys[2] = { TEXT("E"), TEXT("R") };
+		const TCHAR* Verbs[2] = { bHall ? TEXT("Open the doors") : TEXT("Go there"), TEXT("Somewhere else") };
+		Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, NumDoorDests()>2 ? 2 : 1, DoorDestName(DoorDest) );
 	}
 
 	/*-------------------------------------------------------------------------
