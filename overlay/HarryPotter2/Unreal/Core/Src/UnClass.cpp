@@ -1498,7 +1498,12 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 	// Get expr token.
 	XFER(BYTE);
 	Expr = (EExprToken)Script(iCode-1);
-	if( Ar.Ver() <= 76 && Expr >= 0x38 && Expr < 0x5B )
+	// Only 0x38-0x45 moved: HP2 put EX_DebugInfo at 0x38 and pushed
+	// EX_GlobalFunction and the conversions up to EX_FloatToBool into the
+	// free 0x46 slot; from EX_ObjectToBool (0x47) on both versions agree
+	// (HP1 Lev3_Intro baseProps.PreBeginPlay logs "Bound " $ Self with
+	// v76 0x56 = EX_ObjectToString).
+	if( Ar.Ver() <= 76 && Expr >= 0x38 && Expr <= 0x45 )
 	{
 		// Pre-79 packages number the type-conversion opcodes one lower:
 		// v76 0x39 = EX_RotatorToVector, which collides with v79's
