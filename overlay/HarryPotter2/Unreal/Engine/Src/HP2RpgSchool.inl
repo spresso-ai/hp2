@@ -137,6 +137,7 @@
 	}
 
 	UBOOL bClassDoorOpened;
+	UBOOL bClassTeacherSpawned;
 	FLOAT ClassroomCheck;
 	INT ClassAnnounced;      // slot kind last announced as starting (-1 none)
 
@@ -211,10 +212,30 @@
 			OpenClassDoor( Engine, Harry, R->DoorTag );
 		}
 		// The teacher waits at the front of the room (moved only out of view).
+		// Not in this hub at this point of the story: a stand-in teaches.
 		AActor* Tch = TodaysTeacher;
+		if( LessonKind<0 && (!Tch || !IsInLevel(Tch)) && !bClassTeacherSpawned && bStandInsSpawned && !bWasCutscene )
+		{
+			bClassTeacherSpawned = 1;
+			Tch = TodaysTeacher = SpawnClassTeacher( Engine, Lesson(k).Teacher, FloorAt( Engine, R->Front ) );
+			if( Tch )
+			{
+				Tch->Rotation = (R->Center - R->Front).Rotation();
+				Tch->Rotation.Pitch = 0;
+			}
+		}
 		if( LessonKind<0 && Tch && IsInLevel(Tch) )
 		{
-			const FVector Spot = FloorAt( Engine, R->Front ) + FVector( 0, 0, Tch->CollisionHeight+2.f );
+			// A walking stand-in keeps to the front of the room.
+			if( FStandIn* S = FindStandIn(Tch) )
+			{
+				if( !S->bStay )
+					S->Anchor = S->Target = FloorAt( Engine, R->Front );
+				S->bStay = 1;
+				if( (Tch->Location-FloorAt(Engine,R->Front)).SizeSquared() < 200.f*200.f )
+					return;
+			}
+			const FVector Spot = FloorAt( Engine, R->Front ) + FVector( 0, 0, FindStandIn(Tch) ? 0.f : Tch->CollisionHeight+2.f );
 			const UBOOL bAway = (Tch->Location-Spot).SizeSquared() > 160.f*160.f;
 			const UBOOL bSeen = (Tch->Location-Harry->Location).SizeSquared() < 900.f*900.f || (Spot-Harry->Location).SizeSquared() < 900.f*900.f;
 			if( bAway && !bSeen )
@@ -230,7 +251,7 @@
 
 	void ForgetClassroom()
 	{
-		bClassDoorOpened = 0;
+		bClassDoorOpened = bClassTeacherSpawned = 0;
 		ClassroomCheck = 0.f;
 	}
 

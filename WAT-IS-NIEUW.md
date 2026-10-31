@@ -1,5 +1,9 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v7.4 – Altijd een leraar in het lokaal
+- Is de echte leraar op dit punt in het verhaal niet in de hub (zoals Lockhart op de Grote Trap), dan staat er tijdens de les een vervanger vóór in het lokaal. Daar praat je mee om de les te beginnen.
+- Leraren die normaal rondlopen, blijven tijdens de les vóór in de klas staan.
+
 ## v7.3 – Lessen in de echte lokalen
 - Elke les is nu in **het eigen lokaal**:
   - **Bezweringen** (Banning) en **Gedaanteverwisselingen** (Anderling): de lokalen op de derde verdieping van de Grote Trap. Hun deuren gaan vanzelf open zolang de les bezig is.

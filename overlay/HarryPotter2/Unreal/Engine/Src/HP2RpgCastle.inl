@@ -68,7 +68,7 @@
 		return Lines[ Clamp(i, 0, (INT)NUM_STANDINS-1) ];
 	}
 
-	struct FStandIn { AActor* Actor; INT Def; FVector Target; FLOAT Wait; FVector Anchor; UBOOL bGreeted; INT LineIndex; FLOAT NextTalk; };
+	struct FStandIn { AActor* Actor; INT Def; FVector Target; FLOAT Wait; FVector Anchor; UBOOL bGreeted; INT LineIndex; FLOAT NextTalk; UBOOL bStay; };
 	TArray<FStandIn> StandIns;
 	UBOOL bStandInsSpawned;
 	FLOAT StandInDelay;
@@ -187,6 +187,7 @@
 			S->bGreeted = 0;
 			S->LineIndex = State.Day + d;
 			S->NextTalk = 0.f;
+			S->bStay = 0;
 		}
 		if( StandIns.Num() )
 			RpgLog( TEXT("castle: %i stand-ins in %s"), StandIns.Num(), Map );
@@ -205,6 +206,34 @@
 				Spots.AddItem( N->Location );
 		}
 		return Spots.Num() ? Spots( RpgRand(Spots.Num()) ) : S.Anchor;
+	}
+
+	// A teacher for a class whose real teacher isn't in this hub right now.
+	AActor* SpawnClassTeacher( UGameEngine* Engine, const TCHAR* TeacherClasses, FVector Spot )
+	{
+		for( INT d=0; d<NUM_STANDINS; d++ )
+		{
+			const FStandInDef& Def = StandInDef( d );
+			if( !ListHas( TeacherClasses, Def.Class ) )
+				continue;
+			AActor* A = SpawnPickup( Engine, Def.Mesh, Spot, 1.f );
+			if( !A )
+				return NULL;
+			A->AmbientGlow = 0;
+			LinkCharacterAnims( A, Def.Mesh );
+			FStandIn* S = new(StandIns) FStandIn;
+			S->Actor = A;
+			S->Def = d;
+			S->Anchor = S->Target = Spot;
+			S->Wait = 1.f;
+			S->bGreeted = 0;
+			S->LineIndex = State.Day + d;
+			S->NextTalk = 0.f;
+			S->bStay = 1;
+			RpgLog( TEXT("classroom: %s stands in to teach"), Def.Name );
+			return A;
+		}
+		return NULL;
 	}
 
 	void UpdateStandIns( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
@@ -254,8 +283,8 @@
 				S.NextTalk = RpgClock + Secs + 6.f;
 				S.Wait = Max( S.Wait, Secs );
 			}
-			// No walk cycle in its set: it stays where it is rather than slide.
-			if( Move==NAME_None )
+			// No walk cycle in its set, or teaching a class: it stays put.
+			if( Move==NAME_None || S.bStay )
 				S.Wait = Max( S.Wait, 1.f );
 			if( S.Wait>0.f || bNearHarry )
 			{
