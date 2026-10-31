@@ -232,7 +232,7 @@ def rewrite(data):
             head = props + write_ci(name('WAV'))
             start = len(data) + len(tail)
             body = bytes(head) + struct.pack('<if', 0, dur)
-            lazy = write_ci(cnt) + wav
+            lazy = write_ci(len(wav)) + wav               # the WAV's own size, not the MP2's
             seek = start + len(body) + 4 + len(lazy)
             blob = body + struct.pack('<i', seek) + lazy
             e[5], e[6] = len(blob), start

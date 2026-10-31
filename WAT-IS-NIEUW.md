@@ -1,5 +1,10 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v7.2 – Outfits en hoeden gerepareerd, geen gekras meer
+- **Outfits van andere personages** (Sneep, Anderling, Dumbledore, Hagrid, Vilder, de Baron, Banning, Stronk, Quirrell, Dirk, oom Herman, tante Petunia, het spook, …) waren reusachtig of onzichtbaar: ze kregen Harry's botlengtes mee. Nu nemen ze alleen Harry's bewegingen over en houden ze hun eigen lichaamsbouw.
+- **Hoeden opnieuw geplaatst:** de helm valt niet meer over je gezicht, de ketels, emmer, theepot en bloempot zijn groter en zitten op je hoofd, de tulband zit om je hoofd in plaats van erbovenop, en de zwevende kaars, Steen en sterren hangen dichter boven je.
+- **Krassende geluiden opgelost:** bij de stemmen uit deel 1 werd de verkeerde lengte opgeslagen, waardoor het spel aan het eind van een zin ruis afspeelde. Alle 1395 stemmen zijn opnieuw geïnstalleerd.
+
 ## v7.1 – Deel 1 ín je HP2, zonder portalen
 **Geen portalen meer.** De deuren van de Grote Zaal gaan niet meer open naar andere maps, de knop "Fan map: Average Day" in het boek is weg, en de fan-map en alle HP1-levels zijn uit het spel gehaald (ze staan veilig in de map *HP2-backup-maps* in je thuismap). Wat van deel 1 overblijft, zit ín je eigen HP2: stemmen, cosmetics, spullen, spreuken en zijmissies.
 - **Twee spreuken uit deel 1 op je spreukenwiel:**

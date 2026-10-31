@@ -2878,11 +2878,14 @@ public:
 				if( bIsHarry )
 					RpgLog( TEXT("costume on: %s"), Mesh->GetPathName() );
 			}
+			// Other characters keep their own build and only borrow Harry's moves.
+			SetSkelRetarget( Body, !IsQuidMesh(Mesh) );
 			if( bIsHarry )
 				CostumeApplied = Mesh;
 		}
 		else if( Body->Mesh!=HarryMesh )
 		{
+			SetSkelRetarget( Body, 0 );
 			if( bIsHarry && QuidPivot!=0.f )
 			{
 				Body->PrePivot.Z -= QuidPivot;
@@ -3970,6 +3973,7 @@ public:
 		PetLinked = NULL;
 		FriendActor = FriendLinked = NULL;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
+		SetSkelRetarget( NULL, 0 );
 		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
 		HeldWeapon = NULL;
 		HeldOriginalMesh = NULL;
@@ -4112,6 +4116,7 @@ public:
 		PetLinked = NULL;
 		FriendActor = FriendLinked = NULL;
 		HatActorKind = PetActorKind = AuraActorKind = -1;
+		SetSkelRetarget( NULL, 0 );
 		PreviewBody = PreviewAttach = PreviewItem = PreviewNpc = NULL;
 		HeldWeapon = NULL;
 		HeldOriginalMesh = NULL;
