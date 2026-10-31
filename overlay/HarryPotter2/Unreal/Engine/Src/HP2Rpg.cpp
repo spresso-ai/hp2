@@ -754,6 +754,7 @@ public:
 			bEnabled = Value;
 		BeanMultiplier = 1;
 		LessonKind = -1;
+		ClassAnnounced = -1;
 		INT ConfigMultiplier = 0;
 		if( GConfig->GetInt( TEXT("HP2Rpg"), TEXT("BeanMultiplier"), ConfigMultiplier ) )
 			BeanMultiplier = Clamp( ConfigMultiplier, 1, 5 );
@@ -4109,6 +4110,7 @@ public:
 		LessonCounted.Empty();
 		LessonLifted.Empty();
 		TodaysTeacher = NULL;
+		ForgetClassroom();
 		bKnockReady = bKnocked = 0;
 		LessonKind = -1;
 		bPhoto = 0;

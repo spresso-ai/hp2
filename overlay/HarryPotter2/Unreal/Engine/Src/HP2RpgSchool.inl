@@ -94,6 +94,146 @@
 		LessonCounted.Empty();
 	}
 
+	/*-------------------------------------------------------------------------
+		Classrooms: each class is taught in its own room in the hubs. While
+		a class is on, its door opens and the teacher waits at the front;
+		met anywhere else, the teacher sends Harry there.
+	-------------------------------------------------------------------------*/
+
+	struct FClassroom
+	{
+		INT Kind;
+		const TCHAR* Map;
+		const TCHAR* DoorTag;   // movers that open the room, or NULL
+		FVector Center;         // middle of the room, a little above the floor
+		FVector Front;          // where the teacher stands
+		const TCHAR* Where;     // said by the teacher elsewhere
+	};
+
+	static const FClassroom* Classroom( INT k )
+	{
+		static const FClassroom Rooms[] =
+		{
+			{ LES_Charms, TEXT("Grandstaircase"), TEXT("charms"), FVector(1100.f,-5960.f,1230.f), FVector(1260.f,-5870.f,1230.f),
+				TEXT("Class is in my classroom, Mr Potter - third floor of the Grand Staircase!") },
+			{ LES_Transfig, TEXT("Grandstaircase"), TEXT("Transfig"), FVector(960.f,-7450.f,1230.f), FVector(960.f,-7700.f,1230.f),
+				TEXT("My lessons are taught in my classroom, Potter. Third floor of the Grand Staircase. Don't be late.") },
+			{ LES_Defence, TEXT("Grandstaircase"), NULL, FVector(-1640.f,-7950.f,1540.f), FVector(-1690.f,-8400.f,1540.f),
+				TEXT("Harry! Class is in my classroom, up the Grand Staircase. Fans are waiting - well, students.") },
+			{ LES_Potions, TEXT("Entryhall"), NULL, FVector(-4545.f,-350.f,-470.f), FVector(-4950.f,-60.f,-470.f),
+				TEXT("Potions is taught in the dungeons, Potter. Down the stairs from the Entrance Hall. Now.") },
+			{ LES_Herbology, TEXT("Grounds"), NULL, FVector(-2350.f,40.f,40.f), FVector(-3150.f,0.f,60.f),
+				TEXT("We're in the greenhouses today, dear - out on the grounds!") },
+		};
+		for( INT i=0; i<ARRAY_COUNT(Rooms); i++ )
+			if( Rooms[i].Kind==k )
+				return &Rooms[i];
+		return NULL;
+	}
+
+	UBOOL ClassroomHere( const FClassroom* R )
+	{
+		return R && LastLevel && MapHas( *LastLevel->URL.Map, R->Map );
+	}
+
+	UBOOL bClassDoorOpened;
+	FLOAT ClassroomCheck;
+	INT ClassAnnounced;      // slot kind last announced as starting (-1 none)
+
+	// The floor under P (or P itself when nothing is found).
+	FVector FloorAt( UGameEngine* Engine, FVector P )
+	{
+		FCheckResult Hit;
+		if( !Engine->GLevel->SingleLineCheck( Hit, NULL, P-FVector(0,0,600.f), P+FVector(0,0,60.f), TRACE_VisBlocking, FVector(0,0,0) ) )
+			return Hit.Location;
+		return P;
+	}
+
+	// A free spot on the floor of the room, in sight of its middle.
+	UBOOL ClassroomSpot( UGameEngine* Engine, const FClassroom* R, DWORD Seed, FVector& Out )
+	{
+		for( INT t=0; t<16; t++ )
+		{
+			const DWORD H = HashMix( Seed, (DWORD)(t*977+13) );
+			const FLOAT Ang = (H % 3600) * (2.f*PI/3600.f);
+			const FLOAT Dist = 120.f + (FLOAT)((H/3600) % 330);
+			const FVector P = R->Center + FVector( Dist*appCos(Ang), Dist*appSin(Ang), 0.f );
+			if( !Engine->GLevel->Model->FastLineCheck( P, R->Center ) )
+				continue;
+			Out = FloorAt( Engine, P ) + FVector( 0, 0, 22.f );
+			return 1;
+		}
+		Out = FloorAt( Engine, R->Center ) + FVector( 0, 0, 22.f );
+		return 0;
+	}
+
+	void OpenClassDoor( UGameEngine* Engine, APlayerPawn* Harry, const TCHAR* Tag )
+	{
+		const FName T( Tag, FNAME_Find );
+		if( T==NAME_None )
+			return;
+		INT Opened = 0;
+		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
+		{
+			AMover* M = Cast<AMover>( Engine->GLevel->Actors(i) );
+			if( M && !M->bDeleteMe && M->Tag==T && M->KeyNum==0 && !M->bInterpolating )
+			{
+				M->eventTrigger( Harry, Harry );
+				Opened++;
+			}
+		}
+		RpgLog( TEXT("classroom door %s: %i opened"), Tag, Opened );
+	}
+
+	// While a class is on: its door open, its teacher at the front.
+	void UpdateClassroom( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
+	{
+		ClassroomCheck -= DeltaSeconds;
+		if( ClassroomCheck>0.f )
+			return;
+		ClassroomCheck = 1.f;
+		const INT k = OpenSlotKind();
+		const FClassroom* R = k>=0 ? Classroom(k) : NULL;
+		if( k<0 )
+			ClassAnnounced = -1;
+		if( k>=0 && k!=ClassAnnounced && LessonKind<0 )
+		{
+			ClassAnnounced = k;
+			if( R && !ClassroomHere(R) )
+				AddFeed( FString::Printf(TEXT("%s is starting"), Lesson(k).Subject), FColor(120,170,255,255), TOAST_Info, *FString::Printf(TEXT("Go to the classroom (%s)"),
+					!appStricmp(R->Map,TEXT("Grandstaircase")) ? TEXT("Grand Staircase, third floor") : !appStricmp(R->Map,TEXT("Entryhall")) ? TEXT("dungeons below the Entrance Hall") : TEXT("greenhouses on the grounds")) );
+		}
+		if( !ClassroomHere(R) )
+			return;
+		if( R->DoorTag && !bClassDoorOpened )
+		{
+			bClassDoorOpened = 1;
+			OpenClassDoor( Engine, Harry, R->DoorTag );
+		}
+		// The teacher waits at the front of the room (moved only out of view).
+		AActor* Tch = TodaysTeacher;
+		if( LessonKind<0 && Tch && IsInLevel(Tch) )
+		{
+			const FVector Spot = FloorAt( Engine, R->Front ) + FVector( 0, 0, Tch->CollisionHeight+2.f );
+			const UBOOL bAway = (Tch->Location-Spot).SizeSquared() > 160.f*160.f;
+			const UBOOL bSeen = (Tch->Location-Harry->Location).SizeSquared() < 900.f*900.f || (Spot-Harry->Location).SizeSquared() < 900.f*900.f;
+			if( bAway && !bSeen )
+			{
+				Engine->GLevel->FarMoveActor( Tch, Spot, 0, 1 );
+				Tch->Velocity = FVector( 0, 0, 0 );
+				Tch->Rotation = (R->Center - R->Front).Rotation();
+				Tch->Rotation.Pitch = 0;
+				RpgLog( TEXT("classroom: %s waits in the %s room"), Tch->GetName(), Lesson(k).Subject );
+			}
+		}
+	}
+
+	void ForgetClassroom()
+	{
+		bClassDoorOpened = 0;
+		ClassroomCheck = 0.f;
+	}
+
 	// Starts today's lesson with its teacher (from TalkTo).
 	UBOOL LessonTalk( UGameEngine* Engine, APlayerPawn* Harry, AActor* Npc )
 	{
@@ -101,6 +241,13 @@
 			return 0;
 		const INT k = OpenSlotKind( &ActiveSlot );
 		const FLessonDef& L = Lesson( k );
+		// Classes are taught in their own room: elsewhere the teacher points the way.
+		const FClassroom* Room = Classroom( k );
+		if( Room && (!ClassroomHere(Room) || (Npc->Location-Room->Center).SizeSquared() > 1300.f*1300.f) )
+		{
+			SayAs( L.TeacherName, Room->Where, LessonTeacherMesh(k) );
+			return 1;
+		}
 		// Potions is brewed at a cauldron of its own.
 		if( k==LES_Potions )
 			return StartBrew( Engine, Harry, Npc );
@@ -129,6 +276,12 @@
 		{
 			case LES_Charms:
 			{
+				if( Room )
+				{
+					// In the middle of the classroom.
+					LessonSpot = FloorAt( Engine, Room->Center );
+					break;
+				}
 				// A circle on the floor a little way from the teacher.
 				// Knocked from the corridor: the circle comes out to Harry.
 				const FVector From = bKnocked ? Harry->Location : Npc->Location;
@@ -159,7 +312,9 @@
 				for( INT i=0; i<L.Count; i++ )
 				{
 					FVector Where;
-					if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*53 + i*29 + 7), Where ) )
+					if( Room )
+						ClassroomSpot( Engine, Room, (DWORD)(State.Day*53 + i*29 + 7), Where );
+					else if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*53 + i*29 + 7), Where ) )
 						continue;
 					AActor* A = SpawnPickup( Engine, Pots[i%3], Where, 0.9f );
 					if( A )
@@ -193,7 +348,9 @@
 				for( INT i=0; i<L.Count; i++ )
 				{
 					FVector Where;
-					if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*71 + i*37 + 3), Where ) )
+					if( Room )
+						ClassroomSpot( Engine, Room, (DWORD)(State.Day*71 + i*37 + 3), Where );
+					else if( !PickSpotNear( Engine, Harry, 1800.f, (DWORD)(State.Day*71 + i*37 + 3), Where ) )
 						continue;
 					AActor* A = SpawnPickup( Engine, TEXT("HProps.skChallengeStarMesh"), Where, 0.5f );
 					if( A )
@@ -206,6 +363,23 @@
 				break;
 			case LES_Transfig:
 				LessonBase = State.Counters[CNT_Transfigs];
+				// Classmates come to the lesson: up to three students take a seat.
+				if( Room )
+				{
+					INT Seated = 0;
+					for( INT i=0; i<Engine->GLevel->Actors.Num() && Seated<3; i++ )
+					{
+						AActor* A = Engine->GLevel->Actors(i);
+						if( !A || A->bDeleteMe || A->bHidden || !IsStudent(A) || IsHolding(A) || (A->Location-Room->Center).SizeSquared() < 500.f*500.f )
+							continue;
+						FVector Where;
+						ClassroomSpot( Engine, Room, (DWORD)(State.Day*89 + Seated*31 + 5), Where );
+						Engine->GLevel->FarMoveActor( A, Where + FVector(0,0,A->CollisionHeight-20.f), 0, 1 );
+						A->Velocity = FVector( 0, 0, 0 );
+						Seated++;
+					}
+					RpgLog( TEXT("transfiguration: %i classmates in the room"), Seated );
+				}
 				break;
 		}
 		Say( L.TeacherName, L.Brief );
@@ -276,6 +450,7 @@
 
 	void UpdateLesson( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
 	{
+		UpdateClassroom( Engine, Harry, DeltaSeconds );
 		bKnockReady = TeacherBehindDoor( Engine, Harry );
 		if( LessonKind<0 || LessonKind==LES_Potions )
 			return; // Potions runs in the brewing screen

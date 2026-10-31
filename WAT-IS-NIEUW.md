@@ -1,5 +1,15 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v7.3 – Lessen in de echte lokalen
+- Elke les is nu in **het eigen lokaal**:
+  - **Bezweringen** (Banning) en **Gedaanteverwisselingen** (Anderling): de lokalen op de derde verdieping van de Grote Trap. Hun deuren gaan vanzelf open zolang de les bezig is.
+  - **Verweer tegen de Zwarte Kunsten** (Lockhart): zijn lokaal, ook in de hub van de Grote Trap.
+  - **Toverdranken** (Sneep): het kerkerlokaal met de tafels en ketels onder de Hal.
+  - **Kruidenkunde** (Stronk): de kassen op het terrein.
+- De leraar wacht vóór in de klas (en verschijnt daar alleen als je even niet kijkt). Kom je hem of haar ergens anders tegen, dan vertelt die je waar de les is.
+- Begint een les terwijl je ergens anders bent, dan krijg je een melding met de plek van het lokaal.
+- De bloempotten (Kruidenkunde), de verborgen tekens (Verweer) en de cirkel (Bezweringen) liggen nu in het lokaal zelf, en bij Gedaanteverwisselingen schuiven een paar klasgenoten aan.
+
 ## v7.2 – Outfits en hoeden gerepareerd, geen gekras meer
 - **Outfits van andere personages** (Sneep, Anderling, Dumbledore, Hagrid, Vilder, de Baron, Banning, Stronk, Quirrell, Dirk, oom Herman, tante Petunia, het spook, …) waren reusachtig of onzichtbaar: ze kregen Harry's botlengtes mee. Nu nemen ze alleen Harry's bewegingen over en houden ze hun eigen lichaamsbouw.
 - **Hoeden opnieuw geplaatst:** de helm valt niet meer over je gezicht, de ketels, emmer, theepot en bloempot zijn groter en zitten op je hoofd, de tulband zit om je hoofd in plaats van erbovenop, en de zwevende kaars, Steen en sterren hangen dichter boven je.
