@@ -128,7 +128,7 @@
 			return -1;
 		for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 		{
-			if( State.QuestState[q]!=QS_None || State.Level<GQuests[q].MinLevel || !IsGiverOf(Npc,q) )
+			if( State.QuestState[q]!=QS_None || State.Level<GQuests[q].MinLevel || !IsGiverOf(Npc,q) || !QuestAvailable(q) )
 				continue;
 			// One open quest per giver at a time.
 			UBOOL bBusy = 0;
@@ -645,7 +645,7 @@
 				for( INT q=0; q<GNumQuests && q<MAX_QUESTS; q++ )
 				{
 					const INT St = State.QuestState[q];
-					if( (Pass==0 && (St==QS_Active || St==QS_Ready)) || (Pass==1 && St==QS_None && State.Level>=GQuests[q].MinLevel) || (Pass==2 && St==QS_Done) )
+					if( (Pass==0 && (St==QS_Active || St==QS_Ready)) || (Pass==1 && St==QS_None && State.Level>=GQuests[q].MinLevel && QuestAvailable(q)) || (Pass==2 && St==QS_Done) )
 						Order[N++] = q;
 				}
 			if( !N )

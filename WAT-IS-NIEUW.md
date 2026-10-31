@@ -1,7 +1,12 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
-## v7.1 – De garderobe van 1991
-Meer dan dertig nieuwe cosmetics, veel uit Harry Potter 1 (die heb je alleen als HP1 geïnstalleerd is).
+## v7.1 – Deel 1 ín je HP2, zonder portalen
+**Geen portalen meer.** De deuren van de Grote Zaal gaan niet meer open naar andere maps, de knop "Fan map: Average Day" in het boek is weg, en de fan-map en alle HP1-levels zijn uit het spel gehaald (ze staan veilig in de map *HP2-backup-maps* in je thuismap). Wat van deel 1 overblijft, zit ín je eigen HP2: stemmen, cosmetics, spullen, spreuken en zijmissies.
+- **Twee spreuken uit deel 1 op je spreukenwiel:**
+  - **Incendio** (vanaf level 5): steekt een wezen of een gemene plant in brand. Het brandt nog 3 seconden en krijgt dan een tweede klap. Met het echte vuur-effect uit HP1.
+  - **Petrificus Totalus** (vanaf level 7): een wezen of leerling wordt 6 seconden zo stijf en grijs als steen, net als Mevrouw Norks.
+  Scroll ernaartoe met het muiswiel, houd rechts ingedrukt om te mikken en klik links.
+- **Zeven nieuwe zijmissies met een deel-1-sfeer:** Hagrids theekopjes, de Beroemde Tovenaarskaarten van Fred & George, de puntige hoeden van de eerstejaars (Jammerende Jenny), de weggevlogen spreukenboeken van Banning, Stronks Duivelsstrik-oefening (Incendio), Percy's Petrificus-training en kabouters wegschieten voor de tweeling.
 - **Outfits:** Harry uit het eerste jaar, de gewaden van Sneep, Anderling, Dumbledore en Stronk, Banning, Quirrell met tulband, Hagrids jas, Vilders jas, de Bloederige Baron, een Zweinstein-spook, een Zwadderich-klassenoudste, Percy, Korzel, en voor de grap Dirk, oom Herman en tante Petunia. Nieuwe kleuren voor je eigen gewaad: *Lockhart-lila, Middernacht, Gouden Kampioen, Spookachtig* en *Wemel-kastanjebruin*.
 - **Hoeden:** puntige tovenaarshoed, Quirrells tulband, een zwevende kaars uit de Grote Zaal, een zwevende Steen der Wijzen en een kerstster.
 - **Brillen:** Huffelpuf-geel, zilver, lila en schildpad.

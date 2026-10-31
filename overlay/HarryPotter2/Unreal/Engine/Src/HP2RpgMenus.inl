@@ -23,7 +23,6 @@
 	{
 		Menu = NewMenu;
 		bConfirmLeave = 0;
-		bConfirmFanMap = 0;
 		Sel = 0;
 		Scroll = 0;
 		ConfirmIndex = -1;
@@ -664,7 +663,6 @@
 			{
 				DrawClockHud( Harry );
 				DrawSleepPrompt( Harry );
-				DrawFanDoorPrompt( Harry );
 				DrawQuestHud( Harry );
 				DrawLessonHud( Harry );
 			}
@@ -802,7 +800,7 @@
 		}
 
 		// Interaction prompt: one slot above the hotbar.
-		if( bGameplay && NearNpc && IsInLevel(NearNpc) && !IsTalking() && !bAiming && !AtGreatHallDoor(Harry) && !AtFanStart(Harry) )
+		if( bGameplay && NearNpc && IsInLevel(NearNpc) && !IsTalking() && !bAiming )
 		{
 			const TCHAR* Keys[2] = { TEXT("E"), TEXT("B") };
 			const TCHAR* Verbs[2] = { TEXT("Talk"), TEXT("Trade") };
@@ -1338,24 +1336,6 @@
 				CloseMenu(Engine);
 				ManualSave(Engine,Harry);
 				return;
-			}
-			// The converted fan map, from any hub (click twice).
-			if( LastLevel && MapHas(*LastLevel->URL.Map,TEXT("_hub")) )
-			{
-				const TCHAR* Go = bConfirmFanMap ? TEXT("Click again to go") : TEXT("Fan map: Average Day");
-				const FLOAT GoW = Ui.TextWidth(Ui.FontBody,Go)+Ui.P(40.f);
-				BX -= Ui.P(12.f)+GoW;
-				if( Ui.Button(FRpgRect(BX,BottomY,GoW,ButtonH),Go,1,&bConfirmFanMap) )
-				{
-					if( bConfirmFanMap )
-					{
-						bConfirmFanMap = 0;
-						CloseMenu(Engine);
-						TravelTo(Engine,Harry,TEXT("AverageDayHogwarts.unr"));
-						return;
-					}
-					bConfirmFanMap = 1;
-				}
 			}
 			if( HubExit(Engine) )
 			{
@@ -2037,7 +2017,7 @@
 				return;
 			}
 			// Some people also speak with their Harry Potter 1 voice.
-			if( TalkH1Person( Npc ) || TalkH1( Npc ) )
+			if( TalkH1( Npc ) )
 				;
 			else if( FStandIn* S = FindStandIn(Npc) )
 			{
@@ -2103,13 +2083,6 @@
 				return 1;
 			if( (Key==IK_E || Key==IK_Z) && Action==IST_Press && IsFreeGameplay(Engine,Harry) && SleepInput( Engine, Harry, Key ) )
 				return 1;
-			if( Key==IK_E && Action==IST_Press && IsFreeGameplay(Engine,Harry) && FanDoorInput( Engine, Harry ) )
-				return 1;
-			if( Key==IK_R && Action==IST_Press && IsFreeGameplay(Engine,Harry) && FanTravelAt<=0.f && (AtGreatHallDoor(Harry) || AtFanStart(Harry)) )
-			{
-				NextDoorDest( Harry );
-				return 1;
-			}
 			if( Key==IK_F5 && Action==IST_Press )
 			{
 				ManualSave( Engine, Harry );

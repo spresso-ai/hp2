@@ -3,14 +3,14 @@
 	hold the right mouse button to aim and click the left button to cast.
 	Included inside the FHP2Rpg class body in HP2Rpg.cpp.
 
-	Accio, Revelio, Protego, Wingardium Leviosa, Glacius and Arresto Momentum
-	are built from existing game pieces: HP1-era particle effects still in
+	Accio, Revelio, Protego, Wingardium Leviosa, Glacius, Arresto Momentum,
+	and from Harry Potter 1 Incendio and Petrificus Totalus, are built from existing game pieces: HP1-era particle effects still in
 	HPParticle.u, the game's own pickup/spell handlers, and per-actor tick
 	control (an actor whose bTicked equals the level's Ticked flag skips its
 	next tick).
 =============================================================================*/
 
-	enum ESpell2 { SP2_Accio, SP2_Revelio, SP2_Protego, SP2_Leviosa, SP2_Glacius, SP2_Arresto, SP2_Transfig, SP2_MAX };
+	enum ESpell2 { SP2_Accio, SP2_Revelio, SP2_Protego, SP2_Leviosa, SP2_Glacius, SP2_Arresto, SP2_Transfig, SP2_Incendio, SP2_Petrificus, SP2_MAX };
 
 	struct FSpell2Def
 	{
@@ -33,6 +33,8 @@
 			{ TEXT("Glacius"), TEXT("Freeze a creature solid for 5 seconds."), 8, 12.f, TEXT("SpellShapes.Shapes.SPSmimble"), FColor(170,230,255,255) },
 			{ TEXT("Arresto Momentum"), TEXT("Slow down every enemy and their attacks for 6 seconds."), 10, 40.f, TEXT("SpellShapes.Shapes.SPSskurge"), FColor(200,170,255,255) },
 			{ TEXT("Transfiguration"), TEXT("Turn a student into an animal for 20 seconds. Teach troublemakers a lesson!"), 9, 15.f, TEXT("SpellShapes.Shapes.SPSdiffindo"), FColor(255,170,220,255) },
+			{ TEXT("Incendio"), TEXT("Set a creature or a nasty plant on fire: it burns for a few seconds and takes extra damage."), 5, 9.f, TEXT("SpellShapes.Shapes.SPSsword"), FColor(255,150,60,255) },
+			{ TEXT("Petrificus Totalus"), TEXT("Full Body-Bind: a creature or student goes stiff as stone for 6 seconds."), 7, 14.f, TEXT("SpellShapes.Shapes.SPSrictusempra"), FColor(200,200,190,255) },
 		};
 		return Defs[i];
 	}
@@ -41,12 +43,14 @@
 	struct FRevealEntry { AActor* Actor; FVector Location; INT Kind; };
 	struct FLiftEntry   { AActor* Actor; BYTE OldRole; BYTE OldPhysics; FVector Base; FLOAT Age; UBOOL bDropped; UBOOL bProp; UBOOL bControlled; UBOOL bThrown; FLOAT HoldDist; FLOAT LastSpeed; AActor* Struck[4]; INT NumStruck; };
 	struct FFreezeEntry { AActor* Actor; FLOAT Left; UBOOL OldEnviro; UTexture* OldTexture; BYTE OldFatness; FLOAT OldScaleGlow; };
+	struct FBurnEntry   { AActor* Actor; FLOAT Left; FLOAT NextFx; };
 
 	FLOAT SpellCooldown[SP2_MAX];
 	TArray<FPullEntry> Pulls;
 	TArray<FRevealEntry> Reveals;
 	TArray<FLiftEntry> Lifts;
 	TArray<FFreezeEntry> Freezes;
+	TArray<FBurnEntry> Burns;
 	FLOAT RevealLeft;
 	FLOAT ShieldLeft;
 	FLOAT ArrestoLeft;
@@ -185,7 +189,7 @@
 	// Which spells need something to aim at.
 	static UBOOL SpellNeedsTarget( INT i )
 	{
-		return i==SP2_Leviosa || i==SP2_Glacius || i==SP2_Transfig;
+		return i==SP2_Leviosa || i==SP2_Glacius || i==SP2_Transfig || i==SP2_Incendio || i==SP2_Petrificus;
 	}
 
 	void CastSpell2( UGameEngine* Engine, APlayerPawn* Harry, INT i, AActor* Target )
@@ -223,6 +227,8 @@
 			case SP2_Glacius:  bCast = CastGlacius( Engine, Harry, Target ); break;
 			case SP2_Arresto:  bCast = CastArresto( Engine, Harry ); break;
 			case SP2_Transfig: bCast = CastTransfig( Engine, Harry, Target ); break;
+			case SP2_Incendio: bCast = CastIncendio( Engine, Harry, Target ); break;
+			case SP2_Petrificus: bCast = CastPetrificus( Engine, Harry, Target ); break;
 		}
 		if( !bCast )
 		{
@@ -236,6 +242,8 @@
 		State.Counters[CNT_WheelCasts]++;
 		if( i==SP2_Leviosa ) State.Counters[CNT_Levitations]++;
 		if( i==SP2_Transfig ) State.Counters[CNT_Transfigs]++;
+		if( i==SP2_Incendio ) State.Counters[CNT_Incendio]++;
+		if( i==SP2_Petrificus ) State.Counters[CNT_Petrified]++;
 		PlayCastAnim( Harry );
 		RpgLog( TEXT("cast %s"), D.Name );
 	}
@@ -631,6 +639,89 @@
 		return 0;
 	}
 
+	// Incendio (HP1): the hit counts as the spell the creature is weak to,
+	// then it burns for 3 seconds and takes a second hit.
+	UBOOL CastIncendio( UGameEngine* Engine, APlayerPawn* Harry, AActor* T )
+	{
+		if( !T || CreatureType(T)<0 || CreatureType(T)==CR_Boss )
+			return 0;
+		const INT Vuln = GetByteProp( T, TEXT("eVulnerableToSpell"), 0 );
+		QueueRedispatch( T, Vuln ? Vuln : 13 );
+		SpawnFx( Engine, TEXT("Incend_hit"), T->Location, 1.4f );
+		PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
+		for( INT b=0; b<Burns.Num(); b++ )
+			if( Burns(b).Actor==T )
+			{
+				Burns(b).Left = 3.f;
+				return 1;
+			}
+		FBurnEntry* E = new(Burns) FBurnEntry;
+		E->Actor = T;
+		E->Left = 3.f;
+		E->NextFx = 0.5f;
+		return 1;
+	}
+
+	void UpdateBurns( UGameEngine* Engine, FLOAT DeltaSeconds )
+	{
+		for( INT b=Burns.Num()-1; b>=0; b-- )
+		{
+			FBurnEntry& E = Burns(b);
+			if( !IsInLevel(E.Actor) )
+			{
+				Burns.Remove( b );
+				continue;
+			}
+			E.Left -= DeltaSeconds;
+			E.NextFx -= DeltaSeconds;
+			if( E.NextFx<=0.f )
+			{
+				SpawnFx( Engine, TEXT("Incend_react"), E.Actor->Location, 1.f );
+				E.NextFx = 0.6f;
+			}
+			if( E.Left<=0.f )
+			{
+				const INT Vuln = GetByteProp( E.Actor, TEXT("eVulnerableToSpell"), 0 );
+				QueueRedispatch( E.Actor, Vuln ? Vuln : 13 );
+				Burns.Remove( b );
+			}
+		}
+	}
+
+	// Petrificus Totalus (HP1): stiff and grey as stone, like Mrs Norris.
+	UBOOL CastPetrificus( UGameEngine* Engine, APlayerPawn* Harry, AActor* T )
+	{
+		if( !T )
+			return 0;
+		const FLOAT Seconds = 6.f;
+		for( INT f=0; f<Freezes.Num(); f++ )
+			if( Freezes(f).Actor==T )
+			{
+				Freezes(f).Left = Seconds;
+				return 1;
+			}
+		static UTexture* Stone = NULL;
+		if( !Stone )
+			Stone = LoadTex( TEXT("HPModels.Skins.skNorrisPetrifiedTex0") );
+		FFreezeEntry* E = new(Freezes) FFreezeEntry;
+		E->Actor = T;
+		E->Left = Seconds;
+		E->OldEnviro = T->bMeshEnviroMap;
+		E->OldTexture = T->Texture;
+		E->OldFatness = T->Fatness;
+		E->OldScaleGlow = T->ScaleGlow;
+		if( Stone )
+		{
+			T->bMeshEnviroMap = 1;
+			T->Texture = Stone;
+		}
+		T->ScaleGlow = 0.8f;
+		T->Velocity = FVector( 0, 0, 0 );
+		SpawnFx( Engine, TEXT("Petri_hit"), T->Location, 1.3f );
+		PlaySfx( TEXT("HPSounds.Magic_sfx.spell_hit") );
+		return 1;
+	}
+
 	UBOOL CastArresto( UGameEngine* Engine, APlayerPawn* Harry )
 	{
 		ArrestoLeft = HasPerk(PERK_TimeSlip) ? 10.f : 6.f;
@@ -720,6 +811,7 @@
 		UpdateAim( Engine, Harry, DeltaSeconds );
 		UpdateLeviosa( Engine, DeltaSeconds );
 		UpdateTransfigs( Engine, DeltaSeconds );
+		UpdateBurns( Engine, DeltaSeconds );
 		for( INT f=Freezes.Num()-1; f>=0; f-- )
 		{
 			FFreezeEntry& E = Freezes(f);
@@ -756,6 +848,7 @@
 			if( IsInLevel(Freezes(f).Actor) )
 				Thaw( Engine, Freezes(f), 0 );
 		Freezes.Empty();
+		Burns.Empty();
 		for( INT l=0; l<Lifts.Num(); l++ )
 			if( IsInLevel(Lifts(l).Actor) )
 			{
@@ -783,6 +876,7 @@
 	void ForgetSpells()
 	{
 		Freezes.Empty();
+		Burns.Empty();
 		Lifts.Empty();
 		Transfigs.Empty();
 		bAiming = 0;
@@ -996,6 +1090,8 @@
 			case SP2_Leviosa:  return bCreature || (bStudent && !IsTransfigured(A)) || IsLevitatable(A) || (IsCompanion(A) && !IsTransfigured(A));
 			case SP2_Glacius:  return bCreature;
 			case SP2_Transfig: return (bStudent || A==FriendActor) && !IsTransfigured(A);
+			case SP2_Incendio: return bCreature;
+			case SP2_Petrificus: return bCreature || (bStudent && !IsTransfigured(A));
 			default:           return 0;
 		}
 	}

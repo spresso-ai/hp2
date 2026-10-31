@@ -1940,11 +1940,6 @@ public:
 
 	FString NpcName( AActor* Actor )
 	{
-		if( IsH1Person(Actor) )
-		{
-			const FString H = H1PersonName( Actor );
-			return H.Len() ? H : FString(TEXT("Student"));
-		}
 		if( FStandIn* S = FindStandIn(Actor) )
 			return StandInDef(S->Def).Name;
 		if( MateIndex(Actor)>=0 )
@@ -2004,12 +1999,10 @@ public:
 			AActor* Actor = Engine->GLevel->Actors(i);
 			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden )
 				continue;
-			// The people of a Harry Potter 1 level are not HP2 characters.
-			const UBOOL bH1 = IsH1Person( Actor );
-			if( !bH1 && !Actor->IsA(HChar) )
+			if( !Actor->IsA(HChar) )
 				continue;
-			const INT Vendor = bH1 ? -1 : VendorFor( Actor );
-			if( !bH1 && Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) && !IsStoryNpc(Actor) )
+			const INT Vendor = VendorFor( Actor );
+			if( Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) && !IsStoryNpc(Actor) )
 				continue;
 			const FLOAT Dist = (Actor->Location - Harry->Location).Size();
 			if( Dist < Nearest )
@@ -3955,8 +3948,6 @@ public:
 		UpdateDayNight( Harry, DeltaSeconds );
 		UpdateNightGrounds( Engine, Harry, DeltaSeconds );
 		PlaceAfterRoom( Engine, Harry );
-		UpdateFanDoor( Engine, Harry );
-		UpdateH1Area( Engine, Harry );
 		UpdateSpawners( Engine, Harry, DeltaSeconds );
 		// The console prints "PRESS ESC TO EXIT" over a paused game; the
 		// mod's own screens pause it, so keep that message empty.
@@ -4036,8 +4027,6 @@ public:
 		RpgLog( TEXT("level %s, day %i"), MapName, State.Day );
 		bReturnFromRoom = IsRoomMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
 		ReturnAt = RpgClock + 0.6f;
-		bReturnFromFan = (IsFanMap(*PrevMap) || IsH1Map(*PrevMap)) && MapHas(MapName,TEXT("Entryhall"));
-		FanReturnAt = RpgClock + 0.6f;
 		PrevMap = MapName;
 	}
 
@@ -4108,11 +4097,9 @@ public:
 		ForgetDecor();
 		ForgetBrew();
 		ForgetSpawners();
-		FanTravelAt = 0.f;
 		ForgetStandIns();
 		ForgetSchoolmates();
 		ForgetH1();
-		ForgetH1Area();
 		LessonItems.Empty();
 		LessonItemShown.Empty();
 		LessonCounted.Empty();

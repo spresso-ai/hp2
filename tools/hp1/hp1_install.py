@@ -265,7 +265,8 @@ def plan(G, H):
     global RETAIL
     RETAIL = json.load(open(os.path.join(H, 'overlay-manifest.json')))['entries']
     jobs = []
-    for d in ('System', 'Textures', 'Sounds', 'Music', 'Maps'):
+    # HP1's levels are not installed: the mod only uses HP1's assets and voices.
+    for d in ('System', 'Textures', 'Sounds', 'Music') + (('Maps',) if '--maps' in sys.argv else ()):
         # Only the game's own files count as a clash; ours are rewritten.
         have = {os.path.basename(e['path']).lower(): os.path.basename(e['path']) for e in RETAIL if e['path'].startswith(d + '/')}
         for f in sorted(os.listdir(os.path.join(G, d))):

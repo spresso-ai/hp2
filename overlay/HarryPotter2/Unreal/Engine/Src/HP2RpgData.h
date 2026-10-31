@@ -206,21 +206,21 @@ static const FCosmetic GCosmetics[] =
 	{ RSLOT_Outfit, TEXT("Golden Champion Robes"), TEXT("For the winner of the House Cup."), 600, RAR_Epic, STAT_XpGain, 10, OK_Palette, PV_Golden, NULL, 1.f, 0,0,0, NULL, NULL },
 	{ RSLOT_Outfit, TEXT("Ghostly Robes"), TEXT("Nearly headless, fully fashionable."), 500, RAR_Epic, STAT_Speed, 8, OK_Palette, PV_Ghost, NULL, 1.f, 0,0,0, NULL, NULL },
 	{ RSLOT_Outfit, TEXT("Weasley Maroon"), TEXT("Mrs Weasley knitted the colour herself."), 250, RAR_Common, STAT_DamageReduce, 5, OK_Palette, PV_Weasley, NULL, 1.f, 0,0,0, NULL, NULL },
-	{ RSLOT_Hat, TEXT("Wizard's Hat"), TEXT("Pointy, black and properly magical."), 250, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("H1Props.WizardHatMesh"), 0.6f, 12f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Hat, TEXT("Quirrell's Turban"), TEXT("Don't ask what's underneath."), 700, RAR_Legendary, STAT_SpellPower, 12, 0, 0, TEXT("H1Props.turbanMesh"), 0.95f, -3f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Hat, TEXT("Floating Candle"), TEXT("Straight from the Great Hall ceiling."), 300, RAR_Rare, STAT_XpGain, 6, 0, 0, TEXT("H1Props.PlainCandleMesh"), 0.4f, 24f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Hat, TEXT("Floating Philosopher's Stone"), TEXT("It hovers over you. Nicolas Flamel wants it back."), 1200, RAR_Legendary, STAT_XpGain, 15, 0, 0, TEXT("H1Props.SorcerersStoneMesh"), 1.4f, 22f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Hat, TEXT("Christmas Star"), TEXT("A star from the Great Hall tree."), 200, RAR_Rare, STAT_BeanFind, 5, 0, 0, TEXT("H1Props.ChristmasOrnamentStarMesh"), 1.2f, 20f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Glasses, TEXT("Hufflepuff Yellow Frames"), TEXT("Sunny and loyal."), 100, RAR_Common, STAT_DamageReduce, 4, 0, 6, NULL, 1.0f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Glasses, TEXT("Silver Frames"), TEXT("Polished like a Prefect badge."), 200, RAR_Rare, STAT_SpellPower, 5, 0, 7, NULL, 1.0f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Glasses, TEXT("Lilac Frames"), TEXT("Gilderoy signed them himself."), 200, RAR_Rare, STAT_Discount, 5, 0, 8, NULL, 1.0f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Glasses, TEXT("Tortoiseshell Frames"), TEXT("Very bookish, very Ravenclaw."), 150, RAR_Common, STAT_XpGain, 4, 0, 9, NULL, 1.0f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Held, TEXT("Remembrall"), TEXT("It glows red. You forgot something."), 250, RAR_Rare, STAT_XpGain, 5, 0, 0, TEXT("H1Props.RememberAllMesh"), 1.6f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Held, TEXT("Philosopher's Stone"), TEXT("Carry the Elixir of Life in your hand."), 1000, RAR_Legendary, STAT_DamageReduce, 14, 0, 0, TEXT("H1Props.SorcerersStoneMesh"), 1.5f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Held, TEXT("Wizard Card"), TEXT("Dumbledore again. Of course."), 120, RAR_Common, STAT_BeanFind, 3, 0, 0, TEXT("H1Props.WizzardCardIconMesh"), 0.8f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Held, TEXT("Hagrid's Flute"), TEXT("Plays a lullaby for three-headed dogs."), 400, RAR_Epic, STAT_Speed, 7, 0, 0, TEXT("H1Props.FluteMesh"), 1.0f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Held, TEXT("Hagrid's Tea Cup"), TEXT("Tea and rock cakes, anyone?"), 90, RAR_Common, STAT_DamageReduce, 2, 0, 0, TEXT("H1Props.HagridTeaCupMesh"), 0.6f, 0f, 0f, 0f, NULL, NULL },
-	{ RSLOT_Held, TEXT("Floating Spellbook"), TEXT("A book that reads itself to you."), 350, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("H1Props.FloatingSpellBookMesh"), 0.45f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Wizard's Hat"), TEXT("Pointy, black and properly magical."), 250, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("H1Props.WizardHatMesh"), 0.6f, 12.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Quirrell's Turban"), TEXT("Don't ask what's underneath."), 700, RAR_Legendary, STAT_SpellPower, 12, 0, 0, TEXT("H1Props.turbanMesh"), 0.95f, -3.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Floating Candle"), TEXT("Straight from the Great Hall ceiling."), 300, RAR_Rare, STAT_XpGain, 6, 0, 0, TEXT("H1Props.PlainCandleMesh"), 0.4f, 24.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Floating Philosopher's Stone"), TEXT("It hovers over you. Nicolas Flamel wants it back."), 1200, RAR_Legendary, STAT_XpGain, 15, 0, 0, TEXT("H1Props.SorcerersStoneMesh"), 1.4f, 22.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Christmas Star"), TEXT("A star from the Great Hall tree."), 200, RAR_Rare, STAT_BeanFind, 5, 0, 0, TEXT("H1Props.ChristmasOrnamentStarMesh"), 1.2f, 20.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Glasses, TEXT("Hufflepuff Yellow Frames"), TEXT("Sunny and loyal."), 100, RAR_Common, STAT_DamageReduce, 4, 0, 6, NULL, 1.0f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Glasses, TEXT("Silver Frames"), TEXT("Polished like a Prefect badge."), 200, RAR_Rare, STAT_SpellPower, 5, 0, 7, NULL, 1.0f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Glasses, TEXT("Lilac Frames"), TEXT("Gilderoy signed them himself."), 200, RAR_Rare, STAT_Discount, 5, 0, 8, NULL, 1.0f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Glasses, TEXT("Tortoiseshell Frames"), TEXT("Very bookish, very Ravenclaw."), 150, RAR_Common, STAT_XpGain, 4, 0, 9, NULL, 1.0f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Remembrall"), TEXT("It glows red. You forgot something."), 250, RAR_Rare, STAT_XpGain, 5, 0, 0, TEXT("H1Props.RememberAllMesh"), 1.6f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Philosopher's Stone"), TEXT("Carry the Elixir of Life in your hand."), 1000, RAR_Legendary, STAT_DamageReduce, 14, 0, 0, TEXT("H1Props.SorcerersStoneMesh"), 1.5f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Wizard Card"), TEXT("Dumbledore again. Of course."), 120, RAR_Common, STAT_BeanFind, 3, 0, 0, TEXT("H1Props.WizzardCardIconMesh"), 0.8f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Hagrid's Flute"), TEXT("Plays a lullaby for three-headed dogs."), 400, RAR_Epic, STAT_Speed, 7, 0, 0, TEXT("H1Props.FluteMesh"), 1.0f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Hagrid's Tea Cup"), TEXT("Tea and rock cakes, anyone?"), 90, RAR_Common, STAT_DamageReduce, 2, 0, 0, TEXT("H1Props.HagridTeaCupMesh"), 0.6f, 0.f, 0.f, 0.f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Floating Spellbook"), TEXT("A book that reads itself to you."), 350, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("H1Props.FloatingSpellBookMesh"), 0.45f, 0.f, 0.f, 0.f, NULL, NULL },
 };
 static const INT GNumCosmetics = (INT)ARRAY_COUNT(GCosmetics);
 enum { MAX_COSMETICS = 192 };
@@ -497,7 +497,8 @@ enum ECounter
 	CNT_Duels, CNT_Quidditch, CNT_Beans, CNT_Bought, CNT_HousePoints, CNT_Detentions,
 	CNT_Level, CNT_Cards, CNT_Cosmetics, CNT_Perks, CNT_Talks,
 	// Appended (saves store counters by position).
-	CNT_Lessons, CNT_Levitations, CNT_Transfigs, CNT_WheelCasts, CNT_Pages, CNT_Quests, CNT_MAX
+	CNT_Lessons, CNT_Levitations, CNT_Transfigs, CNT_WheelCasts, CNT_Pages, CNT_Quests,
+	CNT_Incendio, CNT_Petrified, CNT_MAX
 };
 
 struct FTrophyDef
@@ -708,6 +709,35 @@ static const FQuestDef GQuests[] =
 		TEXT("Hogwarts is full of secrets, Potter. Revelio will show you lost pages of lore. Find five of them."),
 		TEXT("Find Field Guide pages (Revelio)"), TEXT("A true scholar. Keep looking - there are many more."),
 		QT_Counter, NULL, NULL, CNT_Pages, 5, 100, 200, 10 },
+	// --- v7.1: quests with a Harry Potter 1 flavour (HP1 items need HP1 installed) ---
+	{ TEXT("Hagrid"), TEXT("Hagrid"), 3, TEXT("Hagrid's Tea Set"),
+		TEXT("Fang knocked me tea cups right off the table an' out the window. Three of 'em, somewhere on the Grounds. Rock cake fer yer trouble?"),
+		TEXT("Find Hagrid's tea cups on the Grounds"), TEXT("Ah, that's grand! Tea's on me. Mind the rock cakes, they're a bit... rocky."),
+		QT_Collect, TEXT("Grounds"), TEXT("H1Props.HagridTeaCupMesh"), 0, 3, 80, 130, 5 },
+	{ TEXT("FredWeasley|GeorgeWeasley"), TEXT("Fred & George"), 4, TEXT("Famous Wizard Cards"),
+		TEXT("We had a whole stack of Chocolate Frog cards from our first year - Dumbledore, Merlin, the lot - and Peeves scattered them over the Grand Staircase. Five of them. Fancy a hunt?"),
+		TEXT("Find Wizard Cards on the Grand Staircase"), TEXT("Our collection is complete again! Well, apart from Agrippa. Nobody has Agrippa."),
+		QT_Collect, TEXT("Grandstaircase"), TEXT("H1Props.WizzardCardIconMesh"), 0, 5, 110, 160, 5 },
+	{ TEXT("MoaningMyrtle"), TEXT("Moaning Myrtle"), 4, TEXT("First-Years' Hats"),
+		TEXT("The first-years keep throwing their pointy hats at me. Then they leave them lying on the stairs. Three of them! Take them away, I don't want them..."),
+		TEXT("Pick up wizard hats on the Grand Staircase"), TEXT("Gone? Good. Now nobody will throw them at me. Probably they'll throw something else."),
+		QT_Collect, TEXT("Grandstaircase"), TEXT("H1Props.WizardHatMesh"), 0, 3, 90, 140, 5 },
+	{ TEXT("ProfFlitwick"), TEXT("Professor Flitwick"), 5, TEXT("Runaway Spellbooks"),
+		TEXT("Oh dear, oh dear - my first-years charmed their books to float and now they've flown off into the Entrance Hall! Four of them, Mr Potter."),
+		TEXT("Catch floating spellbooks in the Entrance Hall"), TEXT("Splendid catching! Have you thought about Seeker? Oh - you are one. Ten points!"),
+		QT_Collect, TEXT("Entryhall"), TEXT("H1Props.FloatingSpellBookMesh"), 0, 4, 120, 180, 10 },
+	{ TEXT("ProfSprout"), TEXT("Professor Sprout"), 5, TEXT("Devil's Snare Drill"),
+		TEXT("Remember, dear: Devil's Snare hates fire. Practise Incendio on six creatures or nasty plants, so you'll never freeze up when it counts."),
+		TEXT("Hit creatures with Incendio"), TEXT("Lovely flames! Miss Granger would be proud. Five points to Gryffindor."),
+		QT_Counter, NULL, NULL, CNT_Incendio, 6, 110, 200, 5 },
+	{ TEXT("Percy"), TEXT("Percy Weasley"), 7, TEXT("Body-Bind Practice"),
+		TEXT("In my first year a girl body-bound her own housemate to stop him breaking the rules. Not that I approve. But do practise Petrificus Totalus four times. Responsibly."),
+		TEXT("Cast Petrificus Totalus"), TEXT("Textbook form. I shall make a note of it. In my notes. Which are extensive."),
+		QT_Counter, NULL, NULL, CNT_Petrified, 4, 120, 220, 10 },
+	{ TEXT("FredWeasley|GeorgeWeasley"), TEXT("Fred & George"), 3, TEXT("De-gnoming"),
+		TEXT("Mum makes us de-gnome the garden every summer. Hogwarts has gnomes too! Send six of them flying - we're keeping score."),
+		TEXT("Defeat garden gnomes"), TEXT("Six! That beats Ron's record. Don't tell him we said so."),
+		QT_Kills, NULL, NULL, CR_Gnome, 6, 90, 150, 5 },
 };
 static const INT GNumQuests = (INT)ARRAY_COUNT(GQuests);
 #define MAX_QUESTS 32

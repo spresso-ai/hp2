@@ -545,41 +545,6 @@
 
 	FLOAT NightCheck;
 
-	/*-------------------------------------------------------------------------
-		Fan maps: "Average Day Through Hogwarts" by David Kapitan, converted
-		to the retail package format (AverageDayHogwarts.unr). Its exit
-		leads to the bean reward room; here it leads back to the Entrance
-		Hall instead, so the book's Leave button works too.
-	-------------------------------------------------------------------------*/
-
-	UBOOL bConfirmFanMap;
-
-	static UBOOL IsFanMap( const TCHAR* Map )
-	{
-		return MapHas( Map, TEXT("AverageDayHogwarts") );
-	}
-
-	void UpdateFanMap( UGameEngine* Engine )
-	{
-		if( !LastLevel || !IsFanMap(*LastLevel->URL.Map) )
-			return;
-		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
-		{
-			AActor* A = Engine->GLevel->Actors(i);
-			if( !A || A->bDeleteMe || !ClassChainIs(A,TEXT("TriggerChangeLevel")) )
-				continue;
-			if( UStrProperty* P = FindField<UStrProperty>( A->GetClass(), TEXT("NewMapName") ) )
-			{
-				FString& To = *(FString*)((BYTE*)A + P->Offset);
-				if( !MapHas(*To,TEXT("_hub")) )
-				{
-					RpgLog( TEXT("fan map exit %s: %s -> Entryhall_hub"), A->GetName(), *To );
-					To = TEXT("Entryhall_hub.unr");
-				}
-			}
-		}
-	}
-
 	static UBOOL NightGroundsAllowed( INT GS )
 	{
 		return GS!=10 && GS!=80 && GS!=150 && GS!=160;
@@ -591,7 +556,6 @@
 		if( NightCheck>0.f || !LastLevel )
 			return;
 		NightCheck = 1.f;
-		UpdateFanMap( Engine );
 		// The door to your room glitters when Harry is near.
 		if( MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) && (Harry->Location-RoomGateSpot()).SizeSquared() < 900.f*900.f )
 			SpawnFx( Engine, TEXT("GoldSparkle01"), RoomGateSpot() + FVector(-40.f,-40.f,40.f), 1.2f );
@@ -667,104 +631,6 @@
 		const TCHAR* Verbs[2] = { bRoom ? TEXT("Back to the common room") : TEXT("Your room"),
 			ClockMinutes()>=20*60 ? TEXT("Sleep until morning") : TEXT("Sleep (after 20:00)") };
 		Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, 2, bRoom ? TEXT("Your room") : TEXT("Dormitory") );
-	}
-
-	/*-------------------------------------------------------------------------
-		The door between the castle and the fan map: the Great Hall doors
-		in the Entrance Hall (closed all story long until the ending) open
-		onto "Average Day Through Hogwarts"; its own front doors, beside
-		where Harry arrives, lead back.
-	-------------------------------------------------------------------------*/
-
-	FLOAT FanTravelAt;       // the doors are opening: travel then
-	UBOOL bReturnFromFan;
-	FLOAT FanReturnAt;
-
-	static FVector GreatHallDoorSpot() { return FVector( -340.f, -1088.f, -262.f ); }
-	static FVector FanStartSpot() { return FVector( 4.f, -1.f, -83.f ); }
-
-	UBOOL AtGreatHallDoor( APlayerPawn* Harry )
-	{
-		return LastLevel && MapHas( *LastLevel->URL.Map, TEXT("Entryhall") ) && GameStateNum(Harry)<180
-			&& (Harry->Location-GreatHallDoorSpot()).SizeSquared() < 230.f*230.f;
-	}
-
-	UBOOL AtFanStart( APlayerPawn* Harry )
-	{
-		return (LastLevel && IsFanMap( *LastLevel->URL.Map ) && (Harry->Location-FanStartSpot()).SizeSquared() < 220.f*220.f)
-			|| AtH1Start( Harry );
-	}
-
-	// Opens (or closes) the movers carrying Tag.
-	void ToggleDoors( UGameEngine* Engine, APlayerPawn* Harry, const TCHAR* Tag )
-	{
-		const FName T( Tag, FNAME_Find );
-		if( T==NAME_None )
-			return;
-		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
-		{
-			AActor* A = Engine->GLevel->Actors(i);
-			if( A && !A->bDeleteMe && A->Tag==T && A->IsA(AMover::StaticClass()) )
-				A->eventTrigger( Harry, Harry );
-		}
-	}
-
-	UBOOL FanDoorInput( UGameEngine* Engine, APlayerPawn* Harry )
-	{
-		if( FanTravelAt>0.f )
-			return 1;
-		if( AtGreatHallDoor(Harry) )
-		{
-			FixDoorDest( Harry );
-			ToggleDoors( Engine, Harry, TEXT("CloseGreatHall") );
-			PlaySfx( TEXT("HPSounds.Magic_sfx.Lumos_pass_through") );
-			FanTravelAt = RpgClock + 1.4f;
-			return 1;
-		}
-		if( AtFanStart(Harry) )
-		{
-			FixDoorDest( Harry );
-			ToggleDoors( Engine, Harry, TEXT("Doors1") );
-			PlaySfx( TEXT("HPSounds.Magic_sfx.Lumos_pass_through") );
-			FanTravelAt = RpgClock + 0.6f;
-			return 1;
-		}
-		return 0;
-	}
-
-	void UpdateFanDoor( UGameEngine* Engine, APlayerPawn* Harry )
-	{
-		if( FanTravelAt>0.f && RpgClock>=FanTravelAt )
-		{
-			FanTravelAt = 0.f;
-			FixDoorDest( Harry );
-			TravelTo( Engine, Harry, *(FString(DoorDestMap(DoorDest)) + TEXT(".unr")) );
-		}
-		// Back from the fan map: in front of the Great Hall doors, closed again.
-		if( bReturnFromFan && RpgClock>=FanReturnAt && LastLevel && MapHas(*LastLevel->URL.Map,TEXT("Entryhall")) )
-		{
-			bReturnFromFan = 0;
-			Engine->GLevel->FarMoveActor( Harry, GreatHallDoorSpot() - FVector(60.f,0.f,0.f), 0, 1 );
-			Harry->Rotation = FRotator( 0, 32768, 0 );
-			Harry->ViewRotation = Harry->Rotation;
-			for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
-			{
-				AMover* M = Cast<AMover>( Engine->GLevel->Actors(i) );
-				if( M && !M->bDeleteMe && M->Tag==FName(TEXT("CloseGreatHall")) && M->KeyNum!=0 )
-					M->eventTrigger( Harry, Harry );
-			}
-		}
-	}
-
-	void DrawFanDoorPrompt( APlayerPawn* Harry )
-	{
-		const UBOOL bHall = AtGreatHallDoor( Harry ), bFan = AtFanStart( Harry );
-		if( (!bHall && !bFan) || FanTravelAt>0.f )
-			return;
-		FixDoorDest( Harry );
-		const TCHAR* Keys[2] = { TEXT("E"), TEXT("R") };
-		const TCHAR* Verbs[2] = { bHall ? TEXT("Open the doors") : TEXT("Go there"), TEXT("Somewhere else") };
-		Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, NumDoorDests()>2 ? 2 : 1, DoorDestName(DoorDest) );
 	}
 
 	/*-------------------------------------------------------------------------
