@@ -66,6 +66,9 @@
 	TArray<AActor*> LessonCounted;
 	TArray<AActor*> LessonLifted;    // Charms: levitated during the lesson
 	AActor* TodaysTeacher;
+	UBOOL bKnockReady;       // teacher behind a closed classroom door
+	UBOOL bKnocked;
+	FLOAT H1LeeAt;
 	FLOAT NeedlePos, NeedleDir;
 	FLOAT LessonFxTimer;
 
@@ -127,15 +130,17 @@
 			case LES_Charms:
 			{
 				// A circle on the floor a little way from the teacher.
-				FVector Best = Npc->Location;
+				// Knocked from the corridor: the circle comes out to Harry.
+				const FVector From = bKnocked ? Harry->Location : Npc->Location;
+				FVector Best = From;
 				FLOAT BestScore = 1e9f;
 				for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 				{
 					AActor* N = Engine->GLevel->Actors(i);
 					if( !IsWalkPoint(N) )
 						continue;
-					const FLOAT D = (N->Location - Npc->Location).Size();
-					const FLOAT Score = Abs( D-350.f );
+					const FLOAT D = (N->Location - From).Size();
+					const FLOAT Score = bKnocked ? D : Abs( D-350.f );
 					if( Score<BestScore )
 					{
 						BestScore = Score;
@@ -244,13 +249,34 @@
 	}
 
 	// Potions is brewed in its own screen (HP2RpgBrew.inl); no key input here.
+	// The teacher is teaching in a classroom behind a closed door (the
+	// story keeps those shut): knocking starts the class from the corridor.
+	UBOOL TeacherBehindDoor( UGameEngine* Engine, APlayerPawn* Harry )
+	{
+		if( LessonKind>=0 || OpenSlotKind()<0 || NearNpc || !IsInLevel(TodaysTeacher) || !IsFreeGameplay(Engine,Harry) )
+			return 0;
+		const FVector D = TodaysTeacher->Location - Harry->Location;
+		if( D.X*D.X + D.Y*D.Y > 750.f*750.f || Abs(D.Z) > 220.f )
+			return 0;
+		FCheckResult Hit;
+		return !Engine->GLevel->SingleLineCheck( Hit, Harry, TodaysTeacher->Location, Harry->Location+FVector(0,0,30.f), TRACE_VisBlocking, FVector(0,0,0) );
+	}
+
 	UBOOL LessonInput( UGameEngine* Engine, APlayerPawn* Harry, EInputKey Key, EInputAction Action )
 	{
-		return 0;
+		if( Key!=IK_E || Action!=IST_Press || !bKnockReady || !TeacherBehindDoor(Engine,Harry) )
+			return 0;
+		PlaySfx( TEXT("HPSounds.General.door_no_bump_wood") );
+		bKnocked = 1;
+		const UBOOL bStarted = LessonTalk( Engine, Harry, TodaysTeacher );
+		bKnocked = 0;
+		bKnockReady = 0;
+		return bStarted;
 	}
 
 	void UpdateLesson( UGameEngine* Engine, APlayerPawn* Harry, FLOAT DeltaSeconds )
 	{
+		bKnockReady = TeacherBehindDoor( Engine, Harry );
 		if( LessonKind<0 || LessonKind==LES_Potions )
 			return; // Potions runs in the brewing screen
 		const FLessonDef& L = Lesson( LessonKind );
@@ -322,6 +348,12 @@
 				LessonProgress = State.Counters[CNT_Transfigs] - LessonBase;
 				break;
 		}
+		// Lee Jordan commentates the Snitch hunt (Harry Potter 1 voice).
+		if( LessonKind==LES_Quidditch && RpgClock>=H1LeeAt && RpgClock>=MateVoiceFree )
+		{
+			H1LeeAt = RpgClock + 16.f;
+			SpeakH1( Harry, TEXT("Lee Jordan"), H1_Lee, 1, TEXT("Snitch|Seeker|Potter|Quidditch") );
+		}
 		if( LessonKind>=0 && LessonKind!=LES_Potions && LessonProgress>=L.Count )
 			FinishLesson( Engine, Harry, 0 );
 	}
@@ -352,6 +384,12 @@
 
 	void DrawLessonHud( APlayerPawn* Harry )
 	{
+		if( bKnockReady && LessonKind<0 && TodaysLesson()>=0 )
+		{
+			const TCHAR* Keys[1] = { TEXT("E") };
+			const TCHAR* Verbs[1] = { TEXT("Knock and join the class") };
+			Ui.Prompt( Ui.C->ClipX*0.5f, Ui.C->ClipY*0.62f, Keys, Verbs, 1, *FString::Printf(TEXT("%s class"), Lesson(TodaysLesson()).Subject) );
+		}
 		UCanvas* C = Ui.C;
 		const FColor Blue( 120,170,255,255 ), Text1( 240,238,230,255 ), GoldHi( 255,222,130,255 );
 		// Teacher marker for today's class.

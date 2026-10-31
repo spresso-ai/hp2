@@ -665,7 +665,7 @@ void UObject::execGotoLabel( FFrame& Stack, RESULT_DECL )
 
 	P_GET_NAME(N);
 	if( !GotoLabel( N ) )
-		Stack.Logf( TEXT("GotoLabel (%s): Label not found"), N );
+		Stack.Logf( TEXT("GotoLabel (%s): Label not found"), *N );
 
 	unguardexecSlow;
 }

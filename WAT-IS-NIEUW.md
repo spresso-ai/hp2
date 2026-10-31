@@ -1,5 +1,26 @@
 # Harry Potter 2 – RPG-mod: wat is er nieuw
 
+## v7.1 – De garderobe van 1991
+Meer dan dertig nieuwe cosmetics, veel uit Harry Potter 1 (die heb je alleen als HP1 geïnstalleerd is).
+- **Outfits:** Harry uit het eerste jaar, de gewaden van Sneep, Anderling, Dumbledore en Stronk, Banning, Quirrell met tulband, Hagrids jas, Vilders jas, de Bloederige Baron, een Zweinstein-spook, een Zwadderich-klassenoudste, Percy, Korzel, en voor de grap Dirk, oom Herman en tante Petunia. Nieuwe kleuren voor je eigen gewaad: *Lockhart-lila, Middernacht, Gouden Kampioen, Spookachtig* en *Wemel-kastanjebruin*.
+- **Hoeden:** puntige tovenaarshoed, Quirrells tulband, een zwevende kaars uit de Grote Zaal, een zwevende Steen der Wijzen en een kerstster.
+- **Brillen:** Huffelpuf-geel, zilver, lila en schildpad.
+- **In je hand:** Herinnerbal, Steen der Wijzen, tovenaarskaart, Hagrids fluit, Hagrids theekopje en een zwevend spreukenboek.
+- De winkels hebben elke dag meer op voorraad, en Hagrid verkoopt nu ook de HP1-huisdieren en spullen in de hand.
+
+## v7.0 – Het kasteel van 1991 (Harry Potter 1)
+Je eigen Harry Potter 1 (pc) staat nu náást HP2 in het spel. Er wordt niets van HP2 vervangen; HP1-pakketten met dezelfde naam als HP2-pakketten kregen een eigen naam (H1Props, H1Models, H1Sounds, H1AllDialog, …).
+- **De deuren van de Grote Zaal** in de Hal zijn een portaal geworden: druk **R** om te kiezen waarheen, **E** om te gaan. Naast *Average Day* kun je naar twaalf plekken uit het kasteel van 1991: de hal, de kerkers, Sneeps kantoor, de bibliotheek 's nachts, de derde verdieping, de kassen, Hagrids hut, het binnenplein en meer. Waar je aankomt, brengt **E** je terug (of met **R** door naar een volgende plek).
+- In die gebieden kun je HP1's **bonen, Chocoladekikkers (+15 gezondheid), Beroemde Tovenaarskaarten en uitdagingssterren** oprapen; wat je pakt blijft weg. HP1's **kabouters, slakken, vuurkrabben, doxy's, tentacula en stekelstruiken** versla je met je spreuken (telt mee voor je bestiarium).
+- Met **E** praat je met de mensen van 1991 – veel met hun echte HP1-stem.
+- **HP1-stemmen in je eigen kasteel:** leerlingen kletsen af en toe (Seamus, meisjes en jongens), Haast Onthoofde Nick, Foppe, Marcel, Vilder, Malfidus en de klassenoudste praten soms met hun HP1-zinnen, leerlingen roepen "Whoa!" als je ze wegblaast, Ron kreunt en lacht met zijn HP1-stem als je een spreuk op hem gooit, en **Lee Jordan** geeft commentaar tijdens de Zwerkbal-les.
+- **Nieuw in de winkel** (uit HP1): huisdieren *Schurfie, Trevor, konijn, kanarie, oehoe, doxy, vleermuis, biggetje* en **Norbert** (legendarisch), en vrienden *Marcel, Ron en Hermelien uit het eerste jaar* en **Haast Onthoofde Nick**.
+- Engine: HP1-scripts draaien nu goed in de HP2-engine (verkeerd vertaalde scriptcodes en oude pakketnamen hersteld).
+
+## v6.5 – Kloppen op de lokaaldeur
+- Staat de leraar in een lokaal achter een dichte deur (zoals Anderling bij Gedaanteverwisselingen), ga dan bij de deur staan en druk **E**: je klopt aan en de les begint vanaf de gang.
+- Bij de deuren van de Grote Zaal valt de "Praat"-knop van iemand die ervoor staat niet meer over de deur-knop heen.
+
 ## v6.4 – Deur naar de fan-map, spreuk-spawners in het kasteel
 - **De deuren van de Grote Zaal** in de Hal (die het hele verhaal dicht blijven) zijn nu de doorgang naar **Average Day Through Hogwarts**: ga ervoor staan, druk **E**, de deuren zwaaien open en je bent er. In de fan-map brengen de **voordeuren naast je startplek** je met **E** terug – je staat dan weer voor de Grote Zaal (de deuren gaan weer dicht).
 - **Uit de fan-map overgenomen: spreuk-spawners.** Elke schooldag staan er in elke hub 3–4 op wisselende plekken:

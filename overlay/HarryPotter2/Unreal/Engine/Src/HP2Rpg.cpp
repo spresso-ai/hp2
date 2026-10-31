@@ -21,6 +21,7 @@
 #include "HP2ScriptWatch.h"
 #include "HP2RpgUi.h"
 #include "HP2RpgData.h"
+#include "HP2RpgHP1Lines.h"
 
 namespace
 {
@@ -93,7 +94,11 @@ static void VARARGS RpgLog( const TCHAR* Fmt, ... )
 
 static UClass* FindClass( const TCHAR* Name )
 {
-	return FindObject<UClass>( ANY_PACKAGE, Name );
+	// HP2's own classes first: Harry Potter 1's packages, when one of its
+	// levels is loaded, use many of the same class names (harry, baseSpell).
+	UPackage* HGame = FindObject<UPackage>( NULL, TEXT("HGame") );
+	UClass* Class = HGame ? FindObject<UClass>( HGame, Name ) : NULL;
+	return Class ? Class : FindObject<UClass>( ANY_PACKAGE, Name );
 }
 
 static UBOOL ClassChainIs( UObject* Obj, const TCHAR* Name )
@@ -1935,6 +1940,11 @@ public:
 
 	FString NpcName( AActor* Actor )
 	{
+		if( IsH1Person(Actor) )
+		{
+			const FString H = H1PersonName( Actor );
+			return H.Len() ? H : FString(TEXT("Student"));
+		}
 		if( FStandIn* S = FindStandIn(Actor) )
 			return StandInDef(S->Def).Name;
 		if( MateIndex(Actor)>=0 )
@@ -1992,10 +2002,14 @@ public:
 		for( INT i=0; i<Engine->GLevel->Actors.Num(); i++ )
 		{
 			AActor* Actor = Engine->GLevel->Actors(i);
-			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden || !Actor->IsA(HChar) )
+			if( !Actor || Actor->bDeleteMe || Actor==Harry || Actor->bHidden )
 				continue;
-			const INT Vendor = VendorFor( Actor );
-			if( Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) && !IsStoryNpc(Actor) )
+			// The people of a Harry Potter 1 level are not HP2 characters.
+			const UBOOL bH1 = IsH1Person( Actor );
+			if( !bH1 && !Actor->IsA(HChar) )
+				continue;
+			const INT Vendor = bH1 ? -1 : VendorFor( Actor );
+			if( !bH1 && Vendor<0 && !(IsStudent(Actor) && !IsHolding(Actor)) && !IsStoryNpc(Actor) )
 				continue;
 			const FLOAT Dist = (Actor->Location - Harry->Location).Size();
 			if( Dist < Nearest )
@@ -2303,6 +2317,7 @@ public:
 		Student->Velocity = Dir*(420.f*Boost) + FVector( 0.f, 0.f, 620.f*Boost );
 		State.Counters[CNT_Students]++;
 		StudentHitBySpell( Student, 12, -8, TEXT("Hexing a student") );
+		SpeakH1( Student, *NpcName(Student), H1_Student, 0, TEXT("Whoa|Watch it|Ow|Aah") );
 		RpgLog( TEXT("launched student %s"), Student->GetName() );
 	}
 
@@ -2649,9 +2664,10 @@ public:
 		UPalette* Palette = ConstructObject<UPalette>( UPalette::StaticClass(), UObject::GetTransientPackage(), NAME_None, RF_Transient );
 		Palette->AddToRoot();
 		Palette->Colors = Source->Colors;
-		static const FColor Frames[6] =
+		static const FColor Frames[] =
 		{
-			FColor(0,0,0,255), FColor(0,0,0,255), FColor(212,170,60,255), FColor(170,24,24,255), FColor(20,120,50,255), FColor(40,80,190,255)
+			FColor(0,0,0,255), FColor(0,0,0,255), FColor(212,170,60,255), FColor(170,24,24,255), FColor(20,120,50,255), FColor(40,80,190,255),
+			FColor(235,195,40,255), FColor(185,190,200,255), FColor(200,120,210,255), FColor(120,70,30,255)
 		};
 		for( INT i=0; i<Palette->Colors.Num(); i++ )
 		{
@@ -2660,7 +2676,7 @@ public:
 			{
 				// Glasses texture: tint every colour (index 0 is see-through)
 				// by its brightness so the frame keeps its shading.
-				if( i>0 && Variant>=12 && Variant<=15 )
+				if( i>0 && Variant>=12 && Variant<10+(INT)ARRAY_COUNT(Frames) )
 				{
 					const FColor& F = Frames[Variant-10];
 					const FLOAT L = Clamp( 0.45f + 1.2f*(0.30f*C.R + 0.59f*C.G + 0.11f*C.B)/255.f, 0.f, 1.6f );
@@ -2673,6 +2689,13 @@ public:
 			{
 				const FLOAT L = 0.30f*R + 0.59f*G + 0.11f*B;
 				C = FColor( ToByte(L*1.07f), ToByte(L*0.92f), ToByte(L*0.72f), C.A );
+				continue;
+			}
+			if( Variant==PV_Ghost )
+			{
+				// Pale and silvery-blue all over, like the castle ghosts.
+				const FLOAT L = 0.30f*R + 0.59f*G + 0.11f*B;
+				C = FColor( ToByte(0.35f+L*0.55f), ToByte(0.45f+L*0.55f), ToByte(0.55f+L*0.5f), C.A );
 				continue;
 			}
 			FLOAT H, S, V;
@@ -2695,6 +2718,22 @@ public:
 				case PV_Hufflepuff:
 					if( bRed ) HsvToRgb( 0.13f, Min(1.f,S*1.05f), Min(1.f,V*1.35f), NR, NG, NB );
 					else       HsvToRgb( 0.f, 0.f, V*0.18f, NR, NG, NB );
+					break;
+				case PV_Lilac:
+					if( bRed ) HsvToRgb( 0.80f, S*0.55f, Min(1.f,V*1.25f), NR, NG, NB );
+					else       HsvToRgb( 0.12f, S*0.5f, Min(1.f,V*1.15f), NR, NG, NB );
+					break;
+				case PV_Midnight:
+					if( bRed ) HsvToRgb( 0.65f, S*0.6f, V*0.35f, NR, NG, NB );
+					else       HsvToRgb( 0.6f, 0.08f, Min(1.f,V*1.1f), NR, NG, NB );
+					break;
+				case PV_Golden:
+					if( bRed ) HsvToRgb( 0.12f, S*0.85f, Min(1.f,V*1.4f), NR, NG, NB );
+					else       HsvToRgb( 0.14f, S*0.3f, Min(1.f,V*1.3f), NR, NG, NB );
+					break;
+				case PV_Weasley:
+					if( bRed ) HsvToRgb( 0.98f, S*0.8f, V*0.6f, NR, NG, NB );
+					else       HsvToRgb( 0.10f, S*0.9f, V*0.95f, NR, NG, NB );
 					break;
 				default:
 					break;
@@ -2747,9 +2786,10 @@ public:
 		const FCosmetic& O = GCosmetics[OutfitId];
 		const INT PV = O.OutfitKind==OK_Palette ? O.Palette : PV_None;
 		INT Want[4];
-		Want[0] = PV==PV_Memory ? PV_Memory : 0;
+		const UBOOL bWhole = PV==PV_Memory || PV==PV_Ghost;
+		Want[0] = bWhole ? PV : 0;
 		Want[1] = PV;
-		Want[2] = PV==PV_Memory ? PV_Memory : 0;
+		Want[2] = bWhole ? PV : 0;
 		const INT Frame = GCosmetics[GlassesId].Palette;
 		Want[3] = Frame>=2 ? 10+Frame : 0;
 		for( INT t=0; t<4; t++ )
@@ -3169,6 +3209,15 @@ public:
 			{ TEXT("gnome"),         0, TEXT("runnormal"), TEXT("breath"),  0.55f },
 			{ TEXT("MrsNorris"),     0, TEXT("Walk"),      TEXT("Breathe"), 0.75f },
 			{ TEXT("SpiderSmall"),   0, TEXT("Walk"),      TEXT("Idle"),    1.2f  },
+			{ TEXT("skrat"),         0, TEXT("Walk"),      TEXT("sniff"),   1.0f  },
+			{ TEXT("skfrog"),        0, TEXT("Jump"),      TEXT("Breathe"), 0.9f  },
+			{ TEXT("skrabbit"),      0, TEXT("hop"),       TEXT("Idle"),    0.8f  },
+			{ TEXT("skpig"),         0, TEXT("breath"),    TEXT("breath"),  0.5f  },
+			{ TEXT("sknorbert"),     0, TEXT("Breathe"),   TEXT("lookaround1"), 0.45f },
+			{ TEXT("skowlhorned"),   1, TEXT("Fly"),       TEXT("soar"),    0.55f },
+			{ TEXT("skcanary"),      1, TEXT("Fly"),       TEXT("Fly"),     0.9f  },
+			{ TEXT("skbat"),         1, TEXT("Fly"),       TEXT("Fly"),     0.8f  },
+			{ TEXT("skdoxy"),        1, TEXT("Fly"),       TEXT("hover"),   0.9f  },
 			{ NULL,                  0, TEXT("Walk"),      TEXT("Idle"),    0.6f  },
 		};
 		INT i = 0;
@@ -3539,6 +3588,9 @@ public:
 		if( A==FriendActor )
 		{
 			const FCosmetic& Spec = GCosmetics[State.Equip[RSLOT_Friend]];
+			// Ron groans and laughs with his HP1 voice when a spell hits him.
+			if( bSpell && Spec.Mesh && appStrfind(Spec.Mesh,TEXT("skron")) && RpgClock>=MateVoiceFree && SpeakH1( A, Spec.Name, H1_EmoRon, 0 )>0.f )
+				return;
 			if( RpgClock>=MateVoiceFree && SpeakLine( A, CompanionLines(Spec.Mesh,bSpell), FriendLineIndex )>0.f )
 				return;
 			if( !bSpell )
@@ -3896,6 +3948,7 @@ public:
 		UpdateDecor( Engine, Harry, DeltaSeconds );
 		UpdateStandIns( Engine, Harry, DeltaSeconds );
 		UpdateSchoolmates( Engine, Harry, DeltaSeconds );
+		UpdateH1Chatter( Engine, Harry );
 		UpdatePhoto( Harry );
 		UpdateRoomCam( Harry );
 		UpdateBrewCam( Harry );
@@ -3903,6 +3956,7 @@ public:
 		UpdateNightGrounds( Engine, Harry, DeltaSeconds );
 		PlaceAfterRoom( Engine, Harry );
 		UpdateFanDoor( Engine, Harry );
+		UpdateH1Area( Engine, Harry );
 		UpdateSpawners( Engine, Harry, DeltaSeconds );
 		// The console prints "PRESS ESC TO EXIT" over a paused game; the
 		// mod's own screens pause it, so keep that message empty.
@@ -3982,7 +4036,7 @@ public:
 		RpgLog( TEXT("level %s, day %i"), MapName, State.Day );
 		bReturnFromRoom = IsRoomMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
 		ReturnAt = RpgClock + 0.6f;
-		bReturnFromFan = IsFanMap(*PrevMap) && MapHas(MapName,TEXT("Entryhall"));
+		bReturnFromFan = (IsFanMap(*PrevMap) || IsH1Map(*PrevMap)) && MapHas(MapName,TEXT("Entryhall"));
 		FanReturnAt = RpgClock + 0.6f;
 		PrevMap = MapName;
 	}
@@ -4057,11 +4111,14 @@ public:
 		FanTravelAt = 0.f;
 		ForgetStandIns();
 		ForgetSchoolmates();
+		ForgetH1();
+		ForgetH1Area();
 		LessonItems.Empty();
 		LessonItemShown.Empty();
 		LessonCounted.Empty();
 		LessonLifted.Empty();
 		TodaysTeacher = NULL;
+		bKnockReady = bKnocked = 0;
 		LessonKind = -1;
 		bPhoto = 0;
 		HatActor = PetActor = AuraActor = NULL;
@@ -4096,6 +4153,7 @@ public:
 	#include "HP2RpgTimetable.inl"
 	#include "HP2RpgBrew.inl"
 	#include "HP2RpgRoom.inl"
+	#include "HP2RpgHP1.inl"
 };
 
 static FHP2Rpg GRpg;

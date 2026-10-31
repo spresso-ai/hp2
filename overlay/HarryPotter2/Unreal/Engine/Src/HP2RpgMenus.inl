@@ -123,7 +123,7 @@
 		// Friends are always on offer where they're sold.
 		if( V.Tabs & TABBIT(TAB_Friends) )
 			for( INT i=0; i<GNumCosmetics; i++ )
-				if( GCosmetics[i].Slot==RSLOT_Friend && GCosmetics[i].Price>0 )
+				if( GCosmetics[i].Slot==RSLOT_Friend && GCosmetics[i].Price>0 && CosmeticAvailable(i) )
 					AddOffer( OFFER_Cosmetic, i, TAB_Friends );
 
 		// Cosmetics rotate daily: a seeded pick from this vendor's pool.
@@ -133,7 +133,7 @@
 		for( INT i=0; i<GNumCosmetics; i++ )
 		{
 			const FCosmetic& C = GCosmetics[i];
-			if( C.Price<=0 || C.Slot==RSLOT_Friend || !(V.Tabs & TABBIT(GCosmeticTab[C.Slot])) || !NameMatchesFilter(C.Name,V.CosmeticFilter) )
+			if( C.Price<=0 || C.Slot==RSLOT_Friend || !(V.Tabs & TABBIT(GCosmeticTab[C.Slot])) || !NameMatchesFilter(C.Name,V.CosmeticFilter) || !CosmeticAvailable(i) )
 				continue;
 			Pool[N] = i;
 			Keys[N] = HashMix( (DWORD)(State.Day*7919 + Vendor*104729), (DWORD)i );
@@ -802,7 +802,7 @@
 		}
 
 		// Interaction prompt: one slot above the hotbar.
-		if( bGameplay && NearNpc && IsInLevel(NearNpc) && !IsTalking() && !bAiming )
+		if( bGameplay && NearNpc && IsInLevel(NearNpc) && !IsTalking() && !bAiming && !AtGreatHallDoor(Harry) && !AtFanStart(Harry) )
 		{
 			const TCHAR* Keys[2] = { TEXT("E"), TEXT("B") };
 			const TCHAR* Verbs[2] = { TEXT("Talk"), TEXT("Trade") };
@@ -2036,7 +2036,10 @@
 				CompanionReact( Npc, 0 );
 				return;
 			}
-			if( FStandIn* S = FindStandIn(Npc) )
+			// Some people also speak with their Harry Potter 1 voice.
+			if( TalkH1Person( Npc ) || TalkH1( Npc ) )
+				;
+			else if( FStandIn* S = FindStandIn(Npc) )
 			{
 				// Their own voice from the game; the written line if it fails.
 				S->bGreeted = 1;
@@ -2049,8 +2052,11 @@
 					Say( StandInDef(S->Def).Name, StandInDef(S->Def).Hello );
 				return;
 			}
-			FRpgArg JustTalk = FRpgArg::I( 1 );
-			CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
+			else
+			{
+				FRpgArg JustTalk = FRpgArg::I( 1 );
+				CallScript( Npc, TEXT("DoBumpLine"), &JustTalk, 1 );
+			}
 		}
 		// Lessons and quests speak through the panel: show the speaker's face.
 		if( DialogLeft>0.f && !DialogMesh.Len() && Npc->Mesh )
@@ -2099,6 +2105,11 @@
 				return 1;
 			if( Key==IK_E && Action==IST_Press && IsFreeGameplay(Engine,Harry) && FanDoorInput( Engine, Harry ) )
 				return 1;
+			if( Key==IK_R && Action==IST_Press && IsFreeGameplay(Engine,Harry) && FanTravelAt<=0.f && (AtGreatHallDoor(Harry) || AtFanStart(Harry)) )
+			{
+				NextDoorDest( Harry );
+				return 1;
+			}
 			if( Key==IK_F5 && Action==IST_Press )
 			{
 				ManualSave( Engine, Harry );

@@ -268,6 +268,8 @@
 		A->Acceleration = FVector( 0, 0, 0 );
 		if( !PlayReactAnim( A, Anim ) )
 			PlayReactAnim( A, TEXT("taunt_1") );
+		if( RpgClock>=MateVoiceFree )
+			SpeakH1( A, *NpcName(A), H1EmotiveFor(A), 0 );
 	}
 
 	void DoMischief( UGameEngine* Engine, APlayerPawn* Harry, FTroublemaker& T )

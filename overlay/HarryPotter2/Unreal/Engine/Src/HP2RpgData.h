@@ -53,7 +53,7 @@ static const TCHAR* GSlotNames[RSLOT_MAX] = { TEXT("Outfit"), TEXT("Hat"), TEXT(
 enum EOutfitKind { OK_Default, OK_Palette, OK_Mesh };
 
 // Palette variants applied to Harry's own textures.
-enum EPaletteVariant { PV_None, PV_Slytherin, PV_Ravenclaw, PV_Hufflepuff, PV_Memory };
+enum EPaletteVariant { PV_None, PV_Slytherin, PV_Ravenclaw, PV_Hufflepuff, PV_Memory, PV_Lilac, PV_Midnight, PV_Golden, PV_Ghost, PV_Weasley };
 
 struct FCosmetic
 {
@@ -169,9 +169,62 @@ static const FCosmetic GCosmetics[] =
 	{ RSLOT_Held, TEXT("Jar of Beans"), TEXT("Every flavour, for later."), 200, RAR_Rare, STAT_BeanFind, 5, 0, 0, TEXT("HProps.skJarBeansMesh"), 0.7f, 0,0,0, NULL, NULL },
 	{ RSLOT_Held, TEXT("Flitwick's Charm Book"), TEXT("Heavier than Professor Flitwick."), 260, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("HProps.skBooksBigFlitwickBookMesh"), 0.5f, 0,0,0, NULL, NULL },
 	{ RSLOT_Held, TEXT("Candle"), TEXT("For reading under the covers."), 50, RAR_Common, STAT_XpGain, 2, 0, 0, TEXT("HProps.skCandlesTableSingleCandleMesh"), 0.7f, 0,0,0, NULL, NULL },
+	// --- Appended (v7.0): from Harry Potter 1, when it is installed. -------
+	{ RSLOT_Pet, TEXT("Scabbers"), TEXT("Ron's rat. Sleeps a lot, bites sometimes."), 180, RAR_Common, STAT_BeanFind, 4, 0, 0, TEXT("HarryPotter.skratMesh"), 0.6f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Trevor"), TEXT("Neville's toad. Please don't lose him."), 160, RAR_Common, STAT_Jump, 4, 0, 0, TEXT("HarryPotter.skfrogMesh"), 0.6f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Rabbit"), TEXT("Hops after you, ears first."), 200, RAR_Common, STAT_Speed, 4, 0, 0, TEXT("HarryPotter.skrabbitMesh"), 0.6f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Canary"), TEXT("Sings when it's happy. Mostly."), 220, RAR_Rare, STAT_XpGain, 5, 0, 0, TEXT("HarryPotter.skcanaryMesh"), 0.6f, 8.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Horned Owl"), TEXT("A post owl that likes you a little too much."), 550, RAR_Epic, STAT_BeanFind, 9, 0, 0, TEXT("H1Models.skowlhornedMesh"), 0.3f, 6.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Doxy"), TEXT("Bites, but it's yours."), 300, RAR_Rare, STAT_SpellPower, 5, 0, 0, TEXT("H1Models.skdoxyMesh"), 0.6f, 8.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Bat"), TEXT("Hangs around after curfew."), 260, RAR_Rare, STAT_Speed, 5, 0, 0, TEXT("HarryPotter.skbatMesh"), 0.6f, 8.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Piglet"), TEXT("Hagrid swears it's an ordinary pig."), 240, RAR_Rare, STAT_DamageReduce, 5, 0, 0, TEXT("HarryPotter.skpigMesh"), 0.5f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Pet, TEXT("Norbert"), TEXT("A Norwegian Ridgeback. Hagrid says he's harmless."), 1600, RAR_Legendary, STAT_SpellPower, 15, 0, 0, TEXT("H1Models.sknorbertMesh"), 0.5f, 3.f, 0.f, -4.f, NULL, NULL },
+	{ RSLOT_Friend, TEXT("Neville (Year One)"), TEXT("Still looking for Trevor."), 450, RAR_Rare, STAT_DamageReduce, 6, 0, 0, TEXT("HarryPotter.sknevilleMesh"), 1.f, 0,0,0, TEXT("HarryPotter.sknevilleAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Ron (Year One)"), TEXT("Before the flying car. Just as hungry."), 500, RAR_Epic, STAT_BeanFind, 8, 0, 0, TEXT("HarryPotter.skronMesh"), 1.f, 0,0,0, TEXT("HarryPotter.skronAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Hermione (Year One)"), TEXT("It's Levi-O-sa, not Levio-SA."), 600, RAR_Epic, STAT_XpGain, 8, 0, 0, TEXT("HarryPotter.skhermioneMesh"), 1.f, 0,0,0, TEXT("HarryPotter.skhermioneAnims"), NULL },
+	{ RSLOT_Friend, TEXT("Nearly Headless Nick"), TEXT("Floats along, head mostly attached."), 900, RAR_Legendary, STAT_BeanFind, 12, 0, 0, TEXT("H1Models.skNHNickMesh"), 1.f, 0,0,0, TEXT("H1Models.skNHNickAnims"), NULL },
+	// --- v7.1: the 1991 wardrobe (HP1 meshes need Philosopher's Stone installed) ---
+	{ RSLOT_Outfit, TEXT("First-Year Harry"), TEXT("The boy who lived, fresh off the Hogwarts Express."), 300, RAR_Rare, STAT_XpGain, 6, OK_Mesh, PV_None, TEXT("HarryPotter.skharryMesh"), 1.0f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Snape's Robes"), TEXT("Billowing black. Ten points from Gryffindor."), 700, RAR_Epic, STAT_SpellPower, 12, OK_Mesh, PV_None, TEXT("HarryPotter.sksnapeMesh"), 0.9f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("McGonagall's Robes"), TEXT("Tartan-trimmed and very strict."), 650, RAR_Epic, STAT_DamageReduce, 10, OK_Mesh, PV_None, TEXT("HarryPotter.skmcgonagallMesh"), 0.96f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Flitwick's Look"), TEXT("Small in size, huge in Charms."), 550, RAR_Epic, STAT_SpellPower, 10, OK_Mesh, PV_None, TEXT("H1Models.skflitwickMesh"), 1.0f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Sprout's Gardening Robes"), TEXT("Smells of dragon dung compost."), 450, RAR_Rare, STAT_BeanFind, 8, OK_Mesh, PV_None, TEXT("H1Models.sksproutMesh"), 1.0f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Quirrell's Robes"), TEXT("P-p-perfectly harmless. Probably."), 800, RAR_Legendary, STAT_SpellPower, 14, OK_Mesh, PV_None, TEXT("H1Models.skquirrellMesh"), 0.75f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Slytherin Prefect"), TEXT("Green tie, shiny badge, no friends."), 400, RAR_Rare, STAT_Discount, 8, OK_Mesh, PV_None, TEXT("H1Models.skslytherinkidMesh"), 0.86f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Hogwarts Ghost"), TEXT("See-through and slightly chilly."), 750, RAR_Legendary, STAT_Speed, 12, OK_Mesh, PV_None, TEXT("HarryPotter.skghostMesh"), 0.9f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Dudley's Look"), TEXT("Thirty-seven presents and still not happy."), 250, RAR_Common, STAT_DamageReduce, 5, OK_Mesh, PV_None, TEXT("HarryPotter.skdudleyMesh"), 1.0f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Uncle Vernon"), TEXT("Drills, moustache, no magic allowed."), 300, RAR_Rare, STAT_DamageReduce, 7, OK_Mesh, PV_None, TEXT("HarryPotter.skvernonMesh"), 0.86f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Aunt Petunia"), TEXT("Long neck, all the better to spy on neighbours."), 300, RAR_Rare, STAT_BeanFind, 6, OK_Mesh, PV_None, TEXT("HarryPotter.skpetuniaMesh"), 0.9f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Percy's Prefect Look"), TEXT("Head Boy material, as he will tell you."), 400, RAR_Rare, STAT_XpGain, 7, OK_Mesh, PV_None, TEXT("HPModels.skPercyMesh"), 0.8f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Filch's Coat"), TEXT("Students out of bed!"), 350, RAR_Rare, STAT_BeanFind, 7, OK_Mesh, PV_None, TEXT("HPModels.skFilchMesh"), 0.82f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("The Bloody Baron"), TEXT("Even Peeves keeps his distance."), 850, RAR_Legendary, STAT_DamageReduce, 14, OK_Mesh, PV_None, TEXT("HPModels.skbloodybaronMesh"), 0.83f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Dumbledore's Robes"), TEXT("Help will always be given to those who ask."), 1500, RAR_Legendary, STAT_XpGain, 15, OK_Mesh, PV_None, TEXT("HPModels.skdumbledoreMesh"), 0.78f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Hagrid's Coat"), TEXT("Pockets full of dormice and rock cakes."), 900, RAR_Legendary, STAT_DamageReduce, 15, OK_Mesh, PV_None, TEXT("HPModels.skHagridMesh"), 0.7f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Crabbe's Look"), TEXT("Thick neck, thicker head."), 350, RAR_Rare, STAT_DamageReduce, 7, OK_Mesh, PV_None, TEXT("HPModels.skCrabbeMesh"), 0.97f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Lockhart Lilac Robes"), TEXT("Forget-me-not blue? No, lilac. Obviously."), 450, RAR_Epic, STAT_Discount, 8, OK_Palette, PV_Lilac, NULL, 1.f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Midnight Robes"), TEXT("Dark as the Forbidden Forest at night."), 350, RAR_Rare, STAT_BeanFind, 6, OK_Palette, PV_Midnight, NULL, 1.f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Golden Champion Robes"), TEXT("For the winner of the House Cup."), 600, RAR_Epic, STAT_XpGain, 10, OK_Palette, PV_Golden, NULL, 1.f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Ghostly Robes"), TEXT("Nearly headless, fully fashionable."), 500, RAR_Epic, STAT_Speed, 8, OK_Palette, PV_Ghost, NULL, 1.f, 0,0,0, NULL, NULL },
+	{ RSLOT_Outfit, TEXT("Weasley Maroon"), TEXT("Mrs Weasley knitted the colour herself."), 250, RAR_Common, STAT_DamageReduce, 5, OK_Palette, PV_Weasley, NULL, 1.f, 0,0,0, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Wizard's Hat"), TEXT("Pointy, black and properly magical."), 250, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("H1Props.WizardHatMesh"), 0.6f, 12f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Quirrell's Turban"), TEXT("Don't ask what's underneath."), 700, RAR_Legendary, STAT_SpellPower, 12, 0, 0, TEXT("H1Props.turbanMesh"), 0.95f, -3f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Floating Candle"), TEXT("Straight from the Great Hall ceiling."), 300, RAR_Rare, STAT_XpGain, 6, 0, 0, TEXT("H1Props.PlainCandleMesh"), 0.4f, 24f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Floating Philosopher's Stone"), TEXT("It hovers over you. Nicolas Flamel wants it back."), 1200, RAR_Legendary, STAT_XpGain, 15, 0, 0, TEXT("H1Props.SorcerersStoneMesh"), 1.4f, 22f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Hat, TEXT("Christmas Star"), TEXT("A star from the Great Hall tree."), 200, RAR_Rare, STAT_BeanFind, 5, 0, 0, TEXT("H1Props.ChristmasOrnamentStarMesh"), 1.2f, 20f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Glasses, TEXT("Hufflepuff Yellow Frames"), TEXT("Sunny and loyal."), 100, RAR_Common, STAT_DamageReduce, 4, 0, 6, NULL, 1.0f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Glasses, TEXT("Silver Frames"), TEXT("Polished like a Prefect badge."), 200, RAR_Rare, STAT_SpellPower, 5, 0, 7, NULL, 1.0f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Glasses, TEXT("Lilac Frames"), TEXT("Gilderoy signed them himself."), 200, RAR_Rare, STAT_Discount, 5, 0, 8, NULL, 1.0f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Glasses, TEXT("Tortoiseshell Frames"), TEXT("Very bookish, very Ravenclaw."), 150, RAR_Common, STAT_XpGain, 4, 0, 9, NULL, 1.0f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Remembrall"), TEXT("It glows red. You forgot something."), 250, RAR_Rare, STAT_XpGain, 5, 0, 0, TEXT("H1Props.RememberAllMesh"), 1.6f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Philosopher's Stone"), TEXT("Carry the Elixir of Life in your hand."), 1000, RAR_Legendary, STAT_DamageReduce, 14, 0, 0, TEXT("H1Props.SorcerersStoneMesh"), 1.5f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Wizard Card"), TEXT("Dumbledore again. Of course."), 120, RAR_Common, STAT_BeanFind, 3, 0, 0, TEXT("H1Props.WizzardCardIconMesh"), 0.8f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Hagrid's Flute"), TEXT("Plays a lullaby for three-headed dogs."), 400, RAR_Epic, STAT_Speed, 7, 0, 0, TEXT("H1Props.FluteMesh"), 1.0f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Hagrid's Tea Cup"), TEXT("Tea and rock cakes, anyone?"), 90, RAR_Common, STAT_DamageReduce, 2, 0, 0, TEXT("H1Props.HagridTeaCupMesh"), 0.6f, 0f, 0f, 0f, NULL, NULL },
+	{ RSLOT_Held, TEXT("Floating Spellbook"), TEXT("A book that reads itself to you."), 350, RAR_Rare, STAT_SpellPower, 6, 0, 0, TEXT("H1Props.FloatingSpellBookMesh"), 0.45f, 0f, 0f, 0f, NULL, NULL },
 };
 static const INT GNumCosmetics = (INT)ARRAY_COUNT(GCosmetics);
-enum { MAX_COSMETICS = 128 };
+enum { MAX_COSMETICS = 192 };
+static_assert( ARRAY_COUNT(GCosmetics)<=MAX_COSMETICS && MAX_COSMETICS%32==0, "cosmetic ownership bits" );
 
 /*-----------------------------------------------------------------------------
 	Consumables.
@@ -250,37 +303,37 @@ static const FVendorDef GVendors[VEN_MAX] =
 {
 	{ TEXT("Fred & George"), TEXT("Psst! Best prices in Hogwarts. Probably."), TEXT("FredWeasley"),
 		TABBIT(TAB_Cards)|TABBIT(TAB_Clothes)|TABBIT(TAB_Hats)|TABBIT(TAB_Gear)|TABBIT(TAB_Pets)|TABBIT(TAB_Magic)|TABBIT(TAB_Sell)|TABBIT(TAB_Friends),
-		CONBIT(CON_BronzeCard)|CONBIT(CON_SilverCard)|CONBIT(CON_ChocFrog)|CONBIT(CON_Felix)|CONBIT(CON_Nimbus)|CONBIT(CON_QArmor), NULL, 6, 0 },
+		CONBIT(CON_BronzeCard)|CONBIT(CON_SilverCard)|CONBIT(CON_ChocFrog)|CONBIT(CON_Felix)|CONBIT(CON_Nimbus)|CONBIT(CON_QArmor), NULL, 8, 0 },
 	{ TEXT("Madam Pomfrey"), TEXT("Sit down, Potter. What hurts this time?"), TEXT("MadamePomfrey"),
 		TABBIT(TAB_Potions)|TABBIT(TAB_Ingredients)|TABBIT(TAB_Magic)|TABBIT(TAB_Sell),
 		CONBIT(CON_Potion)|CONBIT(CON_FMucus)|CONBIT(CON_WBark)|CONBIT(CON_ChocFrog)|CONBIT(CON_Respec), NULL, 0, 0 },
 	{ TEXT("Hagrid"), TEXT("Yer a wizard, Harry. An' yeh need a pet."), TEXT("Hagrid"),
-		TABBIT(TAB_Pets)|TABBIT(TAB_Ingredients)|TABBIT(TAB_Hats)|TABBIT(TAB_Sell),
-		CONBIT(CON_WBark)|CONBIT(CON_Bicorn)|CONBIT(CON_Boomslang), TEXT("Pet|Hedwig|Fawkes|Pixie|Gnome|Norris|Spider|Teapot|Horklump|Dragon"), 5, 0 },
+		TABBIT(TAB_Pets)|TABBIT(TAB_Ingredients)|TABBIT(TAB_Hats)|TABBIT(TAB_Gear)|TABBIT(TAB_Sell),
+		CONBIT(CON_WBark)|CONBIT(CON_Bicorn)|CONBIT(CON_Boomslang), TEXT("Pet|Hedwig|Fawkes|Pixie|Gnome|Norris|Spider|Teapot|Horklump|Dragon|Scabbers|Trevor|Rabbit|Canary|Owl|Doxy|Bat|Piglet|Norbert|Hagrid|Wizard's Hat"), 6, 0 },
 	{ TEXT("Percy Weasley"), TEXT("Prefect business. Make it quick."), TEXT("Percy"),
 		TABBIT(TAB_Clothes)|TABBIT(TAB_Glasses)|TABBIT(TAB_Magic),
-		CONBIT(CON_Lesson)|CONBIT(CON_Pardon), TEXT("Robes|Uniform|Student|Frames|Glasses"), 6, 10 },
+		CONBIT(CON_Lesson)|CONBIT(CON_Pardon), TEXT("Robes|Uniform|Student|Frames|Glasses|Prefect|Maroon|First-Year|Coat"), 8, 10 },
 	{ TEXT("The Sorting Hat"), TEXT("Hmm, difficult. Very difficult. Which hat for you?"), TEXT("SortingHat"),
 		TABBIT(TAB_Hats)|TABBIT(TAB_Auras),
-		0, NULL, 6, 0 },
+		0, NULL, 8, 0 },
 	{ TEXT("Moaning Myrtle"), TEXT("Nobody ever buys anything from me..."), TEXT("MoaningMyrtle"),
 		TABBIT(TAB_Clothes)|TABBIT(TAB_Auras)|TABBIT(TAB_Glasses),
-		0, TEXT("Look|Myrtle|Dobby|Ghost|Snow|Dizzy|Fireflies|Frames"), 5, 0 },
+		0, TEXT("Look|Myrtle|Dobby|Ghost|Snow|Dizzy|Fireflies|Frames|Baron|Vernon|Petunia"), 6, 0 },
 	{ TEXT("The Fat Friar"), TEXT("Hungry, young Potter? Have a snack!"), TEXT("fatfriar"),
 		TABBIT(TAB_Potions)|TABBIT(TAB_Gear)|TABBIT(TAB_Magic),
-		CONBIT(CON_ChocFrog)|CONBIT(CON_Potion)|CONBIT(CON_Felix), TEXT("Chicken|Goblet|Lantern"), 3, 0 },
+		CONBIT(CON_ChocFrog)|CONBIT(CON_Potion)|CONBIT(CON_Felix), TEXT("Chicken|Goblet|Lantern|Tea Cup|Candle"), 4, 0 },
 	{ TEXT("Gryffindor Student"), TEXT("Hey Harry! Want to trade?"), NULL,
 		TABBIT(TAB_Cards)|TABBIT(TAB_Ingredients)|TABBIT(TAB_Gear)|TABBIT(TAB_Sell),
 		CONBIT(CON_BronzeCard)|CONBIT(CON_FMucus)|CONBIT(CON_WBark), TEXT("Quidditch|Quaffle|Broom|Red"), 3, 0 },
 	{ TEXT("Slytherin Student"), TEXT("Keep your voice down, Potter. Black market rules."), NULL,
 		TABBIT(TAB_Cards)|TABBIT(TAB_Clothes)|TABBIT(TAB_Ingredients)|TABBIT(TAB_Magic)|TABBIT(TAB_Sell),
-		CONBIT(CON_SilverCard)|CONBIT(CON_Bicorn)|CONBIT(CON_Boomslang)|CONBIT(CON_Felix), TEXT("Slytherin|Draco|Green|Goyle|Riddle"), 4, 25 },
+		CONBIT(CON_SilverCard)|CONBIT(CON_Bicorn)|CONBIT(CON_Boomslang)|CONBIT(CON_Felix), TEXT("Slytherin|Draco|Green|Goyle|Riddle|Snape|Quirrell|Crabbe|Midnight"), 5, 25 },
 	{ TEXT("Ravenclaw Student"), TEXT("I've got something clever for you."), NULL,
 		TABBIT(TAB_Cards)|TABBIT(TAB_Clothes)|TABBIT(TAB_Glasses)|TABBIT(TAB_Magic),
-		CONBIT(CON_BronzeCard)|CONBIT(CON_SilverCard)|CONBIT(CON_Lesson), TEXT("Ravenclaw|Blue|Diary|Hermione"), 4, 0 },
+		CONBIT(CON_BronzeCard)|CONBIT(CON_SilverCard)|CONBIT(CON_Lesson), TEXT("Ravenclaw|Blue|Diary|Hermione|Flitwick|Spellbook|Remembrall|Tortoiseshell|Silver|Stone"), 5, 0 },
 	{ TEXT("Hufflepuff Student"), TEXT("Fancy a swap? I've got snacks!"), NULL,
 		TABBIT(TAB_Cards)|TABBIT(TAB_Clothes)|TABBIT(TAB_Potions)|TABBIT(TAB_Ingredients),
-		CONBIT(CON_BronzeCard)|CONBIT(CON_ChocFrog)|CONBIT(CON_FMucus)|CONBIT(CON_WBark)|CONBIT(CON_Potion), TEXT("Hufflepuff|Pot|Bucket|Chicken"), 4, 0 },
+		CONBIT(CON_BronzeCard)|CONBIT(CON_ChocFrog)|CONBIT(CON_FMucus)|CONBIT(CON_WBark)|CONBIT(CON_Potion), TEXT("Hufflepuff|Pot|Bucket|Chicken|Sprout|Yellow|Wizard Card"), 5, 0 },
 };
 
 static const INT GCosmeticTab[RSLOT_MAX] = { TAB_Clothes, TAB_Hats, TAB_Glasses, TAB_Gear, TAB_Pets, TAB_Auras, TAB_Friends };
@@ -388,7 +441,7 @@ struct FCreatureDef
 
 static const FCreatureDef GCreatures[CR_MAX] =
 {
-	{ TEXT("Garden Gnome"), TEXT("GNOME"), TEXT("Pests of every wizarding garden. Swing them round and throw them over the hedge."), 15, TEXT("HPModels.skgnomeMesh") },
+	{ TEXT("Garden Gnome"), TEXT("GNOME|Tut1Gnome|tut1gnomegeneric"), TEXT("Pests of every wizarding garden. Swing them round and throw them over the hedge."), 15, TEXT("HPModels.skgnomeMesh") },
 	{ TEXT("Imp"), TEXT("Imp"), TEXT("Small, mischievous and fond of biting ankles."), 20, TEXT("HPModels.skimpMesh") },
 	{ TEXT("Cornish Pixie"), TEXT("CornishPixie"), TEXT("Electric blue and devilishly tricky. Lockhart's favourite disaster."), 20, TEXT("HPModels.skcornishpixieMesh") },
 	{ TEXT("Doxy"), TEXT("Doxie1"), TEXT("Biting fairy with venomous teeth. Keep a Doxycide handy."), 25, NULL },
@@ -398,8 +451,8 @@ static const FCreatureDef GCreatures[CR_MAX] =
 	{ TEXT("Bowtruckle"), TEXT("Bowtruckle"), TEXT("Tree guardian made of twigs. Bark is its treasure."), 15, TEXT("HPModels.skBowtruckleMesh") },
 	{ TEXT("Ectoplasm"), TEXT("Ectoplasma"), TEXT("What ghosts leave behind. Skurge cleans it right up."), 15, TEXT("HPModels.skEctoplasmaMesh") },
 	{ TEXT("Horklump"), TEXT("Horklumps"), TEXT("Fleshy pink mushroom. Gnomes love to eat them."), 10, TEXT("HPModels.skhorklumpsMesh") },
-	{ TEXT("Spiky Plant"), TEXT("SpikyPlant"), TEXT("Shoots spikes at passers-by. Diffindo keeps it trimmed."), 10, TEXT("HPModels.skSpikyPlantMesh") },
-	{ TEXT("Venomous Tentacula"), TEXT("Tentacula"), TEXT("A spiky dark red plant that grabs at anyone nearby."), 20, NULL },
+	{ TEXT("Spiky Plant"), TEXT("SpikyPlant|SpikyBush"), TEXT("Shoots spikes at passers-by. Diffindo keeps it trimmed."), 10, TEXT("HPModels.skSpikyPlantMesh") },
+	{ TEXT("Venomous Tentacula"), TEXT("Tentacula|VenomousTent1|VenomousTent2"), TEXT("A spiky dark red plant that grabs at anyone nearby."), 20, NULL },
 	{ TEXT("Bosses"), TEXT("baseBoss"), TEXT("Peeves, Aragog and the Basilisk. Legends of the castle."), 250, TEXT("HPModels.skpeevesMesh") },
 };
 
